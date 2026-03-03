@@ -14,9 +14,10 @@
       <div class="toolbar-row">
         <!-- date field is fixed to 安裝日 for Orders, no need for user input -->
         <span class="muted-text">日期欄位：{{ dateField }}</span>
+
+        <button class="btn-date" @click="searchDay(-1)">昨天</button>
         <button class="btn-date" @click="searchDay(0)">今天</button>
-        <button class="btn-date" @click="searchDay(-1)">前一天</button>
-        <button class="btn-date" @click="searchDay(1)">後一天</button>
+        <button class="btn-date" @click="searchDay(1)">明天</button>
       </div>
       <div class="field-row">
         <div class="field-item tight">
@@ -96,14 +97,27 @@
 
     <div v-else>
       <div v-if="results.length === 0">沒有資料</div>
-      <div v-else class="table-wrap">
+      <div v-else>
+        <div class="summary-row">
+          <span>總金額：{{ formatAmount(resultStats.totalAmount) }}</span>
+          <span>件數：{{ resultStats.count }}</span>
+          <span
+            >平均金額/件數：{{ formatAmount(resultStats.averageAmount) }}</span
+          >
+        </div>
+      </div>
+      <div v-if="results.length > 0" class="table-wrap">
         <table class="data-table orders-table">
           <thead>
             <tr>
               <th
                 v-for="(h, idx) in tableHeaders"
                 :key="h"
-                :class="{ 'secondary-col': idx > 3 }"
+                :class="{
+                  'secondary-col': idx > 3,
+                  'sales-col': h === '銷售額',
+                  'compact-col': h === '公分數',
+                }"
               >
                 {{ h }}
               </th>
@@ -114,9 +128,21 @@
               <td
                 v-for="(h, idx) in tableHeaders"
                 :key="h"
-                :class="{ 'secondary-col': idx > 3 }"
+                :class="{
+                  'secondary-col': idx > 3,
+                  'sales-col': h === '銷售額',
+                  'compact-col': h === '公分數',
+                }"
               >
-                {{ doc[h] }}
+                <a
+                  v-if="h === '拆料單' && getCuttingSheetUrl(doc)"
+                  :href="getCuttingSheetUrl(doc)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  拆料單
+                </a>
+                <span v-else>{{ formatCellValue(h, doc[h]) }}</span>
               </td>
             </tr>
           </tbody>
@@ -127,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import {
   queryCollection,
   queryCollectionByDateRange,
@@ -151,11 +177,11 @@ const availableFields = ref([
   "安裝日",
   "訂單號碼",
   "客戶名稱",
+  "顏色",
+  "銷售額",
   "公分數",
   "安裝地點",
   "搬運樓層",
-  "顏色",
-  "銷售額",
   "車號",
   "是否維修",
   "安裝人員1",
@@ -169,13 +195,106 @@ const availableFields = ref([
   "驗收者",
   "年份",
 ]);
-const tableHeaders = ref(availableFields.value.slice());
+
+function buildTableHeaders() {
+  const headers = availableFields.value.slice();
+  const cmIndex = headers.indexOf("公分數");
+  if (cmIndex >= 0) {
+    headers.splice(cmIndex + 1, 0, "拆料單");
+  }
+  return headers;
+}
+
+const tableHeaders = ref(buildTableHeaders());
 const orderNumber = ref("");
 const orderDate = ref("");
 const keyword = ref("");
 const colorKeyword = ref("");
 const customerKeyword = ref("");
 const addressKeyword = ref("");
+const operatorNameByEmail = {
+  "linlilung@gmail.com": "林李龍",
+  "go5912j2@gmail.com": "顏呈翰",
+  "xtbbkc298143@gmail.com": "梁壹翔",
+  "f0915850712@gmail.com": "盧皇文",
+  "c0960058503@gmail.com": "顏呈璋",
+  "24325990st5@gmail.com": "廖浩然",
+};
+
+function parseAmount(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (value === null || value === undefined) return 0;
+  const normalized = String(value).replace(/[^\d.-]/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+const resultStats = computed(() => {
+  const count = results.value.length;
+  const totalAmount = results.value.reduce(
+    (sum, doc) => sum + parseAmount(doc["銷售額"]),
+    0,
+  );
+  const averageAmount = count > 0 ? totalAmount / count : 0;
+  return { count, totalAmount, averageAmount };
+});
+
+function formatAmount(value) {
+  return Math.round(Number(value || 0)).toLocaleString("zh-TW");
+}
+
+function formatCellValue(field, value) {
+  if (field === "銷售額" || field === "公分數") {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      return "";
+    }
+    return Math.round(parseAmount(value)).toLocaleString("zh-TW");
+  }
+  if (typeof value === "string") {
+    let formatted = value;
+    Object.entries(operatorNameByEmail).forEach(([email, name]) => {
+      const emailPattern = new RegExp(
+        email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        "gi",
+      );
+      formatted = formatted.replace(emailPattern, name);
+    });
+    return formatted;
+  }
+  return value;
+}
+
+function normalizeDateToYmd(value) {
+  if (!value) return "";
+  if (typeof value === "object" && typeof value.toDate === "function") {
+    const d = value.toDate();
+    if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const raw = String(value).trim();
+  const m = raw.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (m) {
+    const yyyy = m[1];
+    const mm = String(Number(m[2])).padStart(2, "0");
+    const dd = String(Number(m[3])).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getCuttingSheetUrl(doc) {
+  const ymd = normalizeDateToYmd(doc?.["裁切時間"]);
+  if (!ymd) return "";
+  return `https://junchengstone.synology.me/upload/pic/?date=${ymd}`;
+}
 
 async function search() {
   loading.value = true;
@@ -190,6 +309,11 @@ async function search() {
     )
       continue;
     conds.push({ field: c.field, op: c.op, value: c.value });
+  }
+  if (conds.length === 0) {
+    loading.value = false;
+    alert("請先新增至少一個查詢條件");
+    return;
   }
   try {
     results.value = await queryCollection(COLLECTION_NAME, conds);
@@ -264,7 +388,7 @@ function clear() {
 
 function updateTableHeaders() {
   // only Orders is supported, so the headers simply mirror availableFields
-  tableHeaders.value = availableFields.value.slice();
+  tableHeaders.value = buildTableHeaders();
 }
 
 function parseDateInputToRange(dateStr) {
@@ -426,9 +550,32 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.summary-row {
+  display: flex;
+  gap: 1rem;
+  margin: 0.75rem 0;
+  font-weight: 600;
+}
+
 .condition-row {
   padding: 0.55rem;
   border: 1px dashed #d1d5db;
   border-radius: 10px;
+}
+
+.orders-table th.compact-col,
+.orders-table td.compact-col {
+  width: 56px !important;
+  min-width: 56px !important;
+  max-width: 56px !important;
+  white-space: nowrap;
+}
+
+.orders-table th.sales-col,
+.orders-table td.sales-col {
+  width: 88px !important;
+  min-width: 88px !important;
+  max-width: 88px !important;
+  white-space: nowrap;
 }
 </style>
