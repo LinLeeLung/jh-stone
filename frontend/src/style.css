@@ -186,11 +186,25 @@ select {
   min-width: 0;
 }
 
-.top-nav-user span {
+.top-nav-user .nav-user-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 180px;
+}
+
+@media (max-width: 900px) {
+  .top-nav-user {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 0.2rem;
+  }
+
+  .top-nav-user .nav-version {
+    width: 100%;
+    text-align: right;
+    font-size: 0.75rem;
+  }
 }
 
 .user-avatar {
@@ -201,9 +215,9 @@ select {
 
 .app-main {
   width: 100%;
-  max-width: 1440px;
+  max-width: 1920px;
   margin: 0 auto;
-  padding: clamp(0.9rem, 2vw, 1.5rem);
+  padding: clamp(0.55rem, 0.8vw, 0.9rem);
 }
 
 .page-card {
@@ -284,7 +298,8 @@ select {
 }
 
 .orders-table {
-  min-width: 1800px;
+  width: max-content;
+  min-width: max-content;
   font-size: 0.9rem;
 }
 
@@ -307,47 +322,7 @@ select {
   white-space: nowrap;
 }
 
-.orders-table th:nth-child(1),
-.orders-table td:nth-child(1) {
-  min-width: 95px;
-}
-
-.orders-table th:nth-child(2),
-.orders-table td:nth-child(2) {
-  min-width: 120px;
-}
-
-.orders-table th:nth-child(3),
-.orders-table td:nth-child(3) {
-  min-width: 130px;
-}
-
-.orders-table th:nth-child(5),
 .orders-table td:nth-child(5) {
-  min-width: 320px;
-}
-
-.orders-table td:nth-child(5) {
-  white-space: nowrap;
-}
-
-.orders-table th:nth-child(6),
-.orders-table td:nth-child(6) {
-  min-width: 120px;
-}
-
-.orders-table th:nth-child(7),
-.orders-table td:nth-child(7) {
-  min-width: 90px;
-}
-
-.orders-table th:nth-child(14),
-.orders-table td:nth-child(14),
-.orders-table th:nth-child(15),
-.orders-table td:nth-child(15),
-.orders-table th:nth-child(16),
-.orders-table td:nth-child(16) {
-  min-width: 140px;
   white-space: nowrap;
 }
 

@@ -1,0 +1,58 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/Users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return signedIn() ? userDoc().data.role : null;
+    }
+
+    function myCompanyId() {
+      return signedIn() ? userDoc().data.companyId : null;
+    }
+
+    function isStaff() {
+      return signedIn() && myRole() in ['admin', '管理者', '員工'];
+    }
+
+    function isApprovedCustomer() {
+      return signedIn()
+        && myRole() == '客戶'
+        && userDoc().data.customerApproved == true
+        && myCompanyId() != null
+        && myCompanyId() != '';
+    }
+
+    function orderDoc(orderId) {
+      return firestore.get(/databases/(default)/documents/Orders/$(orderId));
+    }
+
+    function canReadOrder(orderId) {
+      return isStaff()
+        || (
+          isApprovedCustomer()
+          && orderDoc(orderId).data.companyId == myCompanyId()
+        );
+    }
+
+    match /orders/{orderId}/completionPhotos/{fileName} {
+      allow read: if canReadOrder(orderId);
+      allow write: if isStaff();
+    }
+
+    match /inventoryColors/{docId}/{fileName} {
+      allow read, write: if isStaff();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

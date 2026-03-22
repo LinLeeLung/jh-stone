@@ -2,15 +2,115 @@ rules_version='2'
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/Users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return signedIn() ? userDoc().data.role : null;
+    }
+
+    function myCompanyId() {
+      return signedIn() ? userDoc().data.companyId : null;
+    }
+
+    function isAdmin() {
+      return signedIn() && myRole() == 'admin';
+    }
+
+    function isStaff() {
+      return signedIn() && myRole() in ['admin', '管理者', '員工'];
+    }
+
+    function isAdminOrManager() {
+      return signedIn() && myRole() in ['admin', '管理者'];
+    }
+
+    function isApprovedCustomer() {
+      return signedIn()
+        && myRole() == '客戶'
+        && userDoc().data.customerApproved == true
+        && myCompanyId() != null
+        && myCompanyId() != '';
+    }
+
+    function orderCompanyId(orderData) {
+      return orderData.companyId;
+    }
+
+    function canReadOrder(orderId) {
+      return isStaff()
+        || (
+          isApprovedCustomer()
+          && orderCompanyId(
+            get(/databases/$(database)/documents/Orders/$(orderId)).data
+          ) == myCompanyId()
+        );
+    }
+
     // Users collection: users can read/write their own document; admins can read/write all
     match /Users/{userId} {
-      allow create: if request.auth != null && request.auth.uid == userId && request.resource.data.uid == request.auth.uid;
-      allow read: if request.auth != null && (request.auth.uid == userId || get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.role == 'admin');
-      allow update: if request.auth != null && (request.auth.uid == userId || get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.role == 'admin')
-                    // if role field is present, it must be one of the allowed values
+      allow create: if (
+          request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.uid == request.auth.uid
+          && (!('role' in request.resource.data) || request.resource.data.role == '遊客')
+          && !('customerApproved' in request.resource.data)
+          && !('companyId' in request.resource.data)
+        ) || isAdmin();
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow update: if isAdmin()
                     && (!('role' in request.resource.data) ||
-                        request.resource.data.role in ['admin','管理者','員工','客戶','遊客']);
-      allow delete: if request.auth != null && (request.auth.uid == userId || get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.role == 'admin');
+                        request.resource.data.role in ['admin','管理者','員工','客戶','遊客'])
+                    || (
+                      signedIn()
+                      && request.auth.uid == userId
+                      && request.resource.data.uid == resource.data.uid
+                      && request.resource.data.role == resource.data.role
+                      && request.resource.data.customerApproved == resource.data.customerApproved
+                      && request.resource.data.companyId == resource.data.companyId
+                    );
+      allow delete: if signedIn() && (request.auth.uid == userId || isAdmin());
+    }
+
+    // Orders documents may include internal fields; keep direct read staff-only.
+    match /Orders/{orderId} {
+      allow read: if isStaff();
+      allow write: if false;
+
+      // completion photos metadata per order
+      match /completionPhotos/{photoId} {
+        allow read: if canReadOrder(orderId);
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid
+          && request.resource.data.updatedByUid == request.auth.uid;
+        allow update: if isStaff()
+          && request.resource.data.updatedByUid == request.auth.uid
+          && request.resource.data.uploadedByUid == resource.data.uploadedByUid;
+        allow delete: if isStaff();
+      }
+    }
+
+    // System settings (e.g. NAS path): only admin or manager can read/write
+    match /SystemSettings/{docId} {
+      allow read, write: if isAdminOrManager();
+    }
+
+    // Client-side upload diagnostics for intermittent device/network issues.
+    match /ClientUploadErrors/{logId} {
+      allow create: if isStaff()
+        && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdminOrManager();
+      allow update, delete: if false;
+    }
+
+    // Inventory color master used by 庫存查詢 UI.
+    match /InventoryColors/{docId} {
+      allow read, write: if isStaff();
     }
 
     // Deny everything else by default - lock down the DB

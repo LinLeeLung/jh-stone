@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from "vue-router";
 import HomeView from "../views/HomeView.vue";
 import AdminView from "../views/AdminView.vue";
 import EmployeeView from "../views/EmployeeView.vue";
+import InventoryView from "../views/InventoryView.vue";
+import SettingsView from "../views/SettingsView.vue";
 import { auth } from "../firebase";
 import { getUserByUid } from "../firebase";
 
@@ -25,6 +27,24 @@ const router = createRouter({
       name: "employee",
       component: EmployeeView,
       meta: { roles: ["員工", "admin", "管理者"] },
+    },
+    {
+      path: "/inventory",
+      name: "inventory",
+      component: InventoryView,
+      meta: { roles: ["員工", "admin", "管理者"] },
+    },
+    {
+      path: "/customer/orders",
+      name: "customer",
+      redirect: "/",
+      alias: "/customer",
+    },
+    {
+      path: "/settings",
+      name: "settings",
+      component: SettingsView,
+      meta: { roles: ["admin", "管理者"] },
     },
   ],
 });
