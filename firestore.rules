@@ -113,6 +113,24 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
 
+    // Pending (unscheduled) orders synced from Google Sheet.
+    match /PendingOrders/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    // Stocks watchlist: admin can write; all signed-in staff can read
+    match /Stocks/{docId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    // TWSE/TPEX daily stock list (written by Cloud Function scheduler)
+    match /TwseStockList/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
     // Deny everything else by default - lock down the DB
     match /{document=**} {
       allow read, write: if false;

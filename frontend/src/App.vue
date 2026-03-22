@@ -36,6 +36,13 @@
         >
         <RouterLink
           class="nav-link"
+          v-if="userDoc && userDoc.role === 'admin'"
+          to="/stock"
+          @click="closeNav"
+          >選股工具</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
           v-if="
             userDoc &&
             (userDoc.role === '員工' ||

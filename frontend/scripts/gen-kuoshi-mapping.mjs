@@ -44,8 +44,9 @@ function extractProductCards(html = "") {
     const block = liMatch[0];
 
     const code =
-      block.match(/<div\s+class=["']sh-dai\s+ti["'][\s\S]*?<span>([^<]+)<\/span>/i)?.[1] ||
-      "";
+      block.match(
+        /<div\s+class=["']sh-dai\s+ti["'][\s\S]*?<span>([^<]+)<\/span>/i,
+      )?.[1] || "";
     const image = block.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || "";
 
     const normalizedCode = normalizeCode(code);
@@ -100,7 +101,10 @@ async function main() {
     outLines.push([esc("闊石"), esc(code), esc(imageUrl)].join(","));
   });
 
-  const outPath = new URL("../public/kuoshi-image-mapping.csv", import.meta.url);
+  const outPath = new URL(
+    "../public/kuoshi-image-mapping.csv",
+    import.meta.url,
+  );
   await fs.writeFile(outPath, outLines.join("\n"), "utf8");
 
   console.log(`KUOSHI_RAW_CARDS=${allCards.length}`);

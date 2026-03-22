@@ -14,8 +14,23 @@
           <input
             id="nas-path"
             v-model="form.nasStoragePath"
-            placeholder="例如 /岱晨/test"
+            placeholder="例如 /峻晟/test"
           />
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-item">
+          <label for="nas-order-path">訂單資料夾路徑（完工照存放位置）：</label>
+          <input
+            id="nas-order-path"
+            v-model="form.nasOrderPath"
+            placeholder="例如 /峻晟/01-訂單相關檔案/0--客戶訂貨單"
+          />
+          <small class="muted-text"
+            >完工照會上傳到此路徑下符合訂單號碼的資料夾，未設定則使用上方 NAS
+            儲存路徑</small
+          >
         </div>
       </div>
 
@@ -52,6 +67,349 @@
         </button>
       </div>
 
+      <!-- 新增：訂單號碼查詢 NAS 資料夾 -->
+      <div class="field-row" style="margin-top: 24px">
+        <div class="field-item">
+          <label for="order-nas-query">查詢訂單號碼（NAS 資料夾）：</label>
+          <input
+            id="order-nas-query"
+            v-model="orderNumberQuery"
+            placeholder="請輸入訂單號碼"
+            style="width: 200px"
+          />
+        </div>
+        <button
+          class="btn-query"
+          :disabled="queryingOrderFolder || !orderNumberQuery"
+          @click="findOrderFolderOnNas"
+        >
+          查詢 NAS 資料夾
+        </button>
+        <span
+          v-if="queryingOrderFolder"
+          class="muted-text"
+          style="margin-left: 12px"
+          >查詢中…</span
+        >
+      </div>
+      <p v-if="orderFolderResult" class="muted-text">{{ orderFolderResult }}</p>
+      <p v-if="orderFolderError" class="error-text">{{ orderFolderError }}</p>
+      <p
+        v-if="nasQueryElapsed !== null && !queryingOrderFolder"
+        class="muted-text"
+        style="font-size: 0.85em"
+      >
+        查詢耗時：{{ nasQueryElapsed }} ms
+      </p>
+
+      <!-- 完工照片路徑修復工具 -->
+      <div class="toolbar-row" style="margin-top: 28px">
+        <h2 style="margin: 0">完工照片路徑修復</h2>
+      </div>
+      <p class="muted-text" style="font-size: 0.9em">
+        當 NAS
+        上的訂單資料夾被重新命名後，已上傳照片的路徑可能失效（顯示破圖）。<br />
+        先執行「診斷」查看有幾張異常，確認後再執行「修復」更新路徑。
+      </p>
+      <div class="toolbar-row">
+        <button
+          class="btn-aux"
+          :disabled="repairingPhotoPaths"
+          @click="runPhotoPathDiagnose"
+        >
+          {{
+            repairingPhotoPaths && photoPathDryRun
+              ? "診斷中…"
+              : "① 診斷（不修改）"
+          }}
+        </button>
+        <button
+          class="btn-query"
+          :disabled="repairingPhotoPaths || !photoPathDiagnoseResult"
+          @click="runPhotoPathRepair"
+        >
+          {{
+            repairingPhotoPaths && !photoPathDryRun ? "修復中…" : "② 執行修復"
+          }}
+        </button>
+      </div>
+      <div v-if="photoPathDiagnoseResult" style="margin-top: 10px">
+        <p class="muted-text">
+          已檢查 {{ photoPathDiagnoseResult.checkedPhotos }} 張， 路徑失效
+          <strong
+            :style="
+              photoPathDiagnoseResult.brokenPhotos > 0 ? 'color:#c00' : ''
+            "
+          >
+            {{ photoPathDiagnoseResult.brokenPhotos }} 張
+          </strong>
+          <template v-if="!photoPathDiagnoseResult.dryRun">
+            ，已修復
+            <strong style="color: #16a34a"
+              >{{ photoPathDiagnoseResult.fixedPhotos }} 張</strong
+            >， 找不到
+            {{
+              photoPathDiagnoseResult.report.filter(
+                (r) => r.type === "not_found",
+              ).length
+            }}
+            張
+          </template>
+        </p>
+        <table
+          v-if="
+            photoPathDiagnoseResult.report.filter((r) => r.type !== 'ok')
+              .length > 0
+          "
+          style="
+            font-size: 0.82em;
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 8px;
+          "
+        >
+          <thead>
+            <tr style="background: #f0f0f0">
+              <th style="padding: 4px 8px; text-align: left">狀態</th>
+              <th style="padding: 4px 8px; text-align: left">訂單號碼</th>
+              <th style="padding: 4px 8px; text-align: left">照片 ID</th>
+              <th style="padding: 4px 8px; text-align: left">路徑</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="row in photoPathDiagnoseResult.report.filter(
+                (r) => r.type !== 'ok',
+              )"
+              :key="row.photoId"
+              style="border-top: 1px solid #e0e0e0"
+            >
+              <td
+                style="padding: 4px 8px; font-weight: 600"
+                :style="
+                  row.type === 'fixed'
+                    ? 'color:#16a34a'
+                    : row.type === 'not_found'
+                      ? 'color:#888'
+                      : 'color:#c00'
+                "
+              >
+                {{
+                  row.type === "fixed"
+                    ? "✓ 已修復"
+                    : row.type === "not_found"
+                      ? "找不到"
+                      : "✗ 失效"
+                }}
+              </td>
+              <td style="padding: 4px 8px">{{ row.orderNumber || "-" }}</td>
+              <td style="padding: 4px 8px; font-size: 0.78em; color: #888">
+                {{ row.photoId }}
+              </td>
+              <td
+                style="
+                  padding: 4px 8px;
+                  word-break: break-all;
+                  font-size: 0.78em;
+                "
+              >
+                {{ row.newNasPath || row.nasPath }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-if="photoPathRepairError" class="error-text">
+        {{ photoPathRepairError }}
+      </p>
+
+      <!-- 照片搬移工具 -->
+      <div class="toolbar-row" style="margin-top: 28px">
+        <h2 style="margin: 0">照片搬移工具</h2>
+      </div>
+      <p class="muted-text" style="font-size: 0.9em">
+        將放錯位置的完工照（來源資料夾）搬回正確訂單資料夾，搬移後刪除空資料夾。
+      </p>
+      <div class="field-row">
+        <div class="field-item">
+          <label>來源資料夾（放錯的）：</label>
+          <input
+            v-model="migrateSrcPath"
+            placeholder="例如 /峻晟/01-訂單相關檔案/115年3月15日起的訂單"
+            style="width: 420px"
+          />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-item">
+          <label
+            >目標基底路徑（正確存放位置，同設定中的訂單資料夾路徑）：</label
+          >
+          <input
+            v-model="migrateTargetPath"
+            placeholder="例如 /峻晟/01-訂單相關檔案/0--客戶訂貨單"
+            style="width: 420px"
+          />
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <button
+          class="btn-aux"
+          :disabled="migrating || !migrateSrcPath"
+          @click="runMigrateScan"
+        >
+          {{ migrating && migrateScanMode ? "掃描中…" : "① 掃描來源資料夾" }}
+        </button>
+        <button
+          class="btn-aux"
+          :disabled="migrating || !migrateSrcPath || !migrateTargetPath"
+          @click="runMigrateDryRun"
+        >
+          {{
+            migrating && migrateDryRun && !migrateScanMode
+              ? "查詢中…"
+              : "② 預覽（不搬移）"
+          }}
+        </button>
+        <button
+          class="btn-query"
+          :disabled="
+            migrating ||
+            !migrateSrcPath ||
+            !migrateTargetPath ||
+            !migrateHasMatched
+          "
+          @click="runMigrateActual"
+        >
+          {{ migrating && !migrateDryRun ? "搬移中…" : "③ 執行搬移" }}
+        </button>
+      </div>
+      <div v-if="migrateResult" style="margin-top: 12px">
+        <!-- 掃描模式結果 -->
+        <template v-if="migrateResult.scanOnly">
+          <p class="muted-text">
+            掃描完成，共 {{ migrateResult.total }} 個訂單資料夾。
+            <button
+              class="btn-aux"
+              style="margin-left: 12px; padding: 2px 10px; font-size: 0.85em"
+              @click="downloadScanCsv"
+            >
+              下載 CSV
+            </button>
+          </p>
+          <table
+            style="
+              font-size: 0.82em;
+              border-collapse: collapse;
+              width: 100%;
+              margin-top: 8px;
+            "
+          >
+            <thead>
+              <tr style="background: #f0f0f0">
+                <th style="padding: 4px 8px; text-align: left">#</th>
+                <th style="padding: 4px 8px; text-align: left">
+                  來源資料夾名稱
+                </th>
+                <th style="padding: 4px 8px; text-align: left">抽出訂單編號</th>
+                <th style="padding: 4px 8px; text-align: left">來源路徑</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(row, idx) in migrateResult.report"
+                :key="row.srcPath"
+                style="border-top: 1px solid #e0e0e0"
+              >
+                <td style="padding: 4px 8px; color: #888">{{ idx + 1 }}</td>
+                <td style="padding: 4px 8px">{{ row.orderFolder }}</td>
+                <td
+                  style="padding: 4px 8px; font-weight: 600"
+                  :style="!row.orderNumber ? 'color:#c00' : ''"
+                >
+                  {{ row.orderNumber || "（無法辨識）" }}
+                </td>
+                <td
+                  style="padding: 4px 8px; word-break: break-all; color: #888"
+                >
+                  {{ row.srcPath }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+
+        <!-- 預覽/執行結果 -->
+        <template v-else>
+          <p class="muted-text">
+            {{ migrateResult.dryRun ? "[預覽]" : "[已執行]" }}
+            來源共 {{ migrateResult.report?.length || 0 }} 個訂單資料夾，
+            找到目標
+            {{
+              migrateResult.report?.filter((r) => r.status !== "not_found")
+                .length || 0
+            }}
+            筆， 找不到目標
+            {{
+              migrateResult.report?.filter((r) => r.status === "not_found")
+                .length || 0
+            }}
+            筆<span v-if="!migrateResult.dryRun"
+              >，移動 {{ migrateResult.movedCount || 0 }} 個檔案，錯誤
+              {{ migrateResult.errorCount || 0 }} 筆</span
+            >。
+          </p>
+          <table
+            v-if="migrateResult.report?.length"
+            style="
+              font-size: 0.82em;
+              border-collapse: collapse;
+              width: 100%;
+              margin-top: 8px;
+            "
+          >
+            <thead>
+              <tr style="background: #f0f0f0">
+                <th style="padding: 4px 8px; text-align: left">來源資料夾</th>
+                <th style="padding: 4px 8px; text-align: left">訂單編號</th>
+                <th style="padding: 4px 8px; text-align: left">狀態</th>
+                <th style="padding: 4px 8px; text-align: left">檔案數</th>
+                <th style="padding: 4px 8px; text-align: left">目標路徑</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in migrateResult.report"
+                :key="row.srcPath"
+                style="border-top: 1px solid #e0e0e0"
+              >
+                <td style="padding: 4px 8px">{{ row.orderFolder }}</td>
+                <td style="padding: 4px 8px; font-weight: 600">
+                  {{ row.orderNumber || "-" }}
+                </td>
+                <td
+                  style="padding: 4px 8px"
+                  :style="row.status === 'not_found' ? 'color:#c00' : ''"
+                >
+                  {{
+                    row.status === "dry_run"
+                      ? "✓ 找到"
+                      : row.status === "not_found"
+                        ? "✗ 找不到"
+                        : row.status
+                  }}
+                </td>
+                <td style="padding: 4px 8px">{{ row.files ?? "-" }}</td>
+                <td style="padding: 4px 8px; word-break: break-all">
+                  {{ row.destPath || row.error || "-" }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+      </div>
+      <p v-if="migrateError" class="error-text">{{ migrateError }}</p>
+
       <p v-if="message" class="muted-text">{{ message }}</p>
       <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
 
@@ -83,7 +441,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   bulkUpsertInventoryColors,
   getSystemSettings,
@@ -92,6 +450,7 @@ import {
   testNasWrite,
   testNasUploadPhoto,
   upsertInventoryColor,
+  repairCompletionPhotoNasPaths,
 } from "../firebase";
 
 const COLOR_CSV_URL =
@@ -110,7 +469,162 @@ const masterMessage = ref("");
 
 const form = ref({
   nasStoragePath: "",
+  nasOrderPath: "",
 });
+
+// 新增：訂單號碼查詢相關
+const orderNumberQuery = ref("");
+const queryingOrderFolder = ref(false);
+const orderFolderResult = ref("");
+const orderFolderError = ref("");
+const nasQueryElapsed = ref(null);
+
+// 完工照片路徑修復
+const repairingPhotoPaths = ref(false);
+const photoPathDryRun = ref(true);
+const photoPathDiagnoseResult = ref(null);
+const photoPathRepairError = ref("");
+
+async function runPhotoPathDiagnose() {
+  repairingPhotoPaths.value = true;
+  photoPathDryRun.value = true;
+  photoPathDiagnoseResult.value = null;
+  photoPathRepairError.value = "";
+  try {
+    const result = await repairCompletionPhotoNasPaths({ dryRun: true });
+    photoPathDiagnoseResult.value = result;
+  } catch (err) {
+    photoPathRepairError.value = err?.message || "診斷失敗";
+  } finally {
+    repairingPhotoPaths.value = false;
+  }
+}
+
+async function runPhotoPathRepair() {
+  if (!photoPathDiagnoseResult.value) return;
+  const broken = photoPathDiagnoseResult.value.brokenPhotos || 0;
+  if (broken === 0) {
+    alert("沒有需要修復的照片");
+    return;
+  }
+  if (
+    !confirm(
+      `確定要修復 ${broken} 張路徑失效的照片？此操作會更新 Firestore 中的 nasPath，無法復原。`,
+    )
+  )
+    return;
+  repairingPhotoPaths.value = true;
+  photoPathDryRun.value = false;
+  photoPathRepairError.value = "";
+  try {
+    const result = await repairCompletionPhotoNasPaths({ dryRun: false });
+    photoPathDiagnoseResult.value = result;
+  } catch (err) {
+    photoPathRepairError.value = err?.message || "修復失敗";
+  } finally {
+    repairingPhotoPaths.value = false;
+  }
+}
+
+// 照片搬移工具
+const migrateSrcPath = ref("");
+const migrateTargetPath = ref("");
+const migrating = ref(false);
+const migrateDryRun = ref(true);
+const migrateScanMode = ref(false);
+const migrateResult = ref(null);
+const migrateError = ref("");
+// 是否有預覽結果且存在可搬移的項目（需先預覽才能執行）
+const migrateHasMatched = computed(
+  () =>
+    !!(
+      migrateResult.value?.dryRun &&
+      migrateResult.value.report?.some((r) => r.status !== "not_found")
+    ),
+);
+
+async function findOrderFolderOnNas() {
+  if (!orderNumberQuery.value) return;
+  queryingOrderFolder.value = true;
+  orderFolderResult.value = "";
+  orderFolderError.value = "";
+  nasQueryElapsed.value = null;
+  const t0 = Date.now();
+  try {
+    // 假設 findOrderFolderOnNas 為 firebase.js 的 API
+    const result = await (
+      await import("../firebase")
+    ).findOrderFolderOnNas(orderNumberQuery.value);
+    orderFolderResult.value = result?.message || "查詢完成";
+  } catch (err) {
+    orderFolderError.value = err?.message || "查詢失敗";
+  } finally {
+    nasQueryElapsed.value = Date.now() - t0;
+    queryingOrderFolder.value = false;
+  }
+}
+
+async function runMigrate(dryRun, scanOnly = false) {
+  if (!migrateSrcPath.value) return;
+  if (!scanOnly && !migrateTargetPath.value) return;
+  migrating.value = true;
+  migrateDryRun.value = dryRun;
+  migrateScanMode.value = scanOnly;
+  migrateResult.value = null;
+  migrateError.value = "";
+  try {
+    const { getFunctions, httpsCallable } = await import("firebase/functions");
+    const { app } = await import("../firebase");
+    const fns = getFunctions(app, "asia-east1");
+    const callable = httpsCallable(fns, "migrateMisplacedOrderPhotos", {
+      timeout: 3300000,
+    }); // 55 分鐘
+    const resp = await callable({
+      sourceFolderPath: migrateSrcPath.value.trim(),
+      targetBasePath: migrateTargetPath.value.trim(),
+      dryRun,
+      scanOnly,
+    });
+    migrateResult.value = resp.data;
+  } catch (err) {
+    migrateError.value = err?.message || "失敗";
+  } finally {
+    migrating.value = false;
+  }
+}
+
+function runMigrateScan() {
+  return runMigrate(true, true);
+}
+
+function runMigrateDryRun() {
+  return runMigrate(true);
+}
+function runMigrateActual() {
+  if (
+    !confirm("確定要搬移？此操作會在 NAS 上移動檔案並刪除空資料夾，無法復原。")
+  )
+    return;
+  return runMigrate(false);
+}
+
+function downloadScanCsv() {
+  const rows = migrateResult.value?.report || [];
+  const header = "序號,來源資料夾名稱,訂單編號,來源路徑";
+  const lines = rows.map((r, i) =>
+    [i + 1, `"${r.orderFolder}"`, r.orderNumber || "", `"${r.srcPath}"`].join(
+      ",",
+    ),
+  );
+  const csv = "\uFEFF" + [header, ...lines].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "migrate-scan.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 async function loadSettings() {
   loading.value = true;
@@ -120,6 +634,7 @@ async function loadSettings() {
   try {
     const data = await getSystemSettings();
     form.value.nasStoragePath = data.nasStoragePath || "";
+    form.value.nasOrderPath = data.nasOrderPath || "";
   } catch (error) {
     console.error("讀取系統設定失敗:", error);
     errorMessage.value = "讀取設定失敗，請稍後再試。";
@@ -455,7 +970,10 @@ function toPermissionMessage(error, fallback = "操作失敗") {
   const code = String(error?.code || "").toLowerCase();
   const messageText = String(error?.message || "").toLowerCase();
 
-  if (code.includes("permission-denied") || messageText.includes("insufficient permissions")) {
+  if (
+    code.includes("permission-denied") ||
+    messageText.includes("insufficient permissions")
+  ) {
     return "Firestore 權限不足：請確認目前帳號角色為 管理者/admin";
   }
   return String(error?.message || fallback);
@@ -473,7 +991,9 @@ async function loadSilestoneImageMap() {
   const mappingPath = "/silestone-image-mapping.csv";
   const response = await fetch(mappingPath, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`讀取賽麗石對照檔失敗（${mappingPath}）：HTTP ${response.status}`);
+    throw new Error(
+      `讀取賽麗石對照檔失敗（${mappingPath}）：HTTP ${response.status}`,
+    );
   }
 
   const rows = parseCsv(await response.text());
@@ -482,7 +1002,11 @@ async function loadSilestoneImageMap() {
   const header = rows[0] || [];
   const map = buildHeaderIndexMap(header);
   const codeIndex = getIndexByAliases(map, ["color", "色號", "code"], 1);
-  const urlIndex = getIndexByAliases(map, ["imageurl", "圖片網址", "圖片位址", "url"], 2);
+  const urlIndex = getIndexByAliases(
+    map,
+    ["imageurl", "圖片網址", "圖片位址", "url"],
+    2,
+  );
 
   return new Map(
     rows
@@ -500,7 +1024,9 @@ async function loadDitongImageMap() {
   const mappingPath = "/ditong-image-mapping.csv";
   const response = await fetch(mappingPath, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`讀取帝通石對照檔失敗（${mappingPath}）：HTTP ${response.status}`);
+    throw new Error(
+      `讀取帝通石對照檔失敗（${mappingPath}）：HTTP ${response.status}`,
+    );
   }
 
   const rows = parseCsv(await response.text());
@@ -509,7 +1035,11 @@ async function loadDitongImageMap() {
   const header = rows[0] || [];
   const map = buildHeaderIndexMap(header);
   const codeIndex = getIndexByAliases(map, ["color", "色號", "code"], 1);
-  const urlIndex = getIndexByAliases(map, ["imageurl", "圖片網址", "圖片位址", "url"], 2);
+  const urlIndex = getIndexByAliases(
+    map,
+    ["imageurl", "圖片網址", "圖片位址", "url"],
+    2,
+  );
 
   return new Map(
     rows
@@ -527,7 +1057,9 @@ async function loadNeolithImageMap() {
   const mappingPath = "/neolith-image-mapping.csv";
   const response = await fetch(mappingPath, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`讀取耐麗石對照檔失敗（${mappingPath}）：HTTP ${response.status}`);
+    throw new Error(
+      `讀取耐麗石對照檔失敗（${mappingPath}）：HTTP ${response.status}`,
+    );
   }
 
   const rows = parseCsv(await response.text());
@@ -536,7 +1068,11 @@ async function loadNeolithImageMap() {
   const header = rows[0] || [];
   const map = buildHeaderIndexMap(header);
   const codeIndex = getIndexByAliases(map, ["color", "色號", "code"], 1);
-  const urlIndex = getIndexByAliases(map, ["imageurl", "圖片網址", "圖片位址", "url"], 2);
+  const urlIndex = getIndexByAliases(
+    map,
+    ["imageurl", "圖片網址", "圖片位址", "url"],
+    2,
+  );
 
   const imageMap = new Map();
   rows.slice(1).forEach((row) => {
@@ -558,7 +1094,9 @@ async function loadTiGangImageMap() {
   const mappingPath = "/tigang-image-mapping.csv";
   const response = await fetch(mappingPath, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`讀取鈦鋼石對照檔失敗（${mappingPath}）：HTTP ${response.status}`);
+    throw new Error(
+      `讀取鈦鋼石對照檔失敗（${mappingPath}）：HTTP ${response.status}`,
+    );
   }
 
   const rows = parseCsv(await response.text());
@@ -567,7 +1105,11 @@ async function loadTiGangImageMap() {
   const header = rows[0] || [];
   const map = buildHeaderIndexMap(header);
   const codeIndex = getIndexByAliases(map, ["color", "色號", "code"], 1);
-  const urlIndex = getIndexByAliases(map, ["imageurl", "圖片網址", "圖片位址", "url"], 2);
+  const urlIndex = getIndexByAliases(
+    map,
+    ["imageurl", "圖片網址", "圖片位址", "url"],
+    2,
+  );
 
   return new Map(
     rows
@@ -585,7 +1127,9 @@ async function loadAbkImageMap() {
   const mappingPath = "/abk-image-mapping.csv";
   const response = await fetch(mappingPath, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`讀取 ABK 對照檔失敗（${mappingPath}）：HTTP ${response.status}`);
+    throw new Error(
+      `讀取 ABK 對照檔失敗（${mappingPath}）：HTTP ${response.status}`,
+    );
   }
 
   const rows = parseCsv(await response.text());
@@ -593,8 +1137,16 @@ async function loadAbkImageMap() {
 
   const header = rows[0] || [];
   const map = buildHeaderIndexMap(header);
-  const colorIndex = getIndexByAliases(map, ["color", "色號", "顏色", "code"], 1);
-  const urlIndex = getIndexByAliases(map, ["imageurl", "圖片網址", "圖片位址", "url"], 2);
+  const colorIndex = getIndexByAliases(
+    map,
+    ["color", "色號", "顏色", "code"],
+    1,
+  );
+  const urlIndex = getIndexByAliases(
+    map,
+    ["imageurl", "圖片網址", "圖片位址", "url"],
+    2,
+  );
 
   const imageMap = new Map();
   rows.slice(1).forEach((row) => {
@@ -611,7 +1163,9 @@ async function loadKuoshiImageMap() {
   const mappingPath = "/kuoshi-image-mapping.csv";
   const response = await fetch(mappingPath, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`讀取闊石對照檔失敗（${mappingPath}）：HTTP ${response.status}`);
+    throw new Error(
+      `讀取闊石對照檔失敗（${mappingPath}）：HTTP ${response.status}`,
+    );
   }
 
   const rows = parseCsv(await response.text());
@@ -619,8 +1173,16 @@ async function loadKuoshiImageMap() {
 
   const header = rows[0] || [];
   const map = buildHeaderIndexMap(header);
-  const colorIndex = getIndexByAliases(map, ["color", "色號", "顏色", "code"], 1);
-  const urlIndex = getIndexByAliases(map, ["imageurl", "圖片網址", "圖片位址", "url"], 2);
+  const colorIndex = getIndexByAliases(
+    map,
+    ["color", "色號", "顏色", "code"],
+    1,
+  );
+  const urlIndex = getIndexByAliases(
+    map,
+    ["imageurl", "圖片網址", "圖片位址", "url"],
+    2,
+  );
 
   const imageMap = new Map();
   rows.slice(1).forEach((row) => {
@@ -654,7 +1216,11 @@ async function loadInventoryColorCatalog() {
     : 2;
   const gidIndex = hasHeader ? getIndexByAliases(headerMap, ["gid"], 3) : 3;
   const imageUrlIndex = hasHeader
-    ? getIndexByAliases(headerMap, ["圖片網址", "圖片url", "url", "imageurl"], 4)
+    ? getIndexByAliases(
+        headerMap,
+        ["圖片網址", "圖片url", "url", "imageurl"],
+        4,
+      )
     : 4;
   const statusIndex = hasHeader
     ? getIndexByAliases(headerMap, ["status", "狀態"], 5)
@@ -732,7 +1298,11 @@ async function syncMasterToFirestore() {
       : 2;
     const gidIndex = hasHeader ? getIndexByAliases(headerMap, ["gid"], 3) : 3;
     const imageUrlIndex = hasHeader
-      ? getIndexByAliases(headerMap, ["圖片網址", "圖片url", "url", "imageurl"], 4)
+      ? getIndexByAliases(
+          headerMap,
+          ["圖片網址", "圖片url", "url", "imageurl"],
+          4,
+        )
       : 4;
     const statusIndex = hasHeader
       ? getIndexByAliases(headerMap, ["status", "狀態"], 5)

@@ -39,6 +39,10 @@
         官網
       </a>
 
+      <label class="check-inline photo-visibility-toggle">
+        <input type="checkbox" v-model="showPhotoPanel" />
+        顯示照片
+      </label>
     </div>
 
     <div class="toolbar-row">
@@ -72,7 +76,7 @@
       </div>
     </div>
 
-    <div v-if="selectedColor" class="photo-manage-wrap">
+    <div v-if="selectedColor && showPhotoPanel" class="photo-manage-wrap">
       <h3 class="photo-manage-title">石材照片</h3>
 
       <div v-if="selectedColor.imageUrl" class="preview-wrap">
@@ -91,7 +95,10 @@
         </label>
       </div>
 
-      <div v-if="isAdmin && showPhotoEditors" class="toolbar-row photo-edit-row">
+      <div
+        v-if="isAdmin && showPhotoEditors"
+        class="toolbar-row photo-edit-row"
+      >
         <div class="field-item">
           <label>照片網址：</label>
           <input
@@ -108,7 +115,10 @@
         </button>
       </div>
 
-      <div v-if="isAdmin && showPhotoEditors" class="toolbar-row photo-edit-row">
+      <div
+        v-if="isAdmin && showPhotoEditors"
+        class="toolbar-row photo-edit-row"
+      >
         <div class="field-item">
           <label>上傳照片：</label>
           <input
@@ -125,12 +135,25 @@
         >
           {{ photoUploading ? "上傳中..." : "上傳並更新" }}
         </button>
+        <button
+          class="btn-query"
+          :disabled="photoSaving || photoUploading || !photoFile"
+          @click="uploadPhotoToNas"
+        >
+          {{ photoUploading ? "NAS 上傳中..." : "上傳到 NAS" }}
+        </button>
         <span v-if="photoUploading" class="muted-text">
           上傳進度：{{ uploadProgressText }}
         </span>
       </div>
 
-      <p v-if="!isAdmin" class="muted-text">只有管理者 / admin 登入時才可更新網址與上傳照片。</p>
+      <div v-if="nasPath" class="toolbar-row">
+        <span class="muted-text">NAS 路徑：{{ nasPath }}</span>
+      </div>
+
+      <p v-if="!isAdmin" class="muted-text">
+        只有管理者 / admin 登入時才可更新網址與上傳照片。
+      </p>
 
       <p v-if="photoMessage" class="master-message">{{ photoMessage }}</p>
     </div>
@@ -175,6 +198,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import axios from "axios";
 import {
   getUserByUid,
   listInventoryColors,
@@ -238,7 +262,9 @@ const photoMessage = ref("");
 const photoFile = ref(null);
 const photoUploadProgress = ref(0);
 const photoFileInputKey = ref(0);
+const nasPath = ref("");
 const showPhotoEditors = ref(false);
+const showPhotoPanel = ref(false);
 const currentUserDoc = ref(null);
 
 const brandColors = computed(() =>
@@ -1491,6 +1517,55 @@ async function uploadSelectedPhoto() {
   }
 }
 
+async function uploadPhotoToNas() {
+  if (!isAdmin.value) {
+    photoMessage.value = "僅管理者可上傳照片";
+    return;
+  }
+  if (!selectedColor.value || !photoFile.value) return;
+  photoUploading.value = true;
+  photoMessage.value = "";
+  photoUploadProgress.value = 0;
+  nasPath.value = "";
+  try {
+    const functionUrl =
+      "https://asia-east1-jh-stone.cloudfunctions.net/uploadCompletionPhotoToNasHttp";
+    const formData = new FormData();
+    formData.append("orderDocId", selectedColor.value.sheetId || "");
+    formData.append("orderNumber", selectedColor.value.sheetId || "");
+    formData.append("customerName", selectedColor.value.brand || "");
+    formData.append("color", selectedColor.value.color || "");
+    formData.append("fileName", photoFile.value.name || "photo.jpg");
+    formData.append("contentType", photoFile.value.type || "image/jpeg");
+    formData.append("installAddress", "");
+    formData.append("file", photoFile.value);
+    const response = await axios.post(functionUrl, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total) {
+          photoUploadProgress.value =
+            progressEvent.loaded / progressEvent.total;
+        }
+      },
+      timeout: 60000,
+    });
+    if (response.data && response.data.nasPath) {
+      nasPath.value = response.data.nasPath;
+      photoMessage.value = "NAS 上傳成功";
+    } else {
+      photoMessage.value = "NAS 上傳完成，但未取得路徑";
+    }
+    photoFile.value = null;
+    photoFileInputKey.value += 1;
+    await loadMasterData();
+  } catch (error) {
+    console.error("NAS 上傳失敗:", error);
+    photoMessage.value = toPermissionMessage(error, "NAS 上傳失敗");
+  } finally {
+    photoUploading.value = false;
+  }
+}
+
 function onBrandChange() {
   selectedColorKey.value = "";
   tableRows.value = [];
@@ -1680,6 +1755,10 @@ watch([sizeConditionEnabled, conditionLen, conditionWid], async () => {
 .photo-manage-title {
   margin: 0;
   font-size: 1rem;
+}
+
+.photo-visibility-toggle {
+  margin-left: auto;
 }
 
 .photo-edit-row {
