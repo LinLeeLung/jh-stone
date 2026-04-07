@@ -14,7 +14,7 @@
       <div class="top-nav-links" :class="{ open: navOpen }">
         <RouterLink class="nav-link" to="/" @click="closeNav">首頁</RouterLink>
         <RouterLink class="nav-link" to="/about" @click="closeNav"
-          >關於我</RouterLink
+          >說明</RouterLink
         >
         <RouterLink
           class="nav-link"

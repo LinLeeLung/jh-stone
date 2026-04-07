@@ -124,6 +124,7 @@
                   'photo-col': h === '完工照片',
                   'operator-col':
                     h === '裁切者' || h === '水刀者' || h === '驗收者',
+                  'installer-col': h === '安１' || h === '安２' || h === '安３',
                 }"
               >
                 {{ h }}
@@ -142,6 +143,7 @@
                   'photo-col': h === '完工照片',
                   'operator-col':
                     h === '裁切者' || h === '水刀者' || h === '驗收者',
+                  'installer-col': h === '安１' || h === '安２' || h === '安３',
                 }"
               >
                 <a
@@ -170,7 +172,9 @@
                 >
                   查看 / 上傳
                 </button>
-                <span v-else>{{ formatCellValue(h, doc[h]) }}</span>
+                <span v-else>{{
+                  formatCellValue(headerToField(h), doc[headerToField(h)])
+                }}</span>
               </td>
             </tr>
           </tbody>
@@ -187,6 +191,12 @@
         <div class="photo-modal-head">
           <h3>完工照片管理 - 訂單 {{ activePhotoOrder?.orderNumber || "" }}</h3>
           <button class="btn-aux" @click="closePhotoManager">關閉</button>
+        </div>
+
+        <div v-if="isSamsungBrowser" class="samsung-browser-warning">
+          ⚠️ 偵測到三星瀏覽器（Samsung
+          Internet）。上傳影片時可能因瀏覽器限制而失敗，建議改用
+          <strong>Chrome</strong> 瀏覽器開啟本頁再上傳影片。
         </div>
 
         <div class="photo-upload-row">
@@ -336,13 +346,15 @@
                     class="photo-preview"
                     :src="photo.downloadURL"
                     :alt="photo.fileName || '完工檔案'"
+                    loading="lazy"
                   />
                   <video
                     v-else
                     class="photo-preview"
                     :src="photo.downloadURL"
                     controls
-                    preload="metadata"
+                    preload="none"
+                    loading="lazy"
                   ></video>
                 </a>
 
@@ -404,7 +416,6 @@ import {
   ROLES,
   subscribeAuthState,
   getUserByUid,
-  searchOrdersByKeyword,
   searchPendingOrdersByKeyword,
   searchPendingOrdersByKeywords,
   listOrderCompletionPhotos,
@@ -415,6 +426,8 @@ import {
   deleteOrderCompletionPhoto,
   logClientUploadError,
   listNasLegacyPhotos,
+  getAllOrdersForSearch,
+  getOrdersByIds,
   auth,
 } from "../firebase";
 import { httpsCallable } from "firebase/functions";
@@ -452,10 +465,27 @@ const availableFields = ref([
   "年份",
 ]);
 
+// Map short display header names to actual data field names
+const headerFieldMap = {
+  安１: "安裝人員1",
+  安２: "安裝人員2",
+  安３: "安裝人員3",
+};
+function headerToField(h) {
+  return headerFieldMap[h] || h;
+}
+
 function buildTableHeaders() {
   const headers = availableFields.value.slice();
   const operatorFields = ["裁切者", "水刀者", "驗收者"];
+  const installerFields = ["安裝人員1", "安裝人員2", "安裝人員3"];
   const movedFields = [];
+
+  // Remove installer fields from original positions
+  for (const field of installerFields) {
+    const idx = headers.indexOf(field);
+    if (idx >= 0) headers.splice(idx, 1);
+  }
 
   for (const field of operatorFields) {
     const fieldIndex = headers.indexOf(field);
@@ -465,11 +495,20 @@ function buildTableHeaders() {
     }
   }
 
+  // Insert after 公分數: installer short names, then operators, then 拆料單
   const cmIndex = headers.indexOf("公分數");
   if (cmIndex >= 0) {
-    headers.splice(cmIndex + 1, 0, ...movedFields, "拆料單");
+    headers.splice(
+      cmIndex + 1,
+      0,
+      "安１",
+      "安２",
+      "安３",
+      ...movedFields,
+      "拆料單",
+    );
   } else {
-    headers.push(...movedFields, "拆料單");
+    headers.push("安１", "安２", "安３", ...movedFields, "拆料單");
   }
 
   const orderNoIndex = headers.indexOf("訂單號碼");
@@ -579,6 +618,10 @@ async function queryOrdersThenPendingByOrderNo(prefixValue, nextPrefix) {
   }
   return combined;
 }
+const isSamsungBrowser =
+  typeof navigator !== "undefined" &&
+  /SamsungBrowser/i.test(navigator.userAgent || "");
+
 const photoDialogOpen = ref(false);
 const photoLoading = ref(false);
 const photoSaving = ref(false);
@@ -864,8 +907,12 @@ function toErrorText(prefix, err) {
     hint =
       "\n\n可能原因：伺服器端 NAS 設定異常（路徑或帳密）。請通知管理者到系統設定頁檢查 NAS 連線。";
   } else if (retryable) {
-    hint =
-      "\n\n可能原因：網路暫時不穩或瀏覽器連線中斷。請切換網路後重試一次；若僅個別手機發生，先重新整理頁面再上傳。";
+    const isSamsung =
+      typeof navigator !== "undefined" &&
+      /SamsungBrowser/i.test(navigator.userAgent || "");
+    hint = isSamsung
+      ? "\n\n偵測到三星瀏覽器（Samsung Internet）：此瀏覽器上傳影片時容易失敗。請改用 Chrome 瀏覽器開啟本頁後再上傳。"
+      : "\n\n可能原因：網路暫時不穩或瀏覽器連線中斷。請切換網路後重試一次；若僅個別手機發生，先重新整理頁面再上傳。";
   }
 
   return `${prefix}${code}${message}${hint}`;
@@ -1261,28 +1308,25 @@ async function shareSelectedPhotosToLine() {
 
 async function loadActiveOrderPhotos() {
   if (!activePhotoOrder.value?.id) return;
+  const orderId = activePhotoOrder.value.id; // snapshot before await
   photoLoading.value = true;
   try {
-    activeOrderPhotos.value = await listOrderCompletionPhotos(
-      activePhotoOrder.value.id,
-    );
+    activeOrderPhotos.value = await listOrderCompletionPhotos(orderId);
     photoStatusByOrderId.value = {
       ...photoStatusByOrderId.value,
-      [activePhotoOrder.value.id]: activeOrderPhotos.value.length > 0,
+      [orderId]: activeOrderPhotos.value.length > 0,
     };
     selectedPhotoIds.value = [];
   } catch (e) {
     console.error("讀取完工照片失敗：", e);
-    if (activePhotoOrder.value?.id) {
-      photoStatusByOrderId.value = {
-        ...photoStatusByOrderId.value,
-        [activePhotoOrder.value.id]: false,
-      };
-    }
+    photoStatusByOrderId.value = {
+      ...photoStatusByOrderId.value,
+      [orderId]: false,
+    };
     void logClientUploadError(
       e,
       buildUploadDebugContext("list-photos", {
-        orderDocId: String(activePhotoOrder.value?.id || ""),
+        orderDocId: orderId,
         orderNumber: String(activePhotoOrder.value?.orderNumber || ""),
       }),
     );
@@ -1396,7 +1440,7 @@ async function uploadPhotosForActiveOrder() {
   photoUploadProgress.value = 0;
   photoUploadProgressText.value = "準備上傳…";
   try {
-    await uploadOrderCompletionPhotos(
+    const result = await uploadOrderCompletionPhotos(
       activePhotoOrder.value.id,
       activePhotoOrder.value.orderNumber,
       newPhotoFiles.value,
@@ -1404,6 +1448,8 @@ async function uploadPhotosForActiveOrder() {
         photoUploadProgress.value = progress?.overallProgress || 0;
         if (progress?.retryAttempt) {
           photoUploadProgressText.value = `網路不穩，第 ${progress.retryAttempt} 次重試 (${progress?.fileIndex || 0}/${progress?.totalFiles || 0}：${progress?.fileName || ""})`;
+        } else if (progress?.skipped) {
+          photoUploadProgressText.value = `⚠ 跳過 (${progress?.fileIndex || 0}/${progress?.totalFiles || 0}：${progress?.fileName || ""})`;
         } else {
           photoUploadProgressText.value = `上傳中 ${progress?.fileIndex || 0}/${progress?.totalFiles || 0}：${progress?.fileName || ""}`;
         }
@@ -1424,8 +1470,26 @@ async function uploadPhotosForActiveOrder() {
       photoUploadInputRef.value.value = "";
     }
     await loadActiveOrderPhotos();
-    photoUploadProgress.value = 1;
-    photoUploadProgressText.value = "上傳完成";
+
+    const { failedFiles = [] } = result || {};
+    if (failedFiles.length > 0) {
+      const names = failedFiles.map((f) => f.name).join("\n");
+      photoUploadProgressText.value = `完成（${failedFiles.length} 個失敗）`;
+      void logClientUploadError(
+        failedFiles[0]?.error || new Error("partial-upload-failure"),
+        buildUploadDebugContext("upload-photos-partial", {
+          orderDocId: String(activePhotoOrder.value?.id || ""),
+          orderNumber: String(activePhotoOrder.value?.orderNumber || ""),
+          fileName: failedFiles.map((f) => f.name).join(","),
+        }),
+      );
+      alert(
+        `部分檔案因網路問題上傳失敗，其餘已成功上傳。\n\n失敗檔案（${failedFiles.length} 個）：\n${names}\n\n請重新只選擇這些檔案再次上傳。`,
+      );
+    } else {
+      photoUploadProgress.value = 1;
+      photoUploadProgressText.value = "上傳完成";
+    }
   } catch (e) {
     console.error("上傳完工照片失敗：", e);
     void logClientUploadError(
@@ -1738,7 +1802,7 @@ async function searchOrderByNumberAndDate() {
   loading.value = false;
 }
 
-// 將使用者輸入的關鍵字送到雲端函式搜尋
+// 將使用者輸入的關鍵字送到客戶端搜尋
 async function searchByKeyword() {
   if (!keyword.value) {
     alert("請輸入關鍵字");
@@ -1748,8 +1812,23 @@ async function searchByKeyword() {
   loading.value = true;
   const t0 = Date.now();
   try {
-    results.value = await searchOrdersByKeyword(keyword.value);
-    if (!results.value.length) {
+    const kw = keyword.value.trim().toLowerCase();
+    const allOrders = await loadAllOrdersCache();
+    const matchedIds = [];
+    for (const doc of allOrders) {
+      const text = [
+        doc["顏色"],
+        doc["客戶名稱"],
+        doc["安裝地點"],
+        doc["訂單號碼"],
+      ]
+        .map((v) => String(v || "").toLowerCase())
+        .join(" ");
+      if (text.includes(kw)) matchedIds.push(doc.id);
+    }
+    if (matchedIds.length > 0) {
+      results.value = await getOrdersByIds(matchedIds.slice(0, 200));
+    } else {
       const pending = await searchPendingOrdersByKeyword(keyword.value);
       results.value = normalizeRowsForTable(pending);
     }
@@ -1761,31 +1840,61 @@ async function searchByKeyword() {
   loading.value = false;
 }
 
+// Cache for client-side search
+let _allOrdersCache = null;
+let _allOrdersCacheTime = 0;
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function loadAllOrdersCache() {
+  const now = Date.now();
+  if (_allOrdersCache && now - _allOrdersCacheTime < CACHE_TTL) {
+    return _allOrdersCache;
+  }
+  _allOrdersCache = await getAllOrdersForSearch();
+  _allOrdersCacheTime = Date.now();
+  return _allOrdersCache;
+}
+
 async function searchByKeywords() {
-  const keywords = [
-    colorKeyword.value,
-    customerKeyword.value,
-    addressKeyword.value,
-  ]
-    .map((k) => k.trim().toLowerCase())
-    .filter((k) => !!k);
-  if (!keywords.length) {
+  const kwColor = colorKeyword.value.trim().toLowerCase();
+  const kwCustomer = customerKeyword.value.trim().toLowerCase();
+  const kwAddress = addressKeyword.value.trim().toLowerCase();
+  if (!kwColor && !kwCustomer && !kwAddress) {
     alert("請輸入至少一個條件");
     return;
   }
   loading.value = true;
   const t0 = Date.now();
   try {
-    const callable = httpsCallable(functionsInstance, "searchOrdersByKeywords");
-    const resp = await callable({ keywords });
-    results.value = resp.data || [];
-    if (!results.value.length) {
+    // Phase 1: local search on lightweight index
+    const allOrders = await loadAllOrdersCache();
+    const matchedIds = [];
+    for (const doc of allOrders) {
+      const color = String(doc["顏色"] || "").toLowerCase();
+      const customer = String(doc["客戶名稱"] || "").toLowerCase();
+      const address = String(doc["安裝地點"] || "").toLowerCase();
+      const orderNo = String(doc["訂單號碼"] || "").toLowerCase();
+      if (kwColor && !color.includes(kwColor) && !orderNo.includes(kwColor))
+        continue;
+      if (kwCustomer && !customer.includes(kwCustomer)) continue;
+      if (kwAddress && !address.includes(kwAddress)) continue;
+      matchedIds.push(doc.id);
+    }
+    if (matchedIds.length > 0) {
+      // Phase 2: fetch full docs for matched IDs only
+      const fullDocs = await getOrdersByIds(matchedIds.slice(0, 200));
+      results.value = fullDocs;
+    } else {
+      // fallback to PendingOrders
+      const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
       const pending = await searchPendingOrdersByKeywords(keywords);
       results.value = normalizeRowsForTable(pending);
     }
     updateTableHeaders();
   } catch (e) {
+    console.error("多條件查詢失敗：", e);
     try {
+      const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
       const pending = await searchPendingOrdersByKeywords(keywords);
       results.value = normalizeRowsForTable(pending);
       updateTableHeaders();
@@ -1913,6 +2022,14 @@ watch(results, () => {
   white-space: nowrap;
 }
 
+.orders-table th.installer-col,
+.orders-table td.installer-col {
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  white-space: nowrap;
+}
+
 .orders-table th.photo-col,
 .orders-table td.photo-col {
   width: auto !important;
@@ -1968,6 +2085,17 @@ watch(results, () => {
 .photo-modal-head h3 {
   margin: 0;
   font-size: 1.05rem;
+}
+
+.samsung-browser-warning {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 0.55rem 0.85rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.9rem;
+  color: #7a5800;
+  line-height: 1.5;
 }
 
 .photo-upload-row {

@@ -183,6 +183,33 @@
       </div>
     </div>
 
+    <!-- 更新記錄 -->
+    <div class="about-changelog">
+      <h2 class="changelog-title">更新記錄</h2>
+      <div class="changelog-item">
+        <span class="changelog-version">v1.0.0</span>
+        <span class="changelog-date">2026-03-24</span>
+        <ul class="changelog-list">
+          <li>
+            完工照片上傳：修正 Synology 路徑含 <code>//</code> 造成錯誤
+            119（上傳失敗）
+          </li>
+          <li>
+            完工照片上傳：修正並發上傳時資料夾被重複建立的競速問題（Transaction
+            搶佔機制）
+          </li>
+          <li>
+            完工照片列表：修正 iOS 上快速開關對話框造成
+            <code>null.id</code> 崩潰
+          </li>
+          <li>選股工具：新增上櫃股票（.TWO）自動偵測，修正現價捉不到的問題</li>
+          <li>選股工具：新增大盤偏弱警示（加權指數 MA5 / MA20）</li>
+          <li>選股工具：新增週線多頭排列篩選條件（MA5 &gt; MA10 &gt; MA20）</li>
+          <li>選股工具：停損列（跌幅 ≤ −5%）背景標紅提示</li>
+        </ul>
+      </div>
+    </div>
+
     <!-- 版本 & 技術 -->
     <div class="about-tech">
       <span>Vue 3</span>
@@ -368,6 +395,56 @@ const isCustomer = computed(() => role.value === "客戶");
 }
 
 /* Tech stack */
+/* Changelog */
+.about-changelog {
+  margin: 28px 0 0;
+  padding: 20px 24px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+}
+.changelog-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #374151;
+  margin: 0 0 16px;
+}
+.changelog-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+}
+.changelog-version {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #dbeafe;
+  padding: 2px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.changelog-date {
+  font-size: 0.82rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+.changelog-list {
+  width: 100%;
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: #374151;
+  font-size: 0.88rem;
+  line-height: 1.8;
+}
+.changelog-list code {
+  background: #f3f4f6;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  color: #dc2626;
+}
+
 .about-tech {
   display: flex;
   flex-wrap: wrap;

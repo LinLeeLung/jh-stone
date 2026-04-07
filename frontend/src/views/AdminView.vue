@@ -208,6 +208,7 @@
                 <th>訊息</th>
                 <th class="secondary-col">員工</th>
                 <th class="secondary-col">訂單</th>
+                <th class="secondary-col">瀏覽器</th>
                 <th class="secondary-col">網路</th>
               </tr>
             </thead>
@@ -226,6 +227,9 @@
                     item?.context?.orderDocId ||
                     "-"
                   }}
+                </td>
+                <td class="secondary-col">
+                  {{ parseBrowser(item?.context?.userAgent) }}
                 </td>
                 <td class="secondary-col">
                   {{ item?.context?.online ? "online" : "offline" }} /
@@ -462,6 +466,36 @@ function includesKeyword(item, keyword) {
     .map((v) => String(v || "").toLowerCase())
     .join(" ");
   return haystack.includes(k);
+}
+
+function parseBrowser(ua) {
+  if (!ua) return "-";
+  const u = ua;
+  // In-app browsers
+  if (/SamsungBrowser\/([\d.]+)/i.test(u))
+    return `Samsung ${RegExp.$1.split(".")[0]}`;
+  if (/Line\/([\d.]+)/i.test(u)) return `LINE ${RegExp.$1.split(".")[0]}`;
+  if (/Instagram/i.test(u)) return "Instagram";
+  if (/FBAV\/|FBAN\/|FB_IAB/i.test(u)) return "Facebook";
+  if (/KakaoTalk/i.test(u)) return "KakaoTalk";
+  // Edge
+  if (/EdgA\/([\d.]+)/i.test(u)) return `Edge(A) ${RegExp.$1.split(".")[0]}`;
+  if (/Edg\/([\d.]+)/i.test(u)) return `Edge ${RegExp.$1.split(".")[0]}`;
+  // Chrome on iOS
+  if (/CriOS\/([\d.]+)/i.test(u))
+    return `Chrome(iOS) ${RegExp.$1.split(".")[0]}`;
+  // Firefox on iOS
+  if (/FxiOS\/([\d.]+)/i.test(u))
+    return `Firefox(iOS) ${RegExp.$1.split(".")[0]}`;
+  // Firefox
+  if (/Firefox\/([\d.]+)/i.test(u)) return `Firefox ${RegExp.$1.split(".")[0]}`;
+  // Chrome
+  if (/Chrome\/([\d.]+)/i.test(u)) return `Chrome ${RegExp.$1.split(".")[0]}`;
+  // Safari (no Chrome/Chromium in UA)
+  if (/Version\/([\d.]+).*Safari/i.test(u))
+    return `Safari ${RegExp.$1.split(".")[0]}`;
+  if (/Safari/i.test(u)) return "Safari";
+  return ua.slice(0, 30);
 }
 
 const filteredUploadErrorLogs = computed(() => {

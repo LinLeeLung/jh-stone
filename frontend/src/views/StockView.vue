@@ -4,224 +4,12 @@
       <h1>選股工具</h1>
     </div>
 
-    <div v-if="loading" class="muted-text">讀取中…</div>
-
-    <div v-else>
-      <!-- 新增 / 編輯表單 -->
-      <div class="stock-form-wrap">
-        <h2 class="section-title">{{ editingId ? "編輯股票" : "新增股票" }}</h2>
-        <div class="field-row">
-          <div class="field-item tight">
-            <label>股票代號 <span class="req">*</span></label>
-            <input
-              v-model.trim="form.ticker"
-              placeholder="例：2330"
-              maxlength="10"
-            />
-          </div>
-          <div class="field-item tight">
-            <label>名稱</label>
-            <input
-              v-model.trim="form.name"
-              placeholder="例：台積電"
-              maxlength="40"
-            />
-          </div>
-          <div class="field-item tight">
-            <label>產業</label>
-            <input
-              v-model.trim="form.sector"
-              placeholder="例：半導體"
-              list="sector-options"
-              maxlength="30"
-            />
-            <datalist id="sector-options">
-              <option v-for="s in allSectors" :key="s" :value="s" />
-            </datalist>
-          </div>
-          <div class="field-item tight">
-            <label>狀態</label>
-            <select v-model="form.status">
-              <option v-for="st in statuses" :key="st" :value="st">
-                {{ st }}
-              </option>
-            </select>
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field-item tight">
-            <label>現價</label>
-            <input
-              type="number"
-              v-model="form.price"
-              placeholder="0.00"
-              min="0"
-              step="0.01"
-            />
-          </div>
-          <div class="field-item tight">
-            <label>本益比 (PE)</label>
-            <input
-              type="number"
-              v-model="form.pe"
-              placeholder="0.0"
-              min="0"
-              step="0.1"
-            />
-          </div>
-          <div class="field-item tight">
-            <label>股價淨值比 (PB)</label>
-            <input
-              type="number"
-              v-model="form.pb"
-              placeholder="0.0"
-              min="0"
-              step="0.1"
-            />
-          </div>
-          <div class="field-item tight">
-            <label>殖利率 (%)</label>
-            <input
-              type="number"
-              v-model="form.dividendYield"
-              placeholder="0.00"
-              min="0"
-              step="0.01"
-            />
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field-item" style="flex: 1">
-            <label>備註</label>
-            <input
-              v-model.trim="form.notes"
-              placeholder="觀察重點、買賣理由…"
-              maxlength="200"
-            />
-          </div>
-        </div>
-        <div class="toolbar-row" style="margin-top: 8px">
-          <button class="btn-manage" :disabled="saving" @click="submitForm">
-            {{ saving ? "儲存中…" : editingId ? "更新" : "新增" }}
-          </button>
-          <button v-if="editingId" class="btn-aux" @click="cancelEdit">
-            取消
-          </button>
-          <span v-if="formError" class="error-text">{{ formError }}</span>
-        </div>
-      </div>
-
-      <!-- 篩選列 -->
-      <div class="toolbar-row" style="margin-top: 20px">
-        <div class="field-item tight">
-          <label>搜尋：</label>
-          <input
-            v-model.trim="filterKeyword"
-            placeholder="代號 / 名稱"
-            style="width: 130px"
-          />
-        </div>
-        <div class="field-item tight">
-          <label>狀態：</label>
-          <select v-model="filterStatus">
-            <option value="">全部</option>
-            <option v-for="st in statuses" :key="st" :value="st">
-              {{ st }}
-            </option>
-          </select>
-        </div>
-        <div class="field-item tight">
-          <label>產業：</label>
-          <select v-model="filterSector">
-            <option value="">全部</option>
-            <option v-for="s in allSectors" :key="s" :value="s">{{ s }}</option>
-          </select>
-        </div>
-        <button class="btn-aux" @click="clearFilters">清除篩選</button>
-        <span class="muted-text" style="margin-left: auto"
-          >共 {{ filteredStocks.length }} 筆</span
-        >
-      </div>
-
-      <!-- 資料表 -->
-      <div
-        v-if="filteredStocks.length === 0"
-        class="muted-text"
-        style="margin-top: 16px"
-      >
-        目前沒有符合條件的股票。
-      </div>
-      <div v-else class="table-wrap" style="margin-top: 12px">
-        <table class="data-table stock-table">
-          <thead>
-            <tr>
-              <th class="sortable" @click="toggleSort('ticker')">
-                代號 <SortIcon field="ticker" :sort="sort" />
-              </th>
-              <th>名稱</th>
-              <th class="secondary-col">產業</th>
-              <th class="sortable num-col" @click="toggleSort('price')">
-                現價 <SortIcon field="price" :sort="sort" />
-              </th>
-              <th class="sortable num-col" @click="toggleSort('pe')">
-                PE <SortIcon field="pe" :sort="sort" />
-              </th>
-              <th
-                class="sortable num-col secondary-col"
-                @click="toggleSort('pb')"
-              >
-                PB <SortIcon field="pb" :sort="sort" />
-              </th>
-              <th class="sortable num-col" @click="toggleSort('dividendYield')">
-                殖利率% <SortIcon field="dividendYield" :sort="sort" />
-              </th>
-              <th>狀態</th>
-              <th class="secondary-col">備註</th>
-              <th>動作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="s in filteredStocks"
-              :key="s.id"
-              :class="statusClass(s.status)"
-            >
-              <td class="ticker-cell">{{ s.ticker }}</td>
-              <td>{{ s.name || "—" }}</td>
-              <td class="secondary-col">{{ s.sector || "—" }}</td>
-              <td class="num-col">{{ fmt(s.price) }}</td>
-              <td class="num-col">{{ fmt(s.pe) }}</td>
-              <td class="num-col secondary-col">{{ fmt(s.pb) }}</td>
-              <td class="num-col">{{ fmt(s.dividendYield, 2) }}</td>
-              <td>
-                <span :class="['status-badge', statusBadgeClass(s.status)]">{{
-                  s.status
-                }}</span>
-              </td>
-              <td class="secondary-col notes-cell">{{ s.notes || "" }}</td>
-              <td class="action-cell">
-                <button class="btn-aux btn-sm" @click="startEdit(s)">
-                  編輯
-                </button>
-                <button
-                  class="btn-danger btn-sm"
-                  :disabled="deleting === s.id"
-                  @click="confirmDelete(s)"
-                >
-                  {{ deleting === s.id ? "…" : "刪除" }}
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
+    <div>
       <!-- AI 選股分析 ──────────────────────────────────────────── -->
       <div class="ai-screen-wrap">
         <h2 class="section-title" style="margin-top: 24px">🤖 AI 選股分析</h2>
         <p class="muted-text" style="font-size: 0.88rem; margin-bottom: 12px">
-          自動檢測：多頭排列（MA5&gt;MA10&gt;MA20&gt;MA60）、低點爆大量（&gt;均量3×）、AI
-          產業前景評分
+          自動檢測：多頭排列（MA5&gt;MA10&gt;MA20&gt;MA60）、AI 產業前景評分
         </p>
 
         <!-- ── 篩選條件勾選 ────────────────────────────────────── -->
@@ -330,6 +118,14 @@
           {{ aiError }}
         </div>
 
+        <!-- 大盤警示 -->
+        <div
+          v-if="marketFilter && !marketFilter.bullish"
+          class="market-warning-banner"
+        >
+          ⚠️ {{ marketFilter.warning }}
+        </div>
+
         <!-- 分析結果 -->
         <div v-if="aiResults.length" class="ai-results-grid">
           <div
@@ -366,33 +162,56 @@
                 {{ r.techResult.ma5 }} › {{ r.techResult.ma10 }} ›
                 {{ r.techResult.ma20 }} › {{ r.techResult.ma60 }}
               </span>
-              <span :class="r.techResult.volumeSpike ? 'cond-ok' : 'cond-no'">
-                {{ r.techResult.volumeSpike ? "✅" : "❌" }} 低點爆大量
-              </span>
-              <span v-if="r.techResult.spikeDay" class="cond-detail">
-                {{ r.techResult.spikeDay.date }}
-                量 {{ fmtVol(r.techResult.spikeDay.volume) }}（均
-                {{ fmtVol(r.techResult.avgVolume20) }}，×{{
-                  r.techResult.spikeDay.ratio
-                }}）
-              </span>
-              <span v-if="screenConds.includes('breakout60High')" :class="r.techResult.breakout60High ? 'cond-ok' : 'cond-no'">
+              <span
+                v-if="screenConds.includes('breakout60High')"
+                :class="r.techResult.breakout60High ? 'cond-ok' : 'cond-no'"
+              >
                 {{ r.techResult.breakout60High ? "✅" : "❌" }} 突破60日新高
               </span>
-              <span v-if="screenConds.includes('breakout60High') && r.techResult.high60" class="cond-detail">
-                現價 {{ r.techResult.latestClose }}／60日高 {{ r.techResult.high60 }}
+              <span
+                v-if="
+                  screenConds.includes('breakout60High') && r.techResult.high60
+                "
+                class="cond-detail"
+              >
+                現價 {{ r.techResult.latestClose }}／60日高
+                {{ r.techResult.high60 }}
               </span>
-              <span v-if="screenConds.includes('volumeSurge')" :class="r.techResult.volumeSurge ? 'cond-ok' : 'cond-no'">
+              <span
+                v-if="screenConds.includes('volumeSurge')"
+                :class="r.techResult.volumeSurge ? 'cond-ok' : 'cond-no'"
+              >
                 {{ r.techResult.volumeSurge ? "✅" : "❌" }} 量能持續放大
               </span>
-              <span v-if="screenConds.includes('volumeSurge') && r.techResult.avgVolume5" class="cond-detail">
-                5日均量 {{ fmtVol(r.techResult.avgVolume5) }}／20日均量 {{ fmtVol(r.techResult.avgVolume20) }}
+              <span
+                v-if="
+                  screenConds.includes('volumeSurge') && r.techResult.avgVolume5
+                "
+                class="cond-detail"
+              >
+                5日均量 {{ fmtVol(r.techResult.avgVolume5) }}／20日均量
+                {{ fmtVol(r.techResult.avgVolume20) }}
               </span>
-              <span v-if="screenConds.includes('strongMomentum')" :class="r.techResult.strongMomentum ? 'cond-ok' : 'cond-no'">
+              <span
+                v-if="screenConds.includes('strongMomentum')"
+                :class="r.techResult.strongMomentum ? 'cond-ok' : 'cond-no'"
+              >
                 {{ r.techResult.strongMomentum ? "✅" : "❌" }} 強勢動能
               </span>
-              <span v-if="screenConds.includes('strongMomentum') && r.techResult.momentum20Pct != null" class="cond-detail">
+              <span
+                v-if="
+                  screenConds.includes('strongMomentum') &&
+                  r.techResult.momentum20Pct != null
+                "
+                class="cond-detail"
+              >
                 近20日漲幅 {{ r.techResult.momentum20Pct }}%
+              </span>
+              <span
+                v-if="screenConds.includes('weeklyMaAligned')"
+                :class="r.techResult.weeklyMaAligned ? 'cond-ok' : 'cond-no'"
+              >
+                {{ r.techResult.weeklyMaAligned ? "✅" : "❌" }} 週線多頭
               </span>
             </div>
 
@@ -423,7 +242,163 @@
             >
               {{ r.aiResult.error }}
             </div>
+
+            <!-- 記錄選股 -->
+            <div class="ai-pick-row">
+              <button
+                v-if="pickingCardTicker !== r.ticker"
+                class="btn-aux btn-sm pick-btn"
+                @click="openPickForm(r)"
+              >
+                📌 記錄選股
+              </button>
+              <div v-else class="pick-inline-form">
+                <div
+                  class="field-row"
+                  style="
+                    gap: 6px;
+                    flex-wrap: wrap;
+                    align-items: flex-end;
+                    margin: 0;
+                  "
+                >
+                  <div class="field-item tight">
+                    <label style="font-size: 0.82rem">選入價</label>
+                    <input
+                      type="number"
+                      v-model="pickForm.price"
+                      style="width: 86px"
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+                  <div class="field-item" style="flex: 1; min-width: 100px">
+                    <label style="font-size: 0.82rem">備註</label>
+                    <input
+                      v-model="pickForm.note"
+                      placeholder="選股理由…"
+                      maxlength="100"
+                    />
+                  </div>
+                  <button
+                    class="btn-manage btn-sm"
+                    :disabled="pickSaving"
+                    @click="confirmPick(r)"
+                  >
+                    {{ pickSaving ? "儲存中…" : "確認" }}
+                  </button>
+                  <button class="btn-aux btn-sm" @click="cancelPick">
+                    取消
+                  </button>
+                </div>
+                <div
+                  v-if="pickFormError"
+                  class="error-text"
+                  style="font-size: 0.82rem; margin-top: 4px"
+                >
+                  {{ pickFormError }}
+                </div>
+              </div>
+            </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 選股回溯 ─────────────────────────────────────────────── -->
+      <div class="picks-wrap">
+        <div class="picks-header">
+          <h2 class="section-title" style="margin: 0">📋 選股回溯</h2>
+          <span class="muted-text" style="font-size: 0.85rem">
+            共 {{ stockPicks.length }} 筆・一週後回溯買進是否獲利
+          </span>
+          <button
+            class="btn-query"
+            :disabled="fetchingCurrentPrices || !stockPicks.length"
+            @click="refreshCurrentPrices"
+          >
+            {{ fetchingCurrentPrices ? "取得現價中…" : "🔄 刷新現價" }}
+          </button>
+        </div>
+
+        <div v-if="picksLoading" class="muted-text" style="margin-top: 12px">
+          載入中…
+        </div>
+        <div
+          v-else-if="!stockPicks.length"
+          class="muted-text"
+          style="margin-top: 12px"
+        >
+          尚無選股記錄。在上方 AI 分析結果按「📌 記錄選股」即可加入。
+        </div>
+        <div v-else class="table-wrap" style="margin-top: 12px">
+          <table class="data-table picks-table">
+            <thead>
+              <tr>
+                <th>代號</th>
+                <th>名稱</th>
+                <th>選入日期</th>
+                <th class="num-col">選入價</th>
+                <th class="num-col">現價</th>
+                <th class="num-col">漲跌幅</th>
+                <th class="secondary-col">備註</th>
+                <th>動作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="pick in stockPicks"
+                :key="pick.id"
+                :class="pickRowClass(pick)"
+              >
+                <td class="ticker-cell">{{ pick.ticker }}</td>
+                <td>{{ pick.name || "—" }}</td>
+                <td style="white-space: nowrap">
+                  {{ fmtPickDate(pick.pickedAt) }}
+                  <span
+                    v-if="isWeekOld(pick)"
+                    class="week-badge"
+                    title="已超過一週，可回溯"
+                    >7天+</span
+                  >
+                </td>
+                <td class="num-col">
+                  {{
+                    pick.pickedPrice != null ? pick.pickedPrice.toFixed(2) : "—"
+                  }}
+                </td>
+                <td class="num-col">
+                  <span v-if="pickCurrentPrices[pick.ticker] != null">
+                    {{ Number(pickCurrentPrices[pick.ticker]).toFixed(2) }}
+                  </span>
+                  <span v-else class="muted-text">—</span>
+                </td>
+                <td class="num-col">
+                  <span
+                    v-if="pickPnlPct(pick) != null"
+                    :class="
+                      Number(pickPnlPct(pick)) >= 0 ? 'pnl-up' : 'pnl-down'
+                    "
+                  >
+                    {{ Number(pickPnlPct(pick)) >= 0 ? "+" : ""
+                    }}{{ pickPnlPct(pick) }}%
+                  </span>
+                  <span v-else class="muted-text">—</span>
+                </td>
+                <td class="secondary-col notes-cell">
+                  {{ pick.note || "" }}
+                </td>
+                <td class="action-cell">
+                  <button
+                    class="btn-danger btn-sm"
+                    :disabled="picksDeletingId === pick.id"
+                    @click="deletePickEntry(pick)"
+                  >
+                    {{ picksDeletingId === pick.id ? "…" : "刪除" }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -434,194 +409,27 @@
 import { ref, computed, onMounted } from "vue";
 import {
   fetchStocks,
-  addStock,
-  updateStock,
-  deleteStock,
-  STOCK_STATUSES,
   screenStocksWithAI,
   fetchTwseStockListFromFirestore,
   triggerUpdateTwseStockList,
+  addStockPick,
+  fetchStockPicks,
+  deleteStockPick,
 } from "../firebase";
-
-// ── sort icon component (inline) ─────────────────────────────────────────────
-const SortIcon = {
-  props: ["field", "sort"],
-  template: `<span class="sort-icon">{{ sort.field === field ? (sort.asc ? "▲" : "▼") : "⇅" }}</span>`,
-};
 
 // ── state ─────────────────────────────────────────────────────────────────────
 const stocks = ref([]);
-const loading = ref(true);
-const saving = ref(false);
-const deleting = ref(null);
-const editingId = ref(null);
-const formError = ref("");
 
-const statuses = STOCK_STATUSES;
-
-const emptyForm = () => ({
-  ticker: "",
-  name: "",
-  sector: "",
-  status: "觀察中",
-  price: "",
-  pe: "",
-  pb: "",
-  dividendYield: "",
-  notes: "",
-});
-
-const form = ref(emptyForm());
-
-// ── filters ───────────────────────────────────────────────────────────────────
-const filterKeyword = ref("");
-const filterStatus = ref("");
-const filterSector = ref("");
-
-// ── sort ──────────────────────────────────────────────────────────────────────
-const sort = ref({ field: "ticker", asc: true });
-
-function toggleSort(field) {
-  if (sort.value.field === field) {
-    sort.value.asc = !sort.value.asc;
-  } else {
-    sort.value.field = field;
-    sort.value.asc = true;
-  }
-}
-
-// ── computed ──────────────────────────────────────────────────────────────────
-const allSectors = computed(() => {
-  const set = new Set(stocks.value.map((s) => s.sector).filter(Boolean));
-  return [...set].sort((a, b) => a.localeCompare(b, "zh-Hant"));
-});
-
-const filteredStocks = computed(() => {
-  let list = stocks.value;
-  const kw = filterKeyword.value.toLowerCase();
-  if (kw) {
-    list = list.filter(
-      (s) =>
-        s.ticker.toLowerCase().includes(kw) ||
-        (s.name || "").toLowerCase().includes(kw),
-    );
-  }
-  if (filterStatus.value) {
-    list = list.filter((s) => s.status === filterStatus.value);
-  }
-  if (filterSector.value) {
-    list = list.filter((s) => s.sector === filterSector.value);
-  }
-
-  const { field, asc } = sort.value;
-  list = [...list].sort((a, b) => {
-    let va = a[field];
-    let vb = b[field];
-    if (va == null) va = asc ? Infinity : -Infinity;
-    if (vb == null) vb = asc ? Infinity : -Infinity;
-    if (typeof va === "string")
-      return asc
-        ? va.localeCompare(vb, "zh-Hant")
-        : vb.localeCompare(va, "zh-Hant");
-    return asc ? va - vb : vb - va;
-  });
-
-  return list;
-});
-
-// ── helpers ───────────────────────────────────────────────────────────────────
-function fmt(val, decimals = 2) {
-  if (val == null || val === "") return "—";
-  return Number(val).toFixed(decimals);
-}
-
-function statusClass(status) {
-  if (status === "已買入") return "row-bought";
-  if (status === "已賣出") return "row-sold";
-  return "";
-}
-
-function statusBadgeClass(status) {
-  if (status === "已買入") return "badge-bought";
-  if (status === "已賣出") return "badge-sold";
-  return "badge-watch";
-}
-
-function clearFilters() {
-  filterKeyword.value = "";
-  filterStatus.value = "";
-  filterSector.value = "";
-}
-
-// ── CRUD ──────────────────────────────────────────────────────────────────────
 async function loadStocks() {
-  loading.value = true;
   try {
     stocks.value = await fetchStocks();
-  } finally {
-    loading.value = false;
-  }
+  } catch (_) {}
 }
 
-async function submitForm() {
-  formError.value = "";
-  if (!form.value.ticker) {
-    formError.value = "請輸入股票代號";
-    return;
-  }
-  saving.value = true;
-  try {
-    if (editingId.value) {
-      await updateStock(editingId.value, form.value);
-    } else {
-      await addStock(form.value);
-    }
-    form.value = emptyForm();
-    editingId.value = null;
-    await loadStocks();
-  } catch (e) {
-    formError.value = e.message || "儲存失敗";
-  } finally {
-    saving.value = false;
-  }
-}
-
-function startEdit(stock) {
-  editingId.value = stock.id;
-  form.value = {
-    ticker: stock.ticker || "",
-    name: stock.name || "",
-    sector: stock.sector || "",
-    status: stock.status || "觀察中",
-    price: stock.price != null ? stock.price : "",
-    pe: stock.pe != null ? stock.pe : "",
-    pb: stock.pb != null ? stock.pb : "",
-    dividendYield: stock.dividendYield != null ? stock.dividendYield : "",
-    notes: stock.notes || "",
-  };
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-function cancelEdit() {
-  editingId.value = null;
-  form.value = emptyForm();
-  formError.value = "";
-}
-
-async function confirmDelete(stock) {
-  if (!confirm(`確定要刪除「${stock.ticker} ${stock.name || ""}」嗎？`)) return;
-  deleting.value = stock.id;
-  try {
-    await deleteStock(stock.id);
-    stocks.value = stocks.value.filter((s) => s.id !== stock.id);
-  } catch (e) {
-    alert("刪除失敗：" + (e.message || "未知錯誤"));
-  } finally {
-    deleting.value = null;
-  }
-}
-
-onMounted(loadStocks);
+onMounted(() => {
+  loadStocks();
+  loadStockPicks();
+});
 
 // ── 熱門台股預設清單（用於自動掃描）──────────────────────────────────────────
 const PRESET_STOCKS = [
@@ -680,13 +488,6 @@ const SCREEN_CONDITIONS = [
     check: (t) => t?.maAligned === true,
   },
   {
-    key: "volumeSpike",
-    label: "低點爆大量",
-    icon: "🔥",
-    hint: "近20日低點，量>均量×3",
-    check: (t) => t?.volumeSpike === true,
-  },
-  {
     key: "breakout60High",
     label: "突破60日新高",
     icon: "🚀",
@@ -708,6 +509,13 @@ const SCREEN_CONDITIONS = [
     check: (t) => t?.strongMomentum === true,
   },
   {
+    key: "weeklyMaAligned",
+    label: "週線多頭",
+    icon: "📅",
+    hint: "週MA5>MA10>MA20",
+    check: (t) => t?.weeklyMaAligned === true,
+  },
+  {
     key: "showAI",
     label: "AI 產業分析",
     icon: "🤖",
@@ -722,6 +530,7 @@ const aiManualTickers = ref(""); // free-text input
 const aiLoading = ref(false);
 const aiResults = ref([]);
 const aiError = ref("");
+const marketFilter = ref(null);
 const autoScanning = ref(false);
 const aiScanProgress = ref("");
 
@@ -771,10 +580,12 @@ async function runAIScreen() {
   });
   const skipAI = !screenConds.value.includes("showAI");
   try {
-    aiResults.value = await screenStocksWithAI(payload, {
+    const { results, marketFilter: mf } = await screenStocksWithAI(payload, {
       skipAI,
       conditions: screenConds.value,
     });
+    aiResults.value = results;
+    marketFilter.value = mf;
   } catch (e) {
     aiError.value = "分析失敗：" + (e.message || "未知錯誤");
   } finally {
@@ -804,6 +615,7 @@ async function runAutoScan() {
   autoScanning.value = true;
   aiError.value = "";
   aiResults.value = [];
+  marketFilter.value = null;
   const BATCH = 20;
   const AI_BATCH = 5; // AI 分析每批上限，避免單次 timeout
   const wantAI = screenConds.value.includes("showAI");
@@ -813,7 +625,7 @@ async function runAutoScan() {
     aiScanProgress.value = "從 Firestore 取得股票清單…";
     let scanList = PRESET_STOCKS;
     try {
-      const firestoreStocks = await fetchTwseStockListFromFirestore(1000);
+      const firestoreStocks = await fetchTwseStockListFromFirestore(2000);
       if (firestoreStocks.length > 0) {
         scanList = firestoreStocks;
         twseScanCount.value = firestoreStocks.length;
@@ -825,10 +637,11 @@ async function runAutoScan() {
     for (let i = 0; i < scanList.length; i += BATCH) {
       const batch = scanList.slice(i, i + BATCH);
       aiScanProgress.value = `技術面掃描 ${i + 1}–${Math.min(i + BATCH, scanList.length)} / ${scanList.length}（已符合 ${passing.length} 支）`;
-      const results = await screenStocksWithAI(batch, {
+      const { results, marketFilter: mf } = await screenStocksWithAI(batch, {
         skipAI: true,
         conditions: screenConds.value,
       });
+      if (mf && marketFilter.value === null) marketFilter.value = mf;
       const newPassing = results.filter((r) => passesScreenConds(r));
       passing.push(...newPassing);
       // 即時更新畫面，使用者不用等掃完才看到結果
@@ -841,7 +654,7 @@ async function runAutoScan() {
       for (let i = 0; i < passing.length; i += AI_BATCH) {
         const aiBatch = passing.slice(i, i + AI_BATCH);
         aiScanProgress.value = `AI 分析中 ${i + 1}–${Math.min(i + AI_BATCH, passing.length)} / ${passing.length} 支…`;
-        const aiResults2 = await screenStocksWithAI(
+        const { results: aiResults2 } = await screenStocksWithAI(
           aiBatch.map((r) => ({
             ticker: r.ticker,
             name: r.name,
@@ -875,7 +688,19 @@ async function runAutoScan() {
 function clearAIResults() {
   aiResults.value = [];
   aiError.value = "";
+  marketFilter.value = null;
 }
+
+// ── 選股記錄 state ────────────────────────────────────────────────────────────
+const stockPicks = ref([]);
+const picksLoading = ref(false);
+const picksDeletingId = ref(null);
+const pickCurrentPrices = ref({}); // ticker -> latestClose
+const fetchingCurrentPrices = ref(false);
+const pickingCardTicker = ref("");
+const pickForm = ref({ price: "", note: "" });
+const pickSaving = ref(false);
+const pickFormError = ref("");
 
 function fmtVol(n) {
   if (n == null) return "—";
@@ -883,118 +708,144 @@ function fmtVol(n) {
   if (n >= 1_000) return (n / 1_000).toFixed(0) + "K";
   return String(n);
 }
+
+// ── 選股記錄 methods ──────────────────────────────────────────────────────────
+async function loadStockPicks() {
+  picksLoading.value = true;
+  try {
+    stockPicks.value = await fetchStockPicks();
+  } catch (e) {
+    console.error("載入選股記錄失敗:", e);
+  } finally {
+    picksLoading.value = false;
+  }
+}
+
+function openPickForm(r) {
+  pickingCardTicker.value = r.ticker;
+  pickForm.value = {
+    price: r.techResult?.latestClose ?? "",
+    note: "",
+  };
+  pickFormError.value = "";
+}
+
+function cancelPick() {
+  pickingCardTicker.value = "";
+  pickFormError.value = "";
+}
+
+async function confirmPick(r) {
+  pickFormError.value = "";
+  pickSaving.value = true;
+  // fallback: look up name/sector from watchlist or preset list when scan result has none
+  const resolvedTicker = String(r.ticker || "").toUpperCase();
+  let resolvedName = r.name || "";
+  let resolvedSector = r.sector || "";
+  if (!resolvedName) {
+    const wl = stocks.value.find((s) => s.ticker === resolvedTicker);
+    const ps = PRESET_STOCKS.find((p) => p.ticker === resolvedTicker);
+    resolvedName = wl?.name || ps?.name || "";
+    if (!resolvedSector) resolvedSector = wl?.sector || ps?.sector || "";
+  }
+  try {
+    await addStockPick({
+      ticker: resolvedTicker,
+      name: resolvedName,
+      sector: resolvedSector,
+      market: String(r.market || "twse"),
+      pickedPrice:
+        pickForm.value.price !== "" ? Number(pickForm.value.price) : null,
+      note: pickForm.value.note,
+    });
+    pickingCardTicker.value = "";
+    await loadStockPicks();
+  } catch (e) {
+    pickFormError.value = e.message || "儲存失敗";
+  } finally {
+    pickSaving.value = false;
+  }
+}
+
+async function deletePickEntry(pick) {
+  if (!confirm(`確定刪除 ${pick.ticker} 的選股記錄？`)) return;
+  picksDeletingId.value = pick.id;
+  try {
+    await deleteStockPick(pick.id);
+    stockPicks.value = stockPicks.value.filter((p) => p.id !== pick.id);
+  } catch (e) {
+    alert("刪除失敗：" + (e.message || ""));
+  } finally {
+    picksDeletingId.value = null;
+  }
+}
+
+async function refreshCurrentPrices() {
+  if (!stockPicks.value.length) return;
+  fetchingCurrentPrices.value = true;
+  try {
+    const tickers = [...new Set(stockPicks.value.map((p) => p.ticker))];
+    const payload = tickers.map((t) => {
+      const p = stockPicks.value.find((q) => q.ticker === t);
+      return {
+        ticker: t,
+        name: p?.name || "",
+        sector: p?.sector || "",
+        market: p?.market || "twse",
+      };
+    });
+    const { results } = await screenStocksWithAI(payload, {
+      skipAI: true,
+      conditions: [],
+    });
+    const map = {};
+    results.forEach((r) => {
+      if (r.techResult?.latestClose != null) {
+        map[r.ticker] = r.techResult.latestClose;
+      }
+    });
+    pickCurrentPrices.value = map;
+  } catch (e) {
+    alert("取得現價失敗：" + (e.message || ""));
+  } finally {
+    fetchingCurrentPrices.value = false;
+  }
+}
+
+function fmtPickDate(ts) {
+  if (!ts) return "—";
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleDateString("zh-TW", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function pickPnlPct(pick) {
+  const current = pickCurrentPrices.value[pick.ticker];
+  if (current == null || pick.pickedPrice == null) return null;
+  return (((current - pick.pickedPrice) / pick.pickedPrice) * 100).toFixed(2);
+}
+
+function isWeekOld(pick) {
+  if (!pick.pickedAt) return false;
+  const d = pick.pickedAt.toDate
+    ? pick.pickedAt.toDate()
+    : new Date(pick.pickedAt);
+  return Date.now() - d.getTime() >= 7 * 24 * 60 * 60 * 1000;
+}
+
+function pickRowClass(pick) {
+  if (!isWeekOld(pick)) return "";
+  const pct = pickPnlPct(pick);
+  if (pct == null) return "row-pick-old";
+  if (Number(pct) <= -5) return "row-pick-stoploss";
+  return Number(pct) >= 0 ? "row-pick-profit" : "row-pick-loss";
+}
 </script>
 
 <style scoped>
-.stock-form-wrap {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 16px 20px;
-  margin-bottom: 4px;
-}
-
-.section-title {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0 0 12px;
-  color: #374151;
-}
-
-.req {
-  color: #ef4444;
-}
-
-.stock-table th.sortable {
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-}
-.stock-table th.sortable:hover {
-  background: #f0f4ff;
-}
-
-.sort-icon {
-  font-size: 0.75rem;
-  margin-left: 3px;
-  color: #9ca3af;
-}
-
-.num-col {
-  text-align: right;
-}
-
-.ticker-cell {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-
-.notes-cell {
-  max-width: 200px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 0.88rem;
-  color: #6b7280;
-}
-
-.action-cell {
-  white-space: nowrap;
-  display: flex;
-  gap: 6px;
-}
-
-.btn-sm {
-  padding: 0.3rem 0.65rem;
-  font-size: 0.85rem;
-}
-
-.btn-danger {
-  background-color: #fff;
-  border-color: #fca5a5;
-  color: #dc2626;
-}
-.btn-danger:hover:not(:disabled) {
-  background-color: #fef2f2;
-  border-color: #ef4444;
-}
-
-.error-text {
-  color: #dc2626;
-  font-size: 0.9rem;
-}
-
-/* row tints */
-.row-bought td {
-  background: #f0fdf4;
-}
-.row-sold td {
-  background: #f9fafb;
-  color: #9ca3af;
-}
-
-/* status badges */
-.status-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-.badge-watch {
-  background: #fef9c3;
-  color: #92400e;
-}
-.badge-bought {
-  background: #dcfce7;
-  color: #166534;
-}
-.badge-sold {
-  background: #f1f5f9;
-  color: #64748b;
-}
-
 /* ── AI 選股分析 panel ────────────────────────────────────────── */
 .ai-screen-wrap {
   padding-top: 20px;
@@ -1116,5 +967,83 @@ function fmtVol(n) {
   font-size: 0.86rem;
   font-weight: 500;
   color: #1e3a5f;
+}
+
+/* ── 選股記錄 ──────────────────────────────────────────────────── */
+.ai-pick-row {
+  margin-top: 10px;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 8px;
+}
+
+.pick-btn {
+  font-size: 0.82rem;
+  padding: 3px 10px;
+}
+
+.pick-inline-form {
+  font-size: 0.85rem;
+}
+
+.picks-wrap {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.picks-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.week-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 6px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.pnl-up {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.pnl-down {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.row-pick-old td {
+  background: #f8fafc;
+}
+.row-pick-profit td {
+  background: #f0fdf4;
+}
+.row-pick-loss td {
+  background: #fef2f2;
+}
+.row-pick-stoploss td {
+  background: #fce7e7;
+  font-weight: 600;
+}
+.row-pick-stoploss .pnl-down {
+  color: #b91c1c;
+}
+.market-warning-banner {
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #92400e;
+  font-size: 0.88rem;
+  margin-bottom: 12px;
 }
 </style>

@@ -396,30 +396,6 @@ export async function getUserByUid(uid) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
-// search Orders by keyword using Cloud Function (fallback to direct query)
-export async function searchOrdersByKeyword(keyword) {
-  if (!keyword) return [];
-  const q = keyword.toString().toLowerCase().trim();
-  // try callable first
-  try {
-    const functions = functionsInstance;
-    const callable = httpsCallable(functions, "searchOrdersByKeyword");
-    const resp = await callable({ q });
-    return resp.data || [];
-  } catch (e) {
-    // if cloud function is not deployed or fails, fall back to raw query
-    console.warn(
-      "searchOrdersByKeyword callable failed, falling back to client query",
-      e,
-    );
-    const col = collection(db, "Orders");
-    const snaps = await getDocs(
-      query(col, where("searchKeywords", "array-contains", q)),
-    );
-    return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-}
-
 export async function searchPendingOrdersByKeyword(keyword) {
   if (!keyword) return [];
   const q = keyword.toString().toLowerCase().trim();
@@ -788,9 +764,12 @@ export async function uploadOrderCompletionPhotos(
     });
   };
 
+  const failedFiles = [];
+
   for (const [index, file] of files.entries()) {
     const fileSize = Number(file.size || 0);
     let uploadAttempt = 0;
+    let fileSucceeded = false;
     while (true) {
       uploadAttempt++;
       try {
@@ -834,16 +813,26 @@ export async function uploadOrderCompletionPhotos(
             });
           },
         );
+        fileSucceeded = true;
         break;
       } catch (e) {
         const raw = String(e?.message || "").toLowerCase();
-        const retryable =
-          (raw.includes("network-request-failed") ||
-            raw.includes("network-timeout") ||
-            raw.includes("network-aborted") ||
-            raw.includes("failed to fetch")) &&
-          uploadAttempt < 5;
-        if (!retryable) throw e;
+        const networkError =
+          raw.includes("network-request-failed") ||
+          raw.includes("network-timeout") ||
+          raw.includes("network-aborted") ||
+          raw.includes("failed to fetch");
+        const retryable = networkError && uploadAttempt < 5;
+        if (!retryable) {
+          // Non-retryable error (auth, size, etc.) → abort the whole batch
+          if (!networkError) throw e;
+          // Network error but retries exhausted → skip this file
+          failedFiles.push({
+            name: file.name || `檔案 ${index + 1}`,
+            error: e,
+          });
+          break;
+        }
 
         // If browser reports offline, wait until connectivity is restored
         // before sleeping, then add the exponential delay on top.
@@ -880,7 +869,9 @@ export async function uploadOrderCompletionPhotos(
       }
     }
 
-    completedBytes += fileSize;
+    if (fileSucceeded) {
+      completedBytes += fileSize;
+    }
 
     if (typeof onProgress === "function") {
       onProgress({
@@ -888,13 +879,15 @@ export async function uploadOrderCompletionPhotos(
           totalBytes > 0
             ? Math.min(1, completedBytes / totalBytes)
             : Math.min(1, (index + 1) / files.length),
-        fileProgress: 1,
+        fileProgress: fileSucceeded ? 1 : 0,
         fileName: file.name || `檔案 ${index + 1}`,
         fileIndex: index + 1,
         totalFiles: files.length,
+        skipped: !fileSucceeded,
       });
     }
   }
+  return { failedFiles };
 }
 
 export async function replaceOrderCompletionPhoto(
@@ -1033,6 +1026,21 @@ export async function saveSystemSettings(payload = {}) {
   );
 }
 
+export async function getAllOrdersForSearch() {
+  const callable = httpsCallable(functionsInstance, "getAllOrdersForSearch", {
+    timeout: 60000,
+  });
+  const resp = await callable({});
+  return resp.data || [];
+}
+
+export async function getOrdersByIds(ids) {
+  if (!ids || !ids.length) return [];
+  const callable = httpsCallable(functionsInstance, "getOrdersByIds");
+  const resp = await callable({ ids });
+  return resp.data || [];
+}
+
 export async function testNasWrite() {
   const functions = functionsInstance;
   const callable = httpsCallable(functions, "testNasWrite");
@@ -1072,6 +1080,27 @@ export async function findOrderFolderOnNas(orderNumber) {
   if (!orderNumber) throw new Error("請輸入訂單號碼");
   const callable = httpsCallable(functionsInstance, "findOrderFolderOnNas");
   const resp = await callable({ orderNumber });
+  return resp.data || {};
+}
+
+export async function testOrderFolderSearch(orderNumber) {
+  if (!orderNumber) throw new Error("請輸入訂單號碼");
+  const callable = httpsCallable(functionsInstance, "testOrderFolderSearch", {
+    timeout: 120000,
+  });
+  const resp = await callable({ orderNumber });
+  return resp.data || {};
+}
+
+export async function batchFindOrderFolderOnNas(orderNumbers, batchId) {
+  if (!Array.isArray(orderNumbers) || !orderNumbers.length)
+    throw new Error("請提供訂單號碼陣列");
+  const callable = httpsCallable(
+    functionsInstance,
+    "batchFindOrderFolderOnNas",
+    { timeout: 540000 },
+  );
+  const resp = await callable({ orderNumbers, batchId });
   return resp.data || {};
 }
 
@@ -1178,7 +1207,8 @@ export async function screenStocksWithAI(tickers = [], options = {}) {
     // conditions[]: list of active condition keys, used for server-side gating
     conditions: options.conditions ?? null,
   });
-  return resp?.data?.results || [];
+  const d = resp?.data || {};
+  return { results: d.results || [], marketFilter: d.marketFilter || null };
 }
 
 export async function fetchTwseTopStocks(limit = 200) {
@@ -1209,4 +1239,44 @@ export async function triggerUpdateTwseStockList() {
     "triggerUpdateTwseStockList",
   );
   await callable({});
+}
+
+// ── 選股記錄（StockPicks）────────────────────────────────────────────────────
+
+export async function addStockPick(payload = {}) {
+  await getSignedInUser();
+  const ticker = String(payload.ticker || "")
+    .trim()
+    .toUpperCase();
+  if (!ticker) throw new Error("請輸入股票代號");
+  const col = collection(db, "StockPicks");
+  const ref = doc(col);
+  await setDoc(ref, {
+    ticker,
+    name: String(payload.name || "").trim(),
+    sector: String(payload.sector || "").trim(),
+    market: String(payload.market || "twse").trim(),
+    pickedPrice:
+      payload.pickedPrice != null && payload.pickedPrice !== ""
+        ? Number(payload.pickedPrice)
+        : null,
+    note: String(payload.note || "").trim(),
+    pickedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function fetchStockPicks() {
+  await getSignedInUser();
+  const col = collection(db, "StockPicks");
+  const q = query(col, orderBy("pickedAt", "desc"));
+  const snaps = await getDocs(q);
+  return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function deleteStockPick(id) {
+  await getSignedInUser();
+  if (!id) throw new Error("缺少識別碼");
+  await deleteDoc(doc(db, "StockPicks", id));
 }

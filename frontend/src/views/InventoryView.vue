@@ -1622,7 +1622,7 @@ async function loadInventory() {
     const usedRows = rowsWithDate.filter((row) => {
       const isExisting = existsFlag(row[14]);
       const hasInDate = Boolean(String(row[0] || "").trim());
-      return !isExisting && hasInDate;
+      return !isExisting && hasInDate && meetsSizeCondition(row);
     });
 
     const inRows = rowsWithDate.filter((row) => {
@@ -1653,7 +1653,8 @@ async function loadInventory() {
       tableRows.value = bigRows.map((row) => row.slice(0, 15));
       tableTitle.value = `共有 ${bigRows.length} 片大板`;
     } else if (inventoryMode.value === "used") {
-      tableRows.value = usedRows.map((row) => row.slice(0, 15));
+      const sortedUsedRows = sortByAreaAsc(usedRows);
+      tableRows.value = sortedUsedRows.map((row) => row.slice(0, 15));
       tableTitle.value = `共有 ${usedRows.length} 筆已使用`;
     } else {
       tableRows.value = leftRows.map((row) => row.slice(0, 15));

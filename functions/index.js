@@ -27,7 +27,10 @@ setGlobalOptions({ maxInstances: 10, region: "asia-east1" });
 
 // 查詢 NAS 是否有包含訂單號碼的資料夾
 exports.findOrderFolderOnNas = onCall(
-  { secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET] },
+  {
+    secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET],
+    timeoutSeconds: 120,
+  },
   async (payload, ctx) => {
     logger.info("findOrderFolderOnNas called", {
       payload,
@@ -82,7 +85,51 @@ exports.findOrderFolderOnNas = onCall(
     let sid = "";
     try {
       sid = await synologyLogin(baseUrl, username, password);
-      // 遞迴搜尋所有子資料夾，並使用評分演算法找出最佳匹配
+
+      // ── Step 1: 搜尋 訂單號碼.pdf，從 PDF 路徑反推資料夾 ──
+      const pdfFileName = `${orderNumber}.pdf`;
+      let pdfPath = "";
+      try {
+        pdfPath = await synologySearchFileByName({
+          baseUrl,
+          sid,
+          rootPath: pathCheck.normalized,
+          fileName: pdfFileName,
+        });
+      } catch (pdfErr) {
+        logger.warn("findOrderFolderOnNas: PDF search failed", {
+          orderNumber,
+          error: pdfErr?.message,
+        });
+      }
+
+      if (pdfPath) {
+        // PDF 找到了，取其所在資料夾
+        const parts = pdfPath.split("/");
+        parts.pop(); // 移除檔名
+        const folderPath = parts.join("/");
+        const folderName = parts[parts.length - 1] || "";
+        logger.info("findOrderFolderOnNas: found via PDF", {
+          orderNumber,
+          pdfPath,
+          folderPath,
+        });
+        return {
+          found: true,
+          folderName,
+          folderPath,
+          matchScore: 10000,
+          message: `透過 PDF 找到資料夾：${folderName}（${folderPath}）`,
+        };
+      }
+
+      // ── Step 2: PDF 找不到，fallback 搜尋資料夾名稱 ──
+      logger.info(
+        "findOrderFolderOnNas: PDF not found, fallback to folder search",
+        {
+          orderNumber,
+        },
+      );
       const matchResult = await resolveExistingOrderFolderPath({
         baseUrl,
         sid,
@@ -102,7 +149,7 @@ exports.findOrderFolderOnNas = onCall(
       } else {
         return {
           found: false,
-          message: `未找到包含「${orderNumber}」的資料夾`,
+          message: `未找到「${orderNumber}」的 PDF 或資料夾`,
         };
       }
     } catch (err) {
@@ -120,6 +167,245 @@ exports.findOrderFolderOnNas = onCall(
     }
   },
 );
+
+exports.batchFindOrderFolderOnNas = onCall(
+  {
+    secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET],
+    timeoutSeconds: 540,
+  },
+  async (payload, ctx) => {
+    const auth = (ctx && ctx.auth) || payload.auth || null;
+    const authUid = auth && auth.uid ? auth.uid : null;
+    if (!authUid) {
+      throw new functions.https.HttpsError("unauthenticated", "請先登入");
+    }
+    const role = await readUserRole(authUid);
+    if (!isStaffRole(role)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "僅管理者或員工可查詢",
+      );
+    }
+    const nasStoragePath = await getNasOrderPath();
+    if (!nasStoragePath) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "請先在系統設定填入訂單資料夾路徑（或 NAS 儲存路徑）",
+      );
+    }
+    const baseUrl = buildSynologyBaseUrl();
+    const { username, password } = getSynologyCredentials();
+    if (!username || !password) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "尚未設定 SYNO_USERNAME / SYNO_PASSWORD",
+      );
+    }
+    const pathCheck = validateSynologyDirPath(nasStoragePath);
+    if (!pathCheck.ok) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        pathCheck.reason,
+      );
+    }
+
+    const rawData = payload && payload.data ? payload.data : payload;
+    const orderNumbers = Array.isArray(rawData.orderNumbers)
+      ? rawData.orderNumbers.map((s) => String(s || "").trim()).filter(Boolean)
+      : [];
+    if (!orderNumbers.length) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "請提供訂單號碼陣列",
+      );
+    }
+    if (orderNumbers.length > 500) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "一次最多查詢 500 筆",
+      );
+    }
+
+    // 產生批次ID，用於即時回報進度到 Firestore
+    const batchId = rawData.batchId || `batch_${Date.now()}`;
+    const progressRef = admin
+      .firestore()
+      .collection("_system")
+      .doc(`batchSearch_${batchId}`);
+
+    let sid = "";
+    try {
+      sid = await synologyLogin(baseUrl, username, password);
+      const apiUrl = new URL("/webapi/entry.cgi", baseUrl).toString();
+      const rootPath = pathCheck.normalized;
+      const t0Global = Date.now();
+      const allResults = [];
+      let foundCount = 0;
+
+      // 初始化進度文件
+      await progressRef.set({
+        status: "running",
+        total: orderNumbers.length,
+        done: 0,
+        found: 0,
+        results: [],
+        startedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // ══════════════════════════════════════════════════════════════
+      // 登入一次，一筆一筆用 Finder (Universal Search) 搜尋，
+      // 每筆搜完後立即寫 Firestore，前端即時訂閱顯示。
+      // ══════════════════════════════════════════════════════════════
+
+      for (let i = 0; i < orderNumbers.length; i++) {
+        const orderNumber = orderNumbers[i];
+        const t0 = Date.now();
+
+        // 每筆之間等 1 秒（第一筆不等）
+        if (i > 0) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+
+        let result = { orderNumber, found: false, message: "" };
+
+        try {
+          // 用 synologySearchFileByName 搜尋 (Finder → FileStation.Search → traversal)
+          const pdfFileName = `${orderNumber}.pdf`;
+          const pdfPath = await synologySearchFileByName({
+            baseUrl,
+            sid,
+            rootPath,
+            fileName: pdfFileName,
+          });
+
+          if (pdfPath) {
+            const parts = pdfPath.split("/");
+            parts.pop();
+            const folderPath = parts.join("/");
+            const folderName = parts[parts.length - 1] || "";
+            result = {
+              orderNumber,
+              found: true,
+              folderName,
+              folderPath,
+              matchScore: 10000,
+              totalMs: Date.now() - t0,
+              message: `找到：${folderName}`,
+            };
+            foundCount++;
+          } else {
+            // PDF 找不到，fallback 搜資料夾
+            const matchResult = await resolveExistingOrderFolderPath({
+              baseUrl,
+              sid,
+              basePath: rootPath,
+              customerFolder: "unknown",
+              orderNumber,
+              defaultDetailFolder: orderNumber,
+            });
+            if (matchResult.matched) {
+              result = {
+                orderNumber,
+                found: true,
+                folderName: matchResult.matchedFolderName,
+                folderPath: matchResult.uploadFolder,
+                matchScore: matchResult.matchScore,
+                totalMs: Date.now() - t0,
+                message: `找到：${matchResult.matchedFolderName}`,
+              };
+              foundCount++;
+            } else {
+              result = {
+                orderNumber,
+                found: false,
+                totalMs: Date.now() - t0,
+                message: `未找到「${orderNumber}」的 PDF 或資料夾`,
+              };
+            }
+          }
+        } catch (searchErr) {
+          result = {
+            orderNumber,
+            found: false,
+            totalMs: Date.now() - t0,
+            message: `搜尋錯誤：${searchErr?.message || "unknown"}`,
+          };
+          logger.warn("batchFind: search error", {
+            orderNumber,
+            error: searchErr?.message,
+          });
+        }
+
+        allResults.push(result);
+
+        // 即時寫進度到 Firestore（每筆都寫）
+        try {
+          await progressRef.update({
+            done: i + 1,
+            found: foundCount,
+            results: allResults,
+          });
+        } catch (writeErr) {
+          logger.warn("batchFind: progress write failed", {
+            error: writeErr?.message,
+          });
+        }
+
+        logger.info("batchFind: searched", {
+          index: i + 1,
+          total: orderNumbers.length,
+          orderNumber,
+          found: result.found,
+          ms: result.totalMs,
+        });
+      }
+
+      // 標記完成
+      try {
+        await progressRef.update({
+          status: "done",
+          done: orderNumbers.length,
+          found: foundCount,
+          results: allResults,
+          finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+          totalMs: Date.now() - t0Global,
+        });
+      } catch (_) {}
+
+      logger.info("batchFind: done", {
+        total: orderNumbers.length,
+        found: foundCount,
+        notFound: orderNumbers.length - foundCount,
+        totalMs: Date.now() - t0Global,
+      });
+
+      return {
+        batchId,
+        results: allResults,
+      };
+    } catch (err) {
+      // 標記錯誤
+      try {
+        await progressRef.update({
+          status: "error",
+          error: err?.message || "批次查詢失敗",
+        });
+      } catch (_) {}
+      logger.error("batchFindOrderFolderOnNas error", {
+        error: err?.message || String(err),
+      });
+      throw new functions.https.HttpsError(
+        "internal",
+        err?.message || "批次查詢失敗",
+      );
+    } finally {
+      try {
+        await synologyLogout(baseUrl, sid);
+      } catch (_) {}
+    }
+  },
+);
+
 // For cost control, you can set the maximum number of containers that can be
 // running at the same time. This helps mitigate the impact of unexpected
 // traffic spikes by instead downgrading performance. This limit is a
@@ -935,44 +1221,209 @@ function scoreOrderFolderMatch(
 
 // 用唯一檔名在整個 NAS 搜尋，直接取得檔案現在的完整路徑
 async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
-  const startUrl = new URL("/webapi/entry.cgi", baseUrl);
-  startUrl.searchParams.set("api", "SYNO.FileStation.Search");
-  startUrl.searchParams.set("version", "2");
-  startUrl.searchParams.set("method", "start");
-  startUrl.searchParams.set("folder_path", rootPath);
-  startUrl.searchParams.set("pattern", `*${fileName}*`);
-  startUrl.searchParams.set("recursive", "true");
-  startUrl.searchParams.set("_sid", sid);
+  const apiUrl = new URL("/webapi/entry.cgi", baseUrl).toString();
 
-  const startResp = await fetch(startUrl.toString(), { method: "GET" });
+  // Strip extension for Finder keyword (full-text search matches better without .ext)
+  const stemName = fileName.replace(/\.[^.]+$/, "");
+
+  // Helper: extract matched path from Finder items array
+  function extractMatchFromItems(items, keyword) {
+    // Pass 1: exact filename match (e.g. "27243ASW.pdf")
+    for (const item of items) {
+      const name = String(
+        item?.dentry_name || item?.name || item?.title || "",
+      ).trim();
+      if (name.toLowerCase() === fileName.toLowerCase()) {
+        const dir = String(item?.dir || item?.folder_path || "").trim();
+        const itemPath = String(item?.path || "").trim();
+        const fullPath = itemPath || (dir ? `${dir}/${name}` : "");
+        if (fullPath) {
+          logger.info("synologySearchFileByName: found via Finder (exact)", {
+            keyword,
+            fileName,
+            fullPath,
+          });
+          return fullPath;
+        }
+      }
+    }
+    // Pass 2: stem match – name starts with stemName and ends with target extension
+    const ext = fileName.includes(".")
+      ? fileName.split(".").pop().toLowerCase()
+      : "";
+    for (const item of items) {
+      const name = String(
+        item?.dentry_name || item?.name || item?.title || "",
+      ).trim();
+      const nameLower = name.toLowerCase();
+      if (
+        nameLower.startsWith(stemName.toLowerCase()) &&
+        ext &&
+        nameLower.endsWith(`.${ext}`)
+      ) {
+        const dir = String(item?.dir || item?.folder_path || "").trim();
+        const itemPath = String(item?.path || "").trim();
+        const fullPath = itemPath || (dir ? `${dir}/${name}` : "");
+        if (fullPath) {
+          logger.info("synologySearchFileByName: found via Finder (stem)", {
+            keyword,
+            fileName,
+            matchedName: name,
+            fullPath,
+          });
+          return fullPath;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Helper: run Finder search with polling until finished === true (like DSM UI)
+  async function finderSearch(keyword) {
+    const serial = String(Date.now()) + String(Math.random()).slice(2, 8);
+    // Poll up to ~8s total — keep going until Finder says finished
+    const maxAttempts = 20;
+    const pollInterval = 400; // ms
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+      }
+
+      const finderBody = new URLSearchParams();
+      finderBody.set("api", "SYNO.Finder.FileIndexed.Search");
+      finderBody.set("version", "1");
+      finderBody.set("method", "search");
+      finderBody.set("keyword", keyword);
+      finderBody.set("query_serial", serial);
+      finderBody.set("search_type", "all");
+      finderBody.set("offset", "0");
+      finderBody.set("limit", "200");
+      finderBody.set("_sid", sid);
+
+      const finderResp = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: finderBody.toString(),
+      });
+      const finderJson = await parseJsonSafe(finderResp);
+
+      if (attempt === 0 || finderJson?.data?.total > 0) {
+        logger.info("synologySearchFileByName: Finder poll", {
+          keyword,
+          fileName,
+          attempt,
+          success: finderJson?.success,
+          total: finderJson?.data?.total,
+          finished: finderJson?.data?.finished,
+          itemCount: Array.isArray(finderJson?.data?.items)
+            ? finderJson.data.items.length
+            : undefined,
+          errorCode: finderJson?.error?.code,
+        });
+      }
+
+      if (!finderJson?.success) return null;
+
+      const items =
+        finderJson?.data?.items ||
+        finderJson?.data?.files ||
+        finderJson?.data?.result ||
+        [];
+
+      const match = extractMatchFromItems(items, keyword);
+      if (match) return match;
+
+      // If Finder says search is finished, no more results coming
+      if (finderJson?.data?.finished === true) return null;
+
+      // If Finder returned non-matching items and is finished, stop
+      if (items.length > 0 && finderJson?.data?.finished !== false) return null;
+
+      // Otherwise keep polling — Finder is still searching
+    }
+    return null;
+  }
+
+  // ── Strategy 1: SYNO.Finder (Universal Search, index-based, instant) ──
+  // Try up to 3 attempts — Finder index is async, sometimes needs a second try (like DSM UI)
+  for (let finderAttempt = 0; finderAttempt < 3; finderAttempt++) {
+    if (finderAttempt > 0) {
+      logger.info("synologySearchFileByName: Finder retry", {
+        fileName,
+        attempt: finderAttempt + 1,
+      });
+      await new Promise((r) => setTimeout(r, 2000)); // wait 2s before retry
+    }
+    try {
+      const result = await finderSearch(stemName);
+      if (result) return result;
+
+      // Retry with full filename (some Finder configs index differently)
+      if (stemName !== fileName) {
+        const result2 = await finderSearch(fileName);
+        if (result2) return result2;
+      }
+    } catch (finderErr) {
+      logger.warn("synologySearchFileByName: Finder API failed, falling back", {
+        fileName,
+        attempt: finderAttempt + 1,
+        error: finderErr?.message,
+      });
+    }
+  }
+
+  // ── Strategy 2: SYNO.FileStation.Search (real-time scan, fallback) ──
+  const startBody = new URLSearchParams();
+  startBody.set("api", "SYNO.FileStation.Search");
+  startBody.set("version", "2");
+  startBody.set("method", "start");
+  startBody.set("folder_path", rootPath);
+  startBody.set("pattern", `*${fileName}*`);
+  startBody.set("recursive", "true");
+  startBody.set("_sid", sid);
+
+  const startResp = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: startBody.toString(),
+  });
   const startJson = await parseJsonSafe(startResp);
   if (!startResp.ok || !startJson.success) return null;
   const taskid = startJson?.data?.taskid;
   if (!taskid) return null;
 
+  // ~45s total: large NAS needs more time for recursive scan
   const pollDelays = [
-    300, 300, 400, 400, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
+    200, 300, 500, 500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000,
+    1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000,
+    1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000,
+    1000, 1000, 2000, 2000, 2000, 2000, 2000,
   ];
   let foundPath = null;
   for (let i = 0; i < pollDelays.length; i++) {
     await new Promise((r) => setTimeout(r, pollDelays[i]));
-    const listUrl = new URL("/webapi/entry.cgi", baseUrl);
-    listUrl.searchParams.set("api", "SYNO.FileStation.Search");
-    listUrl.searchParams.set("version", "2");
-    listUrl.searchParams.set("method", "list");
-    listUrl.searchParams.set("taskid", taskid);
-    listUrl.searchParams.set("offset", "0");
-    listUrl.searchParams.set("limit", "10");
-    listUrl.searchParams.set("_sid", sid);
 
-    const listResp = await fetch(listUrl.toString(), { method: "GET" });
+    const listBody = new URLSearchParams();
+    listBody.set("api", "SYNO.FileStation.Search");
+    listBody.set("version", "2");
+    listBody.set("method", "list");
+    listBody.set("taskid", taskid);
+    listBody.set("offset", "0");
+    listBody.set("limit", "10");
+    listBody.set("_sid", sid);
+
+    const listResp = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: listBody.toString(),
+    });
     const listJson = await parseJsonSafe(listResp);
     if (!listResp.ok || !listJson.success) continue;
 
     const allFiles = Array.isArray(listJson?.data?.files)
       ? listJson.data.files
       : [];
-    // 只要非資料夾、名稱含 fileName 的第一筆
     const hit = allFiles.find(
       (f) => !f?.isdir && String(f?.name || "").includes(fileName),
     );
@@ -984,30 +1435,161 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
   }
 
   // 清除任務
-  const cleanUrl = new URL("/webapi/entry.cgi", baseUrl);
-  cleanUrl.searchParams.set("api", "SYNO.FileStation.Search");
-  cleanUrl.searchParams.set("version", "2");
-  cleanUrl.searchParams.set("method", "clean");
-  cleanUrl.searchParams.set("taskid", taskid);
-  cleanUrl.searchParams.set("_sid", sid);
-  fetch(cleanUrl.toString(), { method: "GET" }).catch(() => {});
+  const cleanBody = new URLSearchParams();
+  cleanBody.set("api", "SYNO.FileStation.Search");
+  cleanBody.set("version", "2");
+  cleanBody.set("method", "clean");
+  cleanBody.set("taskid", taskid);
+  cleanBody.set("_sid", sid);
+  fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: cleanBody.toString(),
+  }).catch(() => {});
 
-  return foundPath; // 完整路徑如 /峻晟/01-.../26803補BNJ .../A10258xxx.jpg，或 null
+  if (foundPath) return foundPath;
+
+  // ── Strategy 3: Deterministic directory traversal (100% reliable) ──
+  // List customer folders → find order subfolder by name → return PDF path
+  try {
+    const orderMatch = stemName.match(/(\d{5})([A-Z]{3})$/i);
+    if (orderMatch) {
+      const customerCode = orderMatch[2].toUpperCase();
+      const customerNumber = CUSTOMER_CODE_LOOKUP[customerCode] || "";
+
+      logger.info(
+        "synologySearchFileByName: Strategy 3 - directory traversal",
+        {
+          fileName,
+          stemName,
+          customerCode,
+          customerNumber,
+          rootPath,
+        },
+      );
+
+      // List all customer folders under rootPath
+      let customerFolders = [];
+      try {
+        customerFolders = await synologyListFolderEntries({
+          baseUrl,
+          sid,
+          folderPath: rootPath,
+        });
+      } catch (listErr) {
+        logger.warn("synologySearchFileByName: cannot list rootPath", {
+          rootPath,
+          error: listErr?.message,
+        });
+      }
+
+      const dirFolders = customerFolders.filter((f) => f.isdir);
+
+      // Narrow down: find customer folders containing customer code or number
+      const candidates = dirFolders.filter((f) => {
+        const name = String(f.name || "").toUpperCase();
+        if (name.includes(customerCode)) return true;
+        if (customerNumber && name.includes(customerNumber)) return true;
+        return false;
+      });
+
+      // If no narrowed candidates, try ALL folders
+      const foldersToCheck = candidates.length > 0 ? candidates : dirFolders;
+
+      logger.info("synologySearchFileByName: traversal candidates", {
+        totalFolders: dirFolders.length,
+        narrowed: candidates.length,
+        checking: foldersToCheck.length,
+      });
+
+      for (const folder of foldersToCheck) {
+        const folderPath = folder.path || `${rootPath}/${folder.name}`;
+        try {
+          const subEntries = await synologyListFolderEntries({
+            baseUrl,
+            sid,
+            folderPath,
+          });
+          // Look for subfolder starting with order number
+          const orderFolder = subEntries.find((sf) => {
+            if (!sf.isdir) return false;
+            const sfName = String(sf.name || "").toUpperCase();
+            return sfName.startsWith(stemName.toUpperCase());
+          });
+          if (orderFolder) {
+            const orderFolderPath =
+              orderFolder.path || `${folderPath}/${orderFolder.name}`;
+            // Try to confirm PDF exists inside
+            try {
+              const filesInOrder = await synologyListFolderEntries({
+                baseUrl,
+                sid,
+                folderPath: orderFolderPath,
+              });
+              const pdfFile = filesInOrder.find(
+                (f) =>
+                  !f.isdir &&
+                  String(f.name || "").toLowerCase() === fileName.toLowerCase(),
+              );
+              if (pdfFile) {
+                const pdfPath =
+                  pdfFile.path || `${orderFolderPath}/${pdfFile.name}`;
+                logger.info(
+                  "synologySearchFileByName: found via traversal (PDF confirmed)",
+                  {
+                    fileName,
+                    pdfPath,
+                  },
+                );
+                return pdfPath;
+              }
+            } catch (_) {}
+            // PDF not found inside but folder is correct — return assumed path
+            const assumedPath = `${orderFolderPath}/${fileName}`;
+            logger.info(
+              "synologySearchFileByName: found folder via traversal (PDF assumed)",
+              {
+                fileName,
+                assumedPath,
+              },
+            );
+            return assumedPath;
+          }
+        } catch (listErr) {
+          // Permission error or folder inaccessible — skip
+          continue;
+        }
+      }
+      logger.info("synologySearchFileByName: traversal found nothing", {
+        fileName,
+      });
+    }
+  } catch (traverseErr) {
+    logger.warn("synologySearchFileByName: directory traversal failed", {
+      fileName,
+      error: traverseErr?.message,
+    });
+  }
+
+  return null;
 }
 
 async function synologyListFolderEntries({ baseUrl, sid, folderPath }) {
+  // Use POST with form body to avoid GET URL-length limits with long CJK paths
   const listUrl = new URL("/webapi/entry.cgi", baseUrl);
-  listUrl.searchParams.set("api", "SYNO.FileStation.List");
-  listUrl.searchParams.set("version", "2");
-  listUrl.searchParams.set("method", "list");
-  listUrl.searchParams.set("folder_path", folderPath);
-  listUrl.searchParams.set(
-    "additional",
-    JSON.stringify(["real_path", "time", "size"]),
-  );
-  listUrl.searchParams.set("_sid", sid);
+  const body = new URLSearchParams();
+  body.set("api", "SYNO.FileStation.List");
+  body.set("version", "2");
+  body.set("method", "list");
+  body.set("folder_path", folderPath);
+  body.set("additional", JSON.stringify(["real_path", "time", "size"]));
+  body.set("_sid", sid);
 
-  const listResp = await fetch(listUrl.toString(), { method: "GET" });
+  const listResp = await fetch(listUrl.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
   const listJson = await parseJsonSafe(listResp);
   if (!listResp.ok || !listJson.success) {
     throw new Error(formatSynologyError(listJson, "Synology 列出資料夾失敗"));
@@ -1015,6 +1597,97 @@ async function synologyListFolderEntries({ baseUrl, sid, folderPath }) {
 
   const files = listJson?.data?.files;
   return Array.isArray(files) ? files : [];
+}
+
+// 使用 SYNO.Finder (Universal Search / 索引搜尋) 搜尋資料夾，速度遠勝 FileStation.Search
+async function synologyFinderSearchFolders({ baseUrl, sid, pattern }) {
+  const apiUrl = new URL("/webapi/entry.cgi", baseUrl).toString();
+  try {
+    const serial = String(Date.now()) + String(Math.random()).slice(2, 8);
+    const maxAttempts = 20;
+    const pollInterval = 400;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+      }
+
+      const body = new URLSearchParams();
+      body.set("api", "SYNO.Finder.FileIndexed.Search");
+      body.set("version", "1");
+      body.set("method", "search");
+      body.set("keyword", pattern);
+      body.set("query_serial", serial);
+      body.set("search_type", "all");
+      body.set("offset", "0");
+      body.set("limit", "200");
+      body.set("_sid", sid);
+
+      const resp = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      const json = await parseJsonSafe(resp);
+
+      if (attempt === 0 || json?.data?.total > 0) {
+        logger.info("synologyFinderSearchFolders: poll", {
+          pattern,
+          attempt,
+          success: json?.success,
+          total: json?.data?.total,
+          finished: json?.data?.finished,
+          errorCode: json?.error?.code,
+        });
+      }
+      if (!json?.success) return [];
+
+      const items =
+        json?.data?.items || json?.data?.files || json?.data?.result || [];
+      // 轉換 Finder 回傳格式為與 FileStation 一致的 { name, path, isdir, additional }
+      const folders = [];
+      for (const item of items) {
+        const isDir =
+          item?.is_dir === true || item?.type === "dir" || item?.isdir === true;
+        if (!isDir) continue;
+        const name = String(
+          item?.dentry_name || item?.name || item?.title || "",
+        ).trim();
+        const dir = String(item?.dir || item?.folder_path || "").trim();
+        const itemPath = String(item?.path || "").trim();
+        const fullPath = itemPath || (dir ? `${dir}/${name}` : "");
+        if (name && fullPath) {
+          folders.push({
+            name,
+            path: fullPath,
+            isdir: true,
+            additional: {
+              time: { mtime: Number(item?.mtime || item?.last_modified || 0) },
+            },
+          });
+        }
+      }
+      if (folders.length > 0) {
+        logger.info("synologyFinderSearchFolders: folders found", {
+          pattern,
+          attempt,
+          count: folders.length,
+        });
+        return folders;
+      }
+      // If Finder says search is finished, no more results
+      if (json?.data?.finished === true) return [];
+      // If items exist but no folders matched, and search finished, stop
+      if (items.length > 0 && json?.data?.finished !== false) return [];
+    } // end polling loop
+    return [];
+  } catch (err) {
+    logger.warn("synologyFinderSearchFolders: error", {
+      pattern,
+      error: err?.message,
+    });
+    return [];
+  }
 }
 
 // 使用 SYNO.FileStation.Search API 搜尋符合關鍵字的資料夾（比逐層列出快很多）
@@ -1038,13 +1711,14 @@ async function synologySearchFolders({ baseUrl, sid, rootPath, pattern }) {
   const taskid = startJson?.data?.taskid;
   if (!taskid) throw new Error("Synology 搜尋未回傳 taskid");
 
-  // Step 2: 輪詢直到搜尋完成（最多等 10 秒），每次取足夠多筆
-  // 首次等較短時間，後續每次等 300ms，找到結果就提早結束
+  // Step 2: 輪詢直到搜尋完成（最多等 30 秒），每次取足夠多筆
+  // 首次等較短時間（200ms），快速遞增，找到結果就提早結束
   let finished = false;
   let files = [];
   const pollDelays = [
-    300, 300, 300, 300, 300, 400, 400, 400, 400, 500, 500, 500, 500, 500, 500,
-    500, 500, 500, 500, 500,
+    200, 300, 500, 500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000,
+    1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000,
+    1000, 1000, 1000, 1000,
   ];
   for (let i = 0; i < pollDelays.length; i++) {
     await new Promise((r) => setTimeout(r, pollDelays[i]));
@@ -2263,7 +2937,7 @@ async function listOrderFoldersParallel({
         }
         if (clientFoldersL2.length > 0) {
           logger.info(
-            "listOrderFoldersParallel: deep scan found client folders",
+            "listOrderFoldersParallel: deep scan found client folders at L2",
             {
               batchStart: i,
               level2Total: batchLevel2.length,
@@ -2303,6 +2977,83 @@ async function listOrderFoldersParallel({
             }),
           );
           return [...level3Dirs, ...level4Results.flat()];
+        }
+
+        // Level2 也沒找到客戶資料夾 → 再往下掃 level3（處理 4 層結構：
+        //   basePath/category/subcategory/clientFolder/orderFolder）
+        const batchLevel3 = (
+          await Promise.all(
+            batchLevel2.slice(0, 60).map(async (dir) => {
+              try {
+                const entries = await synologyListFolderEntries({
+                  baseUrl,
+                  sid,
+                  folderPath: dir.path,
+                });
+                return entries.filter((e) => e?.isdir);
+              } catch {
+                return [];
+              }
+            }),
+          )
+        ).flat();
+
+        let clientFoldersL3 = [];
+        if (customerCode) {
+          clientFoldersL3 = batchLevel3.filter((e) =>
+            String(e.name || "")
+              .toUpperCase()
+              .includes(customerCode.toUpperCase()),
+          );
+        }
+        if (clientFoldersL3.length === 0 && customerNumber) {
+          const numStr = String(customerNumber).replace(/^0+/, "");
+          clientFoldersL3 = batchLevel3.filter((e) =>
+            String(e.name || "").includes(numStr),
+          );
+        }
+        if (clientFoldersL3.length > 0) {
+          logger.info(
+            "listOrderFoldersParallel: deep scan found client folders at L3",
+            {
+              batchStart: i,
+              level3Total: batchLevel3.length,
+              matched: clientFoldersL3.length,
+            },
+          );
+          // 掃 level4 取訂單資料夾
+          const level4Dirs = (
+            await Promise.all(
+              clientFoldersL3.slice(0, 10).map(async (cf) => {
+                try {
+                  const entries = await synologyListFolderEntries({
+                    baseUrl,
+                    sid,
+                    folderPath: cf.path,
+                  });
+                  return entries.filter((e) => e?.isdir);
+                } catch {
+                  return [];
+                }
+              }),
+            )
+          ).flat();
+          // 額外多掃一層（level5）：有些訂單放在「已安裝ok」等中介資料夾內
+          const level5Results = await Promise.all(
+            level4Dirs.map(async (subDir) => {
+              try {
+                const subEntries = await synologyListFolderEntries({
+                  baseUrl,
+                  sid,
+                  folderPath: subDir.path,
+                });
+                return subEntries.filter((e) => e?.isdir);
+              } catch {
+                return [];
+              }
+            }),
+          );
+          return [...level4Dirs, ...level5Results.flat()];
         }
       }
       logger.info("listOrderFoldersParallel: deep scan exhausted", {
@@ -2444,75 +3195,62 @@ async function resolveExistingOrderFolderPath({
   // 從對照表取正確的客戶編號（例外安全，找不到則保持空字串）
   customerNumber = CUSTOMER_CODE_LOOKUP[customerCode] || "";
 
-  // 同時並發兩種搜尋方式，哪個先有結果就用哪個：
-  //   1. listOrderFoldersParallel：直接列出目錄兩層（快，不需輪詢索引）
-  //   2. synologySearchFolders：Synology Search API（慢，但可搜更深層結構）
+  // 優先 Universal Search (Finder API)，若不可用則 fallback 到 FileStation.Search
   const sharedFolderRoot = "/" + basePath.split("/").filter(Boolean)[0];
-  const searchRoots =
-    sharedFolderRoot && sharedFolderRoot !== basePath
-      ? [basePath, sharedFolderRoot]
-      : [basePath];
-
   const t0 = Date.now();
   let entries = [];
 
-  const parallelListPromise = listOrderFoldersParallel({
+  // Step 1: Finder API
+  entries = await synologyFinderSearchFolders({
     baseUrl,
     sid,
-    basePath: baseSearchPath,
-    customerCode,
-    customerNumber,
-  }).then((r) => {
-    if (r.length > 0) {
-      logger.info("resolveExistingOrderFolderPath: parallelList won race", {
-        count: r.length,
-        ms: Date.now() - t0,
-      });
-      return r;
-    }
-    return Promise.reject(new Error("parallelList:empty"));
+    pattern: normalizedOrderNumber,
   });
 
-  const searchPromises = searchRoots.map((searchRoot) =>
-    synologySearchFolders({
-      baseUrl,
-      sid,
-      rootPath: searchRoot,
-      pattern: normalizedOrderNumber,
-    }).then((r) => {
-      if (r.length > 0) {
-        logger.info("resolveExistingOrderFolderPath: search won race", {
-          searchRoot,
-          count: r.length,
-          ms: Date.now() - t0,
-        });
-        return r;
-      }
-      return Promise.reject(new Error("search:empty"));
-    }),
-  );
-
-  // 整體最多等 12 秒，避免單一查詢長時間卡住
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("timeout")), 12000),
-  );
-
-  try {
-    entries = await Promise.race([
-      Promise.any([parallelListPromise, ...searchPromises]),
-      timeoutPromise,
-    ]);
-  } catch (raceError) {
-    // 所有方式都沒找到結果，或到達 12 秒上限
-    logger.warn(
-      "resolveExistingOrderFolderPath: all strategies returned empty or timeout",
-      {
-        orderNumber: normalizedOrderNumber,
-        ms: Date.now() - t0,
-        reason: raceError?.message,
-      },
+  // Step 2: Finder 無結果 → fallback FileStation.Search
+  if (entries.length === 0) {
+    logger.info(
+      "resolveExistingOrderFolderPath: Finder empty, fallback to FileStation.Search",
     );
+    const searchRoots =
+      sharedFolderRoot && sharedFolderRoot !== basePath
+        ? [basePath, sharedFolderRoot]
+        : [basePath];
+
+    const searchPromises = searchRoots.map((searchRoot) =>
+      synologySearchFolders({
+        baseUrl,
+        sid,
+        rootPath: searchRoot,
+        pattern: normalizedOrderNumber,
+      }),
+    );
+
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(() => resolve([]), 60000),
+    );
+
+    try {
+      const results = await Promise.race([
+        Promise.any(
+          searchPromises.map((p) =>
+            p.then((r) =>
+              r.length > 0 ? r : Promise.reject(new Error("empty")),
+            ),
+          ),
+        ),
+        timeoutPromise,
+      ]);
+      entries = Array.isArray(results) ? results : [];
+    } catch {
+      entries = [];
+    }
   }
+
+  logger.info("resolveExistingOrderFolderPath: search result", {
+    count: entries.length,
+    ms: Date.now() - t0,
+  });
 
   const candidates = entries
     .map((entry) => {
@@ -2606,9 +3344,10 @@ async function resolveExistingOrderFolderPath({
       matchScore: selected.score,
     };
   }
+  const resolvedPath =
+    selectedPath || `${basePath}/${customerFolder}/${selected.name}`;
   return {
-    uploadFolder:
-      selectedPath || `${basePath}/${customerFolder}/${selected.name}`,
+    uploadFolder: resolvedPath,
     matched: true,
     matchedFolderName: selected.name,
     matchScore: selected.score,
@@ -2619,6 +3358,8 @@ async function resolveExistingOrderFolderPath({
 function normalizeSynologyDirPath(inputPath = "") {
   const normalized = String(inputPath || "")
     .replace(/\\/g, "/")
+    .replace(/\/+/g, "/") // collapse double slashes
+    .replace(/\/$/, "") // remove trailing slash
     .trim();
   if (!normalized) return "";
   return normalized.startsWith("/") ? normalized : `/${normalized}`;
@@ -2691,10 +3432,46 @@ function formatSynologyError(payload, fallbackMessage) {
   if (!code) return fallbackMessage;
 
   if (code === 119) {
-    return `${fallbackMessage} (Synology code: 119，通常是 path 參數無效；請確認 NAS 路徑是 /共用資料夾/子目錄 格式，例如 /岱晨/test，而非 \\\\SERVER\\Share)`;
+    return `${fallbackMessage} (Synology code: 119，SID 不存在或已過期，可能是 NAS 連線逾時)`;
   }
 
   return `${fallbackMessage} (Synology code: ${code})`;
+}
+
+function isSidExpiredError(err) {
+  return String(err?.message || "").includes("Synology code: 119");
+}
+
+// ── Global SID cache ──────────────────────────────────────────────
+// Reuse Synology SID across requests within the same Cloud Functions instance
+// to avoid login/logout round-trips (~200-500ms each).
+// TTL is conservative (8 min) since Synology default session timeout is 15 min.
+const _sidCache = { sid: "", ts: 0 };
+const SID_CACHE_TTL_MS = 8 * 60 * 1000; // 8 minutes
+
+async function getOrCreateSid(baseUrl, username, password) {
+  if (_sidCache.sid && Date.now() - _sidCache.ts < SID_CACHE_TTL_MS) {
+    return _sidCache.sid;
+  }
+  const sid = await synologyLogin(baseUrl, username, password);
+  _sidCache.sid = sid;
+  _sidCache.ts = Date.now();
+  return sid;
+}
+
+async function refreshSid(baseUrl, username, password) {
+  // Force re-login (e.g. after code 119)
+  _sidCache.sid = "";
+  _sidCache.ts = 0;
+  const sid = await synologyLogin(baseUrl, username, password);
+  _sidCache.sid = sid;
+  _sidCache.ts = Date.now();
+  return sid;
+}
+
+function invalidateSidCache() {
+  _sidCache.sid = "";
+  _sidCache.ts = 0;
 }
 
 async function synologyLogin(baseUrl, username, password) {
@@ -2760,15 +3537,21 @@ async function synologyUploadFile({
 }
 
 async function synologyCreateFolder({ baseUrl, sid, parentFolderPath, name }) {
+  // Use POST with form body to avoid GET URL-length limits with long CJK paths
   const url = new URL("/webapi/entry.cgi", baseUrl);
-  url.searchParams.set("api", "SYNO.FileStation.CreateFolder");
-  url.searchParams.set("version", "2");
-  url.searchParams.set("method", "create");
-  url.searchParams.set("folder_path", JSON.stringify([parentFolderPath]));
-  url.searchParams.set("name", JSON.stringify([name]));
-  url.searchParams.set("force_parent", "true");
-  url.searchParams.set("_sid", sid);
-  const resp = await fetch(url.toString(), { method: "GET" });
+  const body = new URLSearchParams();
+  body.set("api", "SYNO.FileStation.CreateFolder");
+  body.set("version", "2");
+  body.set("method", "create");
+  body.set("folder_path", JSON.stringify([parentFolderPath]));
+  body.set("name", JSON.stringify([name]));
+  body.set("force_parent", "true");
+  body.set("_sid", sid);
+  const resp = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
   const json = await parseJsonSafe(resp);
   if (!resp.ok || !json.success) {
     // code 414 = already exists — treat as ok
@@ -2779,14 +3562,20 @@ async function synologyCreateFolder({ baseUrl, sid, parentFolderPath, name }) {
 }
 
 async function synologyRenameFolder({ baseUrl, sid, folderPath, newName }) {
+  // Use POST with form body to avoid GET URL-length limits with long CJK paths
   const url = new URL("/webapi/entry.cgi", baseUrl);
-  url.searchParams.set("api", "SYNO.FileStation.Rename");
-  url.searchParams.set("version", "2");
-  url.searchParams.set("method", "rename");
-  url.searchParams.set("path", JSON.stringify([folderPath]));
-  url.searchParams.set("name", JSON.stringify([newName]));
-  url.searchParams.set("_sid", sid);
-  const resp = await fetch(url.toString(), { method: "GET" });
+  const body = new URLSearchParams();
+  body.set("api", "SYNO.FileStation.Rename");
+  body.set("version", "2");
+  body.set("method", "rename");
+  body.set("path", JSON.stringify([folderPath]));
+  body.set("name", JSON.stringify([newName]));
+  body.set("_sid", sid);
+  const resp = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
   const json = await parseJsonSafe(resp);
   if (!resp.ok || !json.success) {
     throw new Error(formatSynologyError(json, "Synology 重新命名資料夾失敗"));
@@ -2847,30 +3636,40 @@ async function synologyMoveFiles({ baseUrl, sid, srcPaths, destFolderPath }) {
 
 async function synologyDeleteFile({ baseUrl, sid, filePath }) {
   async function requestDelete(pathToDelete, version = "2") {
+    // Use POST with form body to avoid GET URL-length limits with long CJK paths
     const deleteUrl = new URL("/webapi/entry.cgi", baseUrl);
-    deleteUrl.searchParams.set("_sid", sid);
-    deleteUrl.searchParams.set("api", "SYNO.FileStation.Delete");
-    deleteUrl.searchParams.set("version", String(version));
-    deleteUrl.searchParams.set("method", "delete");
-    deleteUrl.searchParams.set("path", JSON.stringify([pathToDelete]));
+    const body = new URLSearchParams();
+    body.set("_sid", sid);
+    body.set("api", "SYNO.FileStation.Delete");
+    body.set("version", String(version));
+    body.set("method", "delete");
+    body.set("path", JSON.stringify([pathToDelete]));
 
     const deleteResp = await fetch(deleteUrl.toString(), {
-      method: "GET",
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
     });
     const deleteJson = await parseJsonSafe(deleteResp);
     return { deleteResp, deleteJson };
   }
 
   async function listFolder(folderPath) {
+    // Use POST with form body to avoid GET URL-length limits with long CJK paths
     const listUrl = new URL("/webapi/entry.cgi", baseUrl);
-    listUrl.searchParams.set("api", "SYNO.FileStation.List");
-    listUrl.searchParams.set("version", "2");
-    listUrl.searchParams.set("method", "list");
-    listUrl.searchParams.set("folder_path", folderPath);
-    listUrl.searchParams.set("additional", JSON.stringify(["real_path"]));
-    listUrl.searchParams.set("_sid", sid);
+    const body = new URLSearchParams();
+    body.set("api", "SYNO.FileStation.List");
+    body.set("version", "2");
+    body.set("method", "list");
+    body.set("folder_path", folderPath);
+    body.set("additional", JSON.stringify(["real_path"]));
+    body.set("_sid", sid);
 
-    const listResp = await fetch(listUrl.toString(), { method: "GET" });
+    const listResp = await fetch(listUrl.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
     const listJson = await parseJsonSafe(listResp);
     if (!listResp.ok || !listJson.success) {
       return [];
@@ -2977,15 +3776,22 @@ async function synologyDeleteFile({ baseUrl, sid, filePath }) {
 }
 
 async function synologyDownloadFile({ baseUrl, sid, filePath }) {
+  // Use POST with form body to avoid GET URL-length limits with long CJK paths.
+  // SYNO.FileStation.Download streams the response body regardless of method.
   const downloadUrl = new URL("/webapi/entry.cgi", baseUrl);
-  downloadUrl.searchParams.set("api", "SYNO.FileStation.Download");
-  downloadUrl.searchParams.set("version", "2");
-  downloadUrl.searchParams.set("method", "download");
-  downloadUrl.searchParams.set("path", JSON.stringify([filePath]));
-  downloadUrl.searchParams.set("mode", "open");
-  downloadUrl.searchParams.set("_sid", sid);
+  const body = new URLSearchParams();
+  body.set("api", "SYNO.FileStation.Download");
+  body.set("version", "2");
+  body.set("method", "download");
+  body.set("path", JSON.stringify([filePath]));
+  body.set("mode", "open");
+  body.set("_sid", sid);
 
-  return fetch(downloadUrl.toString(), { method: "GET" });
+  return fetch(downloadUrl.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
 }
 
 exports.uploadCompletionPhotoToNasHttp = onRequestV2(
@@ -3110,6 +3916,10 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       (orderSnap.exists ? orderSnap.data()?.nasOrderFolderPath : "") || "",
     ).trim();
 
+    const orderNumber = String(
+      form?.fields?.orderNumber || folderParts.orderNumber || "",
+    ).trim();
+
     let sid = "";
     let uploadFolder = `${pathCheck.normalized}/${folderParts.customerFolder}/${folderParts.detailFolder}`;
     let matchMeta = {
@@ -3118,7 +3928,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       matchScore: 0,
     };
 
-    // 共用的資料夾解析 + 重命名 + 上傳邏輯，支援快取失效後重試
+    // 共用的資料夾解析 + 上傳邏輯
     async function resolveAndUpload(useCachedFolder) {
       if (useCachedFolder) {
         uploadFolder = cachedNasFolder;
@@ -3128,56 +3938,82 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
           uploadFolder,
         });
       } else {
-        matchMeta = await resolveExistingOrderFolderPath({
-          baseUrl,
-          sid,
-          basePath: pathCheck.normalized,
-          customerFolder: folderParts.customerFolder,
-          orderNumber: folderParts.orderNumber || form?.fields?.orderNumber,
-          defaultDetailFolder: folderParts.detailFolder,
-        });
-        uploadFolder = matchMeta.uploadFolder;
-        orderDocRef
-          .update({ nasOrderFolderPath: uploadFolder })
-          .catch(() => {});
+        // Strategy 1: 用訂單號碼.pdf 搜尋，直接定位到正確資料夾（即使客戶資料夾已改名也能找到）
+        const pdfFileName = `${folderParts.orderNumber || orderNumber}.pdf`;
+        let foundViaPdf = false;
+        if (pdfFileName && pdfFileName !== ".pdf") {
+          try {
+            const pdfPath = await synologySearchFileByName({
+              baseUrl,
+              sid,
+              rootPath: pathCheck.normalized,
+              fileName: pdfFileName,
+            });
+            if (pdfPath) {
+              const pdfLastSlash = pdfPath.lastIndexOf("/");
+              if (pdfLastSlash > 0) {
+                uploadFolder = pdfPath.slice(0, pdfLastSlash);
+                matchMeta = {
+                  matched: true,
+                  matchedFolderName: uploadFolder.split("/").pop() || "",
+                  matchScore: 99999,
+                };
+                foundViaPdf = true;
+                logger.info(
+                  "uploadCompletionPhotoToNasHttp: found order folder via PDF search",
+                  { orderDocId, pdfPath, uploadFolder },
+                );
+                orderDocRef
+                  .update({ nasOrderFolderPath: uploadFolder })
+                  .catch(() => {});
+              }
+            }
+          } catch (pdfSearchErr) {
+            logger.warn(
+              "uploadCompletionPhotoToNasHttp: PDF search failed, falling back to folder matching",
+              { orderDocId, pdfFileName, error: pdfSearchErr?.message },
+            );
+          }
+        }
+
+        // Strategy 2: fallback — 用資料夾名稱比對
+        if (!foundViaPdf) {
+          matchMeta = await resolveExistingOrderFolderPath({
+            baseUrl,
+            sid,
+            basePath: pathCheck.normalized,
+            customerFolder: folderParts.customerFolder,
+            orderNumber: folderParts.orderNumber || orderNumber,
+            defaultDetailFolder: folderParts.detailFolder,
+          });
+          uploadFolder = matchMeta.uploadFolder;
+          orderDocRef
+            .update({ nasOrderFolderPath: uploadFolder })
+            .catch(() => {});
+        }
       }
 
-      // 上傳前先將資料夾重新命名為新格式：年-月-日[原名稱][安裝人員1][安裝人員2][安裝人員3]
-      // 只在第一次上傳（尚無快取路徑）時才改名，避免重複改名出錯
-      if (!useCachedFolder && desiredDetailFolder) {
+      // If folder doesn't exist yet, create it with desiredDetailFolder name
+      if (!matchMeta.matched) {
         const lastSlash = uploadFolder.lastIndexOf("/");
         if (lastSlash > 0) {
           const parentPath = uploadFolder.slice(0, lastSlash);
-          const currentName = uploadFolder.slice(lastSlash + 1);
-          if (currentName !== desiredDetailFolder) {
-            if (matchMeta.matched) {
-              try {
-                await synologyRenameFolder({
-                  baseUrl,
-                  sid,
-                  folderPath: uploadFolder,
-                  newName: desiredDetailFolder,
-                });
-                logger.info("uploadCompletionPhotoToNasHttp: renamed folder", {
-                  from: uploadFolder,
-                  to: `${parentPath}/${desiredDetailFolder}`,
-                  orderDocId,
-                });
-              } catch (renameError) {
-                logger.warn(
-                  "uploadCompletionPhotoToNasHttp: rename folder failed, will use desired path",
-                  {
-                    from: uploadFolder,
-                    desiredDetailFolder,
-                    error: renameError.message,
-                  },
-                );
-              }
-            }
-            uploadFolder = `${parentPath}/${desiredDetailFolder}`;
-            orderDocRef
-              .update({ nasOrderFolderPath: uploadFolder })
-              .catch(() => {});
+          uploadFolder = `${parentPath}/${desiredDetailFolder}`;
+          orderDocRef
+            .update({ nasOrderFolderPath: uploadFolder })
+            .catch(() => {});
+          try {
+            await synologyCreateFolder({
+              baseUrl,
+              sid,
+              parentFolderPath: parentPath,
+              name: desiredDetailFolder,
+            });
+          } catch (createErr) {
+            logger.warn(
+              "uploadCompletionPhotoToNasHttp: explicit folder create failed, will rely on create_parents",
+              { orderDocId, error: createErr?.message },
+            );
           }
         }
       }
@@ -3185,22 +4021,125 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       await synologyUploadFile({
         baseUrl,
         sid,
-        targetPath: uploadFolder,
+        targetPath: normalizeSynologyDirPath(uploadFolder),
         fileBuffer: uploadFile.buffer,
         fileName: targetName,
         mimeType: contentType,
       });
+
+      // Post-upload: rename folder to include date prefix + installer names if needed.
+      // Runs after a successful upload so photos are never split across two folders.
+      if (desiredDetailFolder && uploadFolder) {
+        const lastSlash = uploadFolder.lastIndexOf("/");
+        if (lastSlash > 0) {
+          const parentPath = uploadFolder.slice(0, lastSlash);
+          const currentName = uploadFolder.slice(lastSlash + 1);
+          const hasDatePrefix = /^\d{2,4}-\d{2}-\d{2}/.test(currentName);
+
+          if (!hasDatePrefix && currentName !== desiredDetailFolder) {
+            const newFolderPath = `${parentPath}/${desiredDetailFolder}`;
+            let shouldRename = false;
+            const originalName = currentName;
+
+            try {
+              uploadFolder = await admin
+                .firestore()
+                .runTransaction(async (tx) => {
+                  const snap = await tx.get(orderDocRef);
+                  const storedPath = String(
+                    snap?.data()?.nasOrderFolderPath || "",
+                  ).trim();
+                  const storedName = storedPath.split("/").pop();
+                  if (storedPath && /^\d{2,4}-\d{2}-\d{2}/.test(storedName)) {
+                    // Another concurrent upload already renamed — use its result
+                    return storedPath;
+                  }
+                  tx.update(orderDocRef, { nasOrderFolderPath: newFolderPath });
+                  shouldRename = true;
+                  return newFolderPath;
+                });
+            } catch (txErr) {
+              logger.warn(
+                "uploadCompletionPhotoToNasHttp: post-upload rename transaction failed",
+                { orderDocId, error: txErr.message },
+              );
+            }
+
+            if (shouldRename) {
+              try {
+                await synologyRenameFolder({
+                  baseUrl,
+                  sid,
+                  folderPath: `${parentPath}/${originalName}`,
+                  newName: desiredDetailFolder,
+                });
+                logger.info(
+                  "uploadCompletionPhotoToNasHttp: renamed folder after upload",
+                  { orderDocId, from: originalName, to: desiredDetailFolder },
+                );
+                // Update nasPath on all existing photo records in this order
+                const oldPrefix = `${parentPath}/${originalName}/`;
+                const newPrefix = `${parentPath}/${desiredDetailFolder}/`;
+                const existingPhotosSnap = await admin
+                  .firestore()
+                  .collection("Orders")
+                  .doc(orderDocId)
+                  .collection("completionPhotos")
+                  .get();
+                const batch = admin.firestore().batch();
+                let batchCount = 0;
+                for (const photoDoc of existingPhotosSnap.docs) {
+                  const oldNasPath = String(
+                    photoDoc.data()?.nasPath || "",
+                  ).trim();
+                  if (oldNasPath.startsWith(oldPrefix)) {
+                    batch.update(photoDoc.ref, {
+                      nasPath: newPrefix + oldNasPath.slice(oldPrefix.length),
+                    });
+                    batchCount++;
+                  }
+                }
+                if (batchCount > 0) await batch.commit();
+              } catch (renameErr) {
+                // Rename failed: revert Firestore so next upload retries
+                const oldFolderPath = `${parentPath}/${originalName}`;
+                uploadFolder = oldFolderPath;
+                try {
+                  await orderDocRef.update({
+                    nasOrderFolderPath: oldFolderPath,
+                  });
+                } catch (_) {}
+                logger.warn(
+                  "uploadCompletionPhotoToNasHttp: post-upload rename failed, reverted Firestore",
+                  {
+                    orderDocId,
+                    from: originalName,
+                    to: desiredDetailFolder,
+                    error: renameErr.message,
+                  },
+                );
+              }
+            }
+          }
+        }
+      }
     }
 
     try {
-      sid = await synologyLogin(baseUrl, username, password);
+      sid = await getOrCreateSid(baseUrl, username, password);
       try {
         await resolveAndUpload(!!cachedNasFolder);
       } catch (uploadErr) {
-        // 若用快取路徑上傳失敗，重新搜尋資料夾後重試一次
-        // 注意：不先清空快取，resolveAndUpload(false) 成功後會自行更新快取，
-        // 避免「清空 → 搜到不同客戶資料夾 → 建立重複子資料夾」的問題。
-        if (cachedNasFolder) {
+        // SID 過期 (code 119)：重新登入後再試一次
+        if (isSidExpiredError(uploadErr)) {
+          logger.warn(
+            "uploadCompletionPhotoToNasHttp: SID expired (119), re-login and retry",
+            { orderDocId, error: uploadErr?.message },
+          );
+          sid = await refreshSid(baseUrl, username, password);
+          await resolveAndUpload(!!cachedNasFolder);
+          // 若用快取路徑上傳失敗，重新搜尋資料夾後重試一次
+        } else if (cachedNasFolder) {
           logger.warn(
             "uploadCompletionPhotoToNasHttp: cached folder failed, retrying with fresh resolve",
             {
@@ -3209,7 +4148,21 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
               error: uploadErr?.message,
             },
           );
-          await resolveAndUpload(false);
+          try {
+            await resolveAndUpload(false);
+          } catch (retryErr) {
+            // 重試也遇到 SID 過期：再登入一次
+            if (isSidExpiredError(retryErr)) {
+              logger.warn(
+                "uploadCompletionPhotoToNasHttp: SID expired on retry, re-login",
+                { orderDocId, error: retryErr?.message },
+              );
+              sid = await refreshSid(baseUrl, username, password);
+              await resolveAndUpload(false);
+            } else {
+              throw retryErr;
+            }
+          }
         } else {
           throw uploadErr;
         }
@@ -3227,12 +4180,6 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       });
       sendJson(res, 500, { error: e?.message || "上傳到 NAS 失敗" });
       return;
-    } finally {
-      try {
-        await synologyLogout(baseUrl, sid);
-      } catch (_e) {
-        // ignore logout failure
-      }
     }
 
     const nasPath = `${uploadFolder}/${targetName}`;
@@ -3378,23 +4325,47 @@ exports.replaceCompletionPhotoInNasHttp = onRequestV2(
     let sid = "";
     try {
       sid = await synologyLogin(baseUrl, username, password);
-      await synologyUploadFile({
-        baseUrl,
-        sid,
-        targetPath: dirPath,
-        fileBuffer: uploadFile.buffer,
-        fileName: nextName,
-        mimeType: contentType,
-      });
-      try {
-        await synologyDeleteFile({ baseUrl, sid, filePath: previousNasPath });
-      } catch (e) {
-        logger.warn("replaceCompletionPhotoInNasHttp old file delete failed", {
-          orderDocId,
-          photoId,
-          previousNasPath,
-          error: e?.message || String(e),
+
+      const doUploadAndCleanup = async () => {
+        await synologyUploadFile({
+          baseUrl,
+          sid,
+          targetPath: dirPath,
+          fileBuffer: uploadFile.buffer,
+          fileName: nextName,
+          mimeType: contentType,
         });
+        try {
+          await synologyDeleteFile({ baseUrl, sid, filePath: previousNasPath });
+        } catch (e) {
+          logger.warn(
+            "replaceCompletionPhotoInNasHttp old file delete failed",
+            {
+              orderDocId,
+              photoId,
+              previousNasPath,
+              error: e?.message || String(e),
+            },
+          );
+        }
+      };
+
+      try {
+        await doUploadAndCleanup();
+      } catch (uploadErr) {
+        if (isSidExpiredError(uploadErr)) {
+          logger.warn(
+            "replaceCompletionPhotoInNasHttp: SID expired (119), re-login and retry",
+            { orderDocId, photoId, error: uploadErr?.message },
+          );
+          try {
+            await synologyLogout(baseUrl, sid);
+          } catch (_) {}
+          sid = await synologyLogin(baseUrl, username, password);
+          await doUploadAndCleanup();
+        } else {
+          throw uploadErr;
+        }
       }
     } catch (e) {
       sendJson(res, 500, { error: e?.message || "更新 NAS 照片失敗" });
@@ -3932,14 +4903,33 @@ exports.uploadCompletionPhotoToNas = onCall(
         defaultDetailFolder: folderParts.detailFolder,
       });
       uploadFolder = matchMeta.uploadFolder;
-      await synologyUploadFile({
-        baseUrl,
-        sid,
-        targetPath: uploadFolder,
-        fileBuffer,
-        fileName: targetName,
-        mimeType: contentType,
-      });
+      try {
+        await synologyUploadFile({
+          baseUrl,
+          sid,
+          targetPath: uploadFolder,
+          fileBuffer,
+          fileName: targetName,
+          mimeType: contentType,
+        });
+      } catch (uploadErr) {
+        if (isSidExpiredError(uploadErr)) {
+          try {
+            await synologyLogout(baseUrl, sid);
+          } catch (_) {}
+          sid = await synologyLogin(baseUrl, username, password);
+          await synologyUploadFile({
+            baseUrl,
+            sid,
+            targetPath: uploadFolder,
+            fileBuffer,
+            fileName: targetName,
+            mimeType: contentType,
+          });
+        } else {
+          throw uploadErr;
+        }
+      }
     } catch (error) {
       throw new functions.https.HttpsError(
         "internal",
@@ -4089,24 +5079,40 @@ exports.replaceCompletionPhotoInNas = onCall(
     let sid = "";
     try {
       sid = await synologyLogin(baseUrl, username, password);
-      await synologyUploadFile({
-        baseUrl,
-        sid,
-        targetPath: dirPath,
-        fileBuffer,
-        fileName: nextName,
-        mimeType: contentType,
-      });
+
+      const doUploadAndCleanup = async () => {
+        await synologyUploadFile({
+          baseUrl,
+          sid,
+          targetPath: dirPath,
+          fileBuffer,
+          fileName: nextName,
+          mimeType: contentType,
+        });
+        try {
+          await synologyDeleteFile({ baseUrl, sid, filePath: previousNasPath });
+        } catch (e) {
+          logger.warn("replaceCompletionPhotoInNas old file delete failed", {
+            orderDocId,
+            photoId,
+            previousNasPath,
+            error: e?.message || String(e),
+          });
+        }
+      };
 
       try {
-        await synologyDeleteFile({ baseUrl, sid, filePath: previousNasPath });
-      } catch (e) {
-        logger.warn("replaceCompletionPhotoInNas old file delete failed", {
-          orderDocId,
-          photoId,
-          previousNasPath,
-          error: e?.message || String(e),
-        });
+        await doUploadAndCleanup();
+      } catch (uploadErr) {
+        if (isSidExpiredError(uploadErr)) {
+          try {
+            await synologyLogout(baseUrl, sid);
+          } catch (_) {}
+          sid = await synologyLogin(baseUrl, username, password);
+          await doUploadAndCleanup();
+        } else {
+          throw uploadErr;
+        }
       }
     } catch (error) {
       throw new functions.https.HttpsError(
@@ -4195,7 +5201,19 @@ exports.deleteCompletionPhotoInNas = onCall(
       let sid = "";
       try {
         sid = await synologyLogin(baseUrl, username, password);
-        await synologyDeleteFile({ baseUrl, sid, filePath: nasPath });
+        try {
+          await synologyDeleteFile({ baseUrl, sid, filePath: nasPath });
+        } catch (delErr) {
+          if (isSidExpiredError(delErr)) {
+            try {
+              await synologyLogout(baseUrl, sid);
+            } catch (_) {}
+            sid = await synologyLogin(baseUrl, username, password);
+            await synologyDeleteFile({ baseUrl, sid, filePath: nasPath });
+          } else {
+            throw delErr;
+          }
+        }
       } catch (error) {
         throw new functions.https.HttpsError(
           "internal",
@@ -4476,7 +5494,7 @@ exports.serveCompletionPhoto = onRequestV2(
 
     let sid = "";
     try {
-      sid = await synologyLogin(baseUrl, username, password);
+      sid = await getOrCreateSid(baseUrl, username, password);
 
       // 嘗試從 nasPath 下載，失敗時自動用訂單的 nasOrderFolderPath 換算新路徑重試
       async function tryDownload(filePath) {
@@ -4486,6 +5504,15 @@ exports.serveCompletionPhoto = onRequestV2(
 
       let resolvedNasPath = nasPath;
       let downloadResp = await tryDownload(nasPath);
+
+      // SID 過期時自動刷新重試
+      if (!downloadResp.ok) {
+        const bodyText = await downloadResp.clone().text();
+        if (bodyText.includes('"code":119') || bodyText.includes("code: 119")) {
+          sid = await refreshSid(baseUrl, username, password);
+          downloadResp = await tryDownload(nasPath);
+        }
+      }
 
       if (!downloadResp.ok) {
         // 下載失敗，嘗試用訂單層級的快取資料夾路徑重算 nasPath
@@ -4547,7 +5574,7 @@ exports.serveCompletionPhoto = onRequestV2(
         downloadResp.headers.get("content-type") ||
         String(photoData.contentType || "application/octet-stream");
 
-      res.set("Cache-Control", "private, max-age=120");
+      res.set("Cache-Control", "private, max-age=3600");
       res.set("Content-Type", contentType);
       res.set(
         "Content-Disposition",
@@ -4562,12 +5589,6 @@ exports.serveCompletionPhoto = onRequestV2(
         error: error?.message || String(error),
       });
       res.status(500).send("proxy failed");
-    } finally {
-      try {
-        await synologyLogout(baseUrl, sid);
-      } catch (_e) {
-        // ignore logout failure
-      }
     }
   },
 );
@@ -4671,64 +5692,71 @@ exports.serveOrderPdf = onRequestV2(
     try {
       sid = await synologyLogin(baseUrl, username, password);
 
-      if (!nasOrderFolder) {
-        const nasOrderPath = await getNasOrderPath();
-        const pathCheck = validateSynologyDirPath(nasOrderPath);
-        if (!pathCheck.ok) {
-          res.status(500).send("invalid NAS order path");
-          return;
-        }
+      // Strategy 1: Universal search by filename — works regardless of folder structure.
+      // PDF is expected to be named "{orderNumber}.pdf" (e.g. 27361AAJ.pdf).
+      // Search within nasOrderPath (from settings) for faster results.
+      const nasSearchRoot =
+        (await getNasOrderPath()) ||
+        (() => {
+          const parts = (nasOrderFolder || "/峻晟").split("/").filter(Boolean);
+          return "/" + (parts[0] || "峻晟");
+        })();
 
-        const folderParts = await buildOrderNasFolderParts(
-          orderDocId || "_unknown",
-          { ...orderData, 訂單號碼: orderNumber },
+      let pdfPath = await synologySearchFileByName({
+        baseUrl,
+        sid,
+        rootPath: nasSearchRoot,
+        fileName: `${orderNumber}.pdf`,
+      });
+
+      logger.info("serveOrderPdf: search result", {
+        orderNumber,
+        nasSearchRoot,
+        pdfPath,
+      });
+
+      if (!pdfPath && nasOrderFolder) {
+        // Strategy 2: Direct folder listing — if we have a cached folder path, list it
+        logger.info(
+          "serveOrderPdf: search returned null, trying direct folder listing",
+          {
+            orderNumber,
+            nasOrderFolder,
+          },
         );
-
-        const matchMeta = await resolveExistingOrderFolderPath({
-          baseUrl,
-          sid,
-          basePath: pathCheck.normalized,
-          customerFolder: folderParts.customerFolder,
-          orderNumber,
-          defaultDetailFolder: folderParts.detailFolder,
-        });
-        nasOrderFolder = matchMeta.uploadFolder;
-
-        // Cache the resolved path for future requests
-        if (orderDocId && matchMeta.matched) {
-          db.collection("Orders")
-            .doc(orderDocId)
-            .update({ nasOrderFolderPath: nasOrderFolder })
-            .catch(() => {});
+        try {
+          const folderEntries = await synologyListFolderEntries({
+            baseUrl,
+            sid,
+            folderPath: nasOrderFolder,
+          });
+          const pdfFile = folderEntries.find(
+            (f) =>
+              !f.isdir &&
+              String(f.name || "")
+                .toLowerCase()
+                .includes(`${orderNumber.toLowerCase()}.pdf`),
+          );
+          if (pdfFile && pdfFile.path) {
+            pdfPath = String(pdfFile.path).trim();
+            logger.info("serveOrderPdf: found via folder listing", {
+              orderNumber,
+              pdfPath,
+            });
+          }
+        } catch (listErr) {
+          logger.warn("serveOrderPdf: folder listing fallback failed", {
+            orderNumber,
+            nasOrderFolder,
+            error: listErr?.message,
+          });
         }
       }
 
-      // List files in the order folder
-      const entries = await synologyListFolderEntries({
-        baseUrl,
-        sid,
-        folderPath: nasOrderFolder,
-      });
-
-      // Find PDF file(s) - prefer one containing the order number
-      const pdfEntries = entries.filter((e) =>
-        String(e?.name || "")
-          .toLowerCase()
-          .endsWith(".pdf"),
-      );
-
-      if (pdfEntries.length === 0) {
+      if (!pdfPath) {
         res.status(404).send("找不到訂單 PDF 檔案");
         return;
       }
-
-      const matchingPdf =
-        pdfEntries.find((e) => String(e?.name || "").includes(orderNumber)) ||
-        pdfEntries[0];
-
-      const pdfPath =
-        String(matchingPdf?.path || "").trim() ||
-        `${nasOrderFolder}/${matchingPdf.name}`;
 
       const downloadResp = await synologyDownloadFile({
         baseUrl,
@@ -4747,7 +5775,7 @@ exports.serveOrderPdf = onRequestV2(
       }
 
       const body = Buffer.from(await downloadResp.arrayBuffer());
-      const fileName = String(matchingPdf.name || `${orderNumber}.pdf`);
+      const fileName = pdfPath.split("/").pop() || `${orderNumber}.pdf`;
 
       res.set("Cache-Control", "private, max-age=120");
       res.set("Content-Type", "application/pdf");
@@ -5114,152 +6142,126 @@ exports.testNasUploadPhoto = onCall(
   },
 );
 
-// utility that generates tokens from a string (lowercased)
-function generateTokens(str) {
-  const tokens = new Set();
-  if (!str) return tokens;
-  const s = str.toString().toLowerCase();
-  // split on whitespace and punctuation
-  const words = s.split(/\s+/);
-  words.forEach((w) => {
-    const len = w.length;
-    for (let i = 1; i <= len; i++) {
-      // prefix
-      tokens.add(w.slice(0, i));
-      // any substring of length i
-      for (let j = 0; j + i <= len; j++) {
-        tokens.add(w.slice(j, j + i));
+// One-time cleanup: remove searchKeywords field from all Orders docs
+exports.removeSearchKeywords = onCall(
+  { timeoutSeconds: 540, memory: "512MiB" },
+  async (payload, ctx) => {
+    const db = admin.firestore();
+    const col = db.collection("Orders");
+    let last = null;
+    const batchSize = 100;
+    let totalProcessed = 0;
+    let totalCleaned = 0;
+    while (true) {
+      let q = col
+        .select("searchKeywords")
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(batchSize);
+      if (last) q = q.startAfter(last);
+      const snap = await q.get();
+      if (snap.empty) break;
+      // Split into sub-batches of 50 to avoid transaction size limit
+      const docsToClean = snap.docs.filter(
+        (doc) => doc.data().searchKeywords !== undefined,
+      );
+      for (let i = 0; i < docsToClean.length; i += 50) {
+        const chunk = docsToClean.slice(i, i + 50);
+        const batch = db.batch();
+        for (const doc of chunk) {
+          batch.update(doc.ref, {
+            searchKeywords: admin.firestore.FieldValue.delete(),
+          });
+        }
+        await batch.commit();
+        totalCleaned += chunk.length;
       }
+      totalProcessed += snap.docs.length;
+      last = snap.docs[snap.docs.length - 1];
+      await new Promise((r) => setTimeout(r, 50));
     }
-  });
-  return tokens;
-}
+    return { status: "done", totalProcessed, totalCleaned };
+  },
+);
 
-// Firestore trigger: maintain searchKeywords array on Orders docs
-exports.indexOrder = onDocumentWritten("Orders/{orderId}", async (event) => {
-  const after = event.data?.after;
-  if (!after || !after.exists) return;
+// Server-side cache for search index (persists across invocations on same instance)
+let _searchIndexCache = null;
+let _searchIndexCacheTime = 0;
+const SEARCH_INDEX_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-  const data = after.data();
-  const tokens = new Set();
-  function addField(val) {
-    generateTokens(val).forEach((t) => tokens.add(t));
-  }
-  addField(data.顏色);
-  addField(data.客戶名稱);
-  addField(data.安裝地點);
-  addField(data["訂單號碼"]);
-  // add other fields as needed
+// Return lightweight search index: only id + 4 search fields
+exports.getAllOrdersForSearch = onCall(
+  { timeoutSeconds: 120, memory: "512MiB" },
+  async (payload, ctx) => {
+    const accessCtx = await getCallableAccessContext(payload, ctx);
+    const now = Date.now();
 
-  await after.ref.set({ searchKeywords: Array.from(tokens) }, { merge: true });
-});
+    // Use server-side cache if available and fresh
+    if (
+      !_searchIndexCache ||
+      now - _searchIndexCacheTime > SEARCH_INDEX_CACHE_TTL
+    ) {
+      const db = admin.firestore();
+      const col = db.collection("Orders");
+      const allDocs = [];
+      let last = null;
+      const batchSize = 5000;
+      while (true) {
+        let q = col
+          .select(
+            "顏色",
+            "color",
+            "客戶名稱",
+            "customerName",
+            "安裝地點",
+            "installAddress",
+            "訂單號碼",
+            "orderNumber",
+          )
+          .orderBy(admin.firestore.FieldPath.documentId())
+          .limit(batchSize);
+        if (last) q = q.startAfter(last);
+        const snap = await q.get();
+        if (snap.empty) break;
+        for (const doc of snap.docs) {
+          const d = doc.data();
+          allDocs.push({
+            id: doc.id,
+            顏色: d.顏色 || d.color || "",
+            客戶名稱: d.客戶名稱 || d.customerName || "",
+            安裝地點: d.安裝地點 || d.installAddress || "",
+            訂單號碼: d["訂單號碼"] || d.orderNumber || "",
+          });
+        }
+        last = snap.docs[snap.docs.length - 1];
+      }
+      _searchIndexCache = allDocs;
+      _searchIndexCacheTime = now;
+    }
 
-// Callable function: search by keyword (for frontend interoperability)
-exports.searchOrdersByKeyword = onCall(async (payload, ctx) => {
+    if (!accessCtx.isStaff) {
+      return filterOrdersByAccess([..._searchIndexCache], accessCtx);
+    }
+    return _searchIndexCache;
+  },
+);
+
+// Fetch full order docs by IDs (for displaying search results)
+exports.getOrdersByIds = onCall(async (payload, ctx) => {
   const accessCtx = await getCallableAccessContext(payload, ctx);
-  const qRaw = payload.data?.q ?? payload.q ?? "";
-  const q = qRaw.toString().toLowerCase().trim();
-  if (!q) return [];
-  const snap = await admin
-    .firestore()
-    .collection("Orders")
-    .where("searchKeywords", "array-contains", q)
-    .limit(100)
-    .get();
-  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  return filterOrdersByAccess(rows, accessCtx);
-});
-
-// Callable function: search by multiple fields (AND)
-exports.searchOrdersByFields = onCall(async (payload, ctx) => {
-  const accessCtx = await getCallableAccessContext(payload, ctx);
-  const color = payload.data?.color?.toString().trim();
-  const customer = payload.data?.customer?.toString().trim();
-  const address = payload.data?.address?.toString().trim();
-  const orderNo = payload.data?.orderNo?.toString().trim();
-  let query = admin.firestore().collection("Orders");
-  if (color) query = query.where("顏色", "==", color);
-  if (customer) query = query.where("客戶名稱", "==", customer);
-  if (address) query = query.where("安裝地點", "==", address);
-  if (orderNo) query = query.where("訂單號碼", "==", orderNo);
-  const snap = await query.limit(100).get();
-  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  return filterOrdersByAccess(rows, accessCtx);
-});
-
-// Callable function: search by multiple keywords (交集 AND)
-exports.searchOrdersByKeywords = onCall(async (payload, ctx) => {
-  const accessCtx = await getCallableAccessContext(payload, ctx);
-  // 支援多個關鍵字，payload.data.keywords 應為陣列
-  const keywords = (payload.data?.keywords || [])
-    .map((k) => k && k.toString().toLowerCase().trim())
-    .filter((k) => !!k);
-  if (!keywords.length) return [];
-  // 先查第一個關鍵字
-  let query = admin
-    .firestore()
-    .collection("Orders")
-    .where("searchKeywords", "array-contains", keywords[0]);
-  const snap = await query.limit(100).get();
-  let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  // 其餘關鍵字在後端做交集
-  for (let i = 1; i < keywords.length; i++) {
-    const kw = keywords[i];
-    docs = docs.filter(
-      (doc) =>
-        Array.isArray(doc.searchKeywords) && doc.searchKeywords.includes(kw),
-    );
-  }
-  return filterOrdersByAccess(docs, accessCtx);
-});
-
-// callable function for one‑time backfill of existing Orders documents
-// WARNING: call only once, may run for a long time depending on dataset size
-exports.backfillOrderKeywords = onCall(async (payload, ctx) => {
+  const ids = payload.data?.ids || [];
+  if (!ids.length || ids.length > 200) return [];
   const db = admin.firestore();
   const col = db.collection("Orders");
-  let last = null;
-  const batchSize = 500;
-  while (true) {
-    let q = col
-      .orderBy(admin.firestore.FieldPath.documentId())
-      .limit(batchSize);
-    if (last) q = q.startAfter(last);
-    const snap = await q.get();
-    if (snap.empty) break;
-    const batch = db.batch();
-    snap.docs.forEach((doc) => {
-      const data = doc.data();
-      const tokens = new Set();
-      function addField(val) {
-        generateTokens(val).forEach((t) => tokens.add(t));
-      }
-      addField(data.顏色);
-      addField(data.客戶名稱);
-      addField(data.地址);
-      addField(data["訂單號碼"]);
-      batch.set(
-        doc.ref,
-        { searchKeywords: Array.from(tokens) },
-        { merge: true },
-      );
+  // Firestore getAll supports up to 500 refs
+  const refs = ids.map((id) => col.doc(String(id)));
+  const snaps = await db.getAll(...refs);
+  const docs = snaps
+    .filter((s) => s.exists)
+    .map((s) => {
+      const data = s.data();
+      return { id: s.id, ...data };
     });
-    await batch.commit();
-    last = snap.docs[snap.docs.length - 1];
-    // small delay to avoid contention
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return { status: "done" };
-});
-// diagnostic function: fetch first order and return its keywords
-exports.debugSampleOrder = onCall(async (payload, ctx) => {
-  const db = admin.firestore();
-  const snap = await db.collection("Orders").limit(1).get();
-  if (snap.empty) {
-    return { found: false };
-  }
-  const doc = snap.docs[0];
-  return { id: doc.id, data: doc.data() };
+  return filterOrdersByAccess(docs, accessCtx);
 });
 
 function normalizePendingHeader(value) {
@@ -5660,16 +6662,20 @@ exports.searchPendingOrdersByKeywords = onCall(async (payload, ctx) => {
     .filter(Boolean);
   if (!keywords.length) return [];
 
+  // 用最長（最精確）的關鍵字做 Firestore array-contains 查詢
+  const sorted = [...keywords].sort((a, b) => b.length - a.length);
+  const primaryKw = sorted[0];
+  const remainingKws = keywords.filter((k) => k !== primaryKw);
+
   const snap = await admin
     .firestore()
     .collection("PendingOrders")
-    .where("searchKeywords", "array-contains", keywords[0])
-    .limit(200)
+    .where("searchKeywords", "array-contains", primaryKw)
+    .limit(300)
     .get();
 
   let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  for (let i = 1; i < keywords.length; i++) {
-    const kw = keywords[i];
+  for (const kw of remainingKws) {
     docs = docs.filter(
       (doc) =>
         Array.isArray(doc.searchKeywords) && doc.searchKeywords.includes(kw),
@@ -6656,23 +7662,24 @@ exports.fetchTwseTopStocks = onCall(
     const limit = Math.min(2000, Math.max(1, Number(data.limit || 200)));
 
     const resp = await fetch(
-      "https://opendata.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+      "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json",
     );
     if (!resp.ok) {
       throw new functions.https.HttpsError("unavailable", "無法取得 TWSE 資料");
     }
-    const rows = await resp.json();
-    if (!Array.isArray(rows)) {
+    const json = await resp.json();
+    if (!json || json.stat !== "OK" || !Array.isArray(json.data)) {
       throw new functions.https.HttpsError("unavailable", "TWSE 資料格式錯誤");
     }
 
     // 過濾普通股（代碼 4 位數字），依成交量降序
-    const stocks = rows
-      .filter((r) => /^\d{4}$/.test(String(r.Code || "").trim()))
+    // data 格式: [ [代號, 名稱, 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 筆數], ... ]
+    const stocks = json.data
+      .filter((r) => /^\d{4}$/.test(String(r[0] || "").trim()))
       .map((r) => ({
-        ticker: String(r.Code).trim(),
-        name: String(r.Name || "").trim(),
-        volume: Number(String(r.TradeVolume || "0").replace(/,/g, "")) || 0,
+        ticker: String(r[0]).trim(),
+        name: String(r[1] || "").trim(),
+        volume: Number(String(r[2] || "0").replace(/,/g, "")) || 0,
       }))
       .sort((a, b) => b.volume - a.volume)
       .slice(0, limit)
@@ -6698,39 +7705,44 @@ exports.updateTwseStockListDaily = onSchedule(
 
 // 共用更新邏輯
 async function _doUpdateTwseStockList() {
-    const db = admin.firestore();
-    const allStocks = [];
+  const db = admin.firestore();
+  const allStocks = [];
 
-    // 上市 (TWSE)
-    try {
-      const r = await fetch(
-        "https://opendata.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-      );
-      if (r.ok) {
-        const rows = await r.json();
-        rows
-          .filter((row) => /^\d{4}$/.test(String(row.Code || "").trim()))
+  // 上市 (TWSE) — www.twse.com.tw 主站，回傳 { stat, data: [[代號,名稱,成交股數,...]] }
+  try {
+    const r = await fetch(
+      "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json",
+    );
+    if (r.ok) {
+      const json = await r.json();
+      if (json?.stat === "OK" && Array.isArray(json.data)) {
+        json.data
+          .filter((row) => /^\d{4}$/.test(String(row[0] || "").trim()))
           .forEach((row) => {
             allStocks.push({
-              ticker: String(row.Code).trim(),
-              name: String(row.Name || "").trim(),
+              ticker: String(row[0]).trim(),
+              name: String(row[1] || "").trim(),
               market: "twse",
-              volume:
-                Number(String(row.TradeVolume || "0").replace(/,/g, "")) || 0,
+              volume: Number(String(row[2] || "0").replace(/,/g, "")) || 0,
             });
           });
+        console.log(
+          `[_doUpdateTwseStockList] TWSE: ${allStocks.length} stocks`,
+        );
       }
-    } catch (e) {
-      console.error("[_doUpdateTwseStockList] TWSE fetch error:", e?.message);
     }
+  } catch (e) {
+    console.error("[_doUpdateTwseStockList] TWSE fetch error:", e?.message);
+  }
 
-    // 上櫃 (TPEX)
-    try {
-      const r = await fetch(
-        "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
-      );
-      if (r.ok) {
-        const rows = await r.json();
+  // 上櫃 (TPEX) — 直接用每日報價，包含名稱與成交量
+  try {
+    const rv = await fetch(
+      "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+    );
+    if (rv.ok) {
+      const rows = await rv.json();
+      if (Array.isArray(rows)) {
         rows
           .filter((row) =>
             /^\d{4}$/.test(String(row.SecuritiesCompanyCode || "").trim()),
@@ -6738,41 +7750,54 @@ async function _doUpdateTwseStockList() {
           .forEach((row) => {
             allStocks.push({
               ticker: String(row.SecuritiesCompanyCode).trim(),
-              name: String(row.CompanyAbbreviation || "").trim(),
+              name: String(
+                row.CompanyName || row.CompanyAbbreviation || "",
+              ).trim(),
               market: "tpex",
               volume:
                 Number(String(row.TradingShares || "0").replace(/,/g, "")) || 0,
             });
           });
+        console.log(
+          `[_doUpdateTwseStockList] TPEX: ${allStocks.length - /* twse already added */ 0} stocks`,
+        );
       }
-    } catch (e) {
-      console.error("[_doUpdateTwseStockList] TPEX fetch error:", e?.message);
     }
+  } catch (e) {
+    console.error("[_doUpdateTwseStockList] TPEX fetch error:", e?.message);
+  }
 
-    if (allStocks.length === 0) {
-      console.warn("[_doUpdateTwseStockList] No stocks fetched, skipping update.");
-      return 0;
-    }
-
-    allStocks.sort((a, b) => b.volume - a.volume);
-    const col = db.collection("TwseStockList");
-    const existing = await col.listDocuments();
-    for (let i = 0; i < existing.length; i += 500) {
-      const wb = db.batch();
-      existing.slice(i, i + 500).forEach((ref) => wb.delete(ref));
-      await wb.commit();
-    }
-    for (let i = 0; i < allStocks.length; i += 500) {
-      const wb = db.batch();
-      allStocks.slice(i, i + 500).forEach((s) => wb.set(col.doc(s.ticker), s));
-      await wb.commit();
-    }
-    await db.collection("SystemSettings").doc("twseStockListMeta").set(
-      { updatedAt: admin.firestore.FieldValue.serverTimestamp(), total: allStocks.length },
-      { merge: true },
+  if (allStocks.length === 0) {
+    console.warn(
+      "[_doUpdateTwseStockList] No stocks fetched, skipping update.",
     );
-    console.log(`[_doUpdateTwseStockList] Done: ${allStocks.length} stocks saved.`);
-    return allStocks.length;
+    return 0;
+  }
+
+  allStocks.sort((a, b) => b.volume - a.volume);
+  const col = db.collection("TwseStockList");
+  const existing = await col.listDocuments();
+  for (let i = 0; i < existing.length; i += 500) {
+    const wb = db.batch();
+    existing.slice(i, i + 500).forEach((ref) => wb.delete(ref));
+    await wb.commit();
+  }
+  for (let i = 0; i < allStocks.length; i += 500) {
+    const wb = db.batch();
+    allStocks.slice(i, i + 500).forEach((s) => wb.set(col.doc(s.ticker), s));
+    await wb.commit();
+  }
+  await db.collection("SystemSettings").doc("twseStockListMeta").set(
+    {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      total: allStocks.length,
+    },
+    { merge: true },
+  );
+  console.log(
+    `[_doUpdateTwseStockList] Done: ${allStocks.length} stocks saved.`,
+  );
+  return allStocks.length;
 }
 
 // ── 手動觸發：立即更新 TWSE 股票清單（admin only）──────────────────────────
@@ -6835,6 +7860,57 @@ exports.screenStocksWithAI = onCall(
       skipAI || (reqConds !== null && !reqConds.includes("showAI"));
     const geminiKey = String(process.env.GEMINI_API_KEY || "").trim();
 
+    // ── 輔助：用 historical + chart 兩種方式嘗試取資料 ────────────────────────
+    // 200 天以取得足夠日線（同時可推導約 28 週的週線資料）
+    async function fetchHistory(sym) {
+      const since = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+      let h = [];
+      try {
+        h = await yahooFinance.historical(
+          sym,
+          { period1: since, period2: new Date(), interval: "1d" },
+          { validateResult: false },
+        );
+      } catch (_) {
+        try {
+          const cd = await yahooFinance.chart(
+            sym,
+            { period1: since, period2: new Date(), interval: "1d" },
+            { validateResult: false },
+          );
+          h = (cd?.quotes ?? [])
+            .filter((q) => q.close != null && q.volume != null)
+            .map((q) => ({ ...q, adjClose: q.adjclose ?? q.close }));
+        } catch (_2) {
+          // 無法取得資料
+        }
+      }
+      return h.filter((d) => d.close != null && d.volume != null);
+    }
+
+    // ── 大盤過濾：取加權指數 ^TWII 趨勢 ──────────────────────────────────────
+    let marketFilter = { bullish: true, warning: null };
+    try {
+      const twiiHistory = await fetchHistory("^TWII");
+      if (twiiHistory.length >= 20) {
+        const tc = twiiHistory.map((d) => d.close);
+        const smaTwii = (n) => tc.slice(-n).reduce((a, v) => a + v, 0) / n;
+        const twiiMa5 = smaTwii(5);
+        const twiiMa20 = smaTwii(20);
+        const twiiLatest = tc[tc.length - 1];
+        const bullish = twiiMa5 > twiiMa20 && twiiLatest > twiiMa20;
+        marketFilter = {
+          bullish,
+          ma5: +twiiMa5.toFixed(0),
+          ma20: +twiiMa20.toFixed(0),
+          latestClose: +twiiLatest.toFixed(0),
+          warning: bullish
+            ? null
+            : `大盤偏弱（加權 ${twiiLatest.toFixed(0)}，MA5 ${twiiMa5.toFixed(0)} 低於 MA20 ${twiiMa20.toFixed(0)}），追高風險偏高`,
+        };
+      }
+    } catch (_) {}
+
     const results = [];
 
     for (const raw of rawTickers) {
@@ -6849,37 +7925,38 @@ exports.screenStocksWithAI = onCall(
       const market = String(raw?.market || "twse").trim();
       const yTicker = /\.(TW|TWO|HK|US)$/i.test(ticker)
         ? ticker
-        : market === "tpex" ? `${ticker}.TWO` : `${ticker}.TW`;
+        : market === "tpex"
+          ? `${ticker}.TWO`
+          : `${ticker}.TW`;
 
-      const item = { ticker, name, sector, techResult: {}, aiResult: {} };
+      const item = {
+        ticker,
+        name,
+        sector,
+        market,
+        techResult: {},
+        aiResult: {},
+      };
 
       // ── 技術面分析 ────────────────────────────────────────────────────────
       try {
-        const since = new Date(Date.now() - 130 * 24 * 60 * 60 * 1000);
-        let history = [];
-        try {
-          history = await yahooFinance.historical(
-            yTicker,
-            { period1: since, period2: new Date(), interval: "1d" },
-            { validateResult: false },
-          );
-        } catch (_histErr) {
-          // historical() 在部分欄位 null 時會直接 throw（與 validateResult 無關）
-          // 改用底層 chart() 自行處理 null 值
-          try {
-            const chartData = await yahooFinance.chart(
-              yTicker,
-              { period1: since, period2: new Date(), interval: "1d" },
-              { validateResult: false },
-            );
-            history = (chartData?.quotes ?? [])
-              .filter((q) => q.close != null && q.volume != null)
-              .map((q) => ({ ...q, adjClose: q.adjclose ?? q.close }));
-          } catch (_chartErr) {
-            // 無法取得資料，維持 history = []
+        let history = await fetchHistory(yTicker);
+
+        // 若 .TW 資料不足，自動嘗試 .TWO（上櫃股票）
+        let resolvedMarket = market;
+        if (
+          history.length < 60 &&
+          !yTicker.endsWith(".TWO") &&
+          !/\.(HK|US)$/i.test(yTicker)
+        ) {
+          const altTicker = `${ticker}.TWO`;
+          const altHistory = await fetchHistory(altTicker);
+          if (altHistory.length > history.length) {
+            history = altHistory;
+            resolvedMarket = "tpex";
+            item.market = "tpex";
           }
         }
-        history = history.filter((d) => d.close != null && d.volume != null);
 
         if (!history || history.length < 60) {
           item.techResult = {
@@ -6927,12 +8004,37 @@ exports.screenStocksWithAI = onCall(
               : 0;
           const strongMomentum = momentum20 > 0.1;
 
+          // ── 週線多頭排列（由日線推導，不額外呼叫 API）──────────────────────
+          // 以每週最後一個交易日的收盤價為週K線收盤價
+          const weekMap = {};
+          for (const d of history) {
+            const dt = new Date(d.date || d.Date || 0);
+            const dayOfYear = Math.round(
+              (dt - new Date(dt.getFullYear(), 0, 1)) / 86400000,
+            );
+            const weekKey = `${dt.getFullYear()}-${String(Math.ceil((dayOfYear + 1) / 7)).padStart(3, "0")}`;
+            weekMap[weekKey] = d.close;
+          }
+          const weeklyCloses = Object.keys(weekMap)
+            .sort()
+            .map((k) => weekMap[k]);
+          let weeklyMaAligned = false;
+          if (weeklyCloses.length >= 20) {
+            const wma5 = weeklyCloses.slice(-5).reduce((a, v) => a + v, 0) / 5;
+            const wma10 =
+              weeklyCloses.slice(-10).reduce((a, v) => a + v, 0) / 10;
+            const wma20 =
+              weeklyCloses.slice(-20).reduce((a, v) => a + v, 0) / 20;
+            weeklyMaAligned = wma5 > wma10 && wma10 > wma20;
+          }
+
           item.techResult = {
             maAligned,
             volumeSpike,
             breakout60High,
             volumeSurge,
             strongMomentum,
+            weeklyMaAligned,
             pass: maAligned && volumeSpike,
             ma5: +ma5.toFixed(2),
             ma10: +ma10.toFixed(2),
@@ -7067,6 +8169,314 @@ exports.screenStocksWithAI = onCall(
       results.push(item);
     }
 
-    return { results };
+    return { results, marketFilter };
+  },
+);
+
+// ── 每日排程：下午2:00 自動掃描全股 + 寫入選股回溯 ──────────────────────────
+// 台股交易日 14:00 (UTC+8) = 06:00 UTC
+exports.dailyAutoStockPick = onSchedule(
+  {
+    schedule: "0 6 * * 1-5",
+    timeZone: "Asia/Taipei",
+    timeoutSeconds: 540,
+    region: "asia-east1",
+  },
+  async () => {
+    const db = admin.firestore();
+    const BATCH_SIZE = 20;
+    const DEFAULT_CONDITIONS = ["maAligned", "volumeSpike"];
+
+    // 1. 讀取全股清單（最多 2000 支）
+    let scanList = [];
+    try {
+      const snap = await db
+        .collection("TwseStockList")
+        .orderBy("volume", "desc")
+        .limit(2000)
+        .get();
+      scanList = snap.docs.map((d) => ({
+        ticker: d.id,
+        name: d.data().name || "",
+        sector: "",
+        market: d.data().market || "twse",
+      }));
+    } catch (e) {
+      console.error("[dailyAutoStockPick] 讀取清單失敗:", e?.message);
+      return;
+    }
+    if (!scanList.length) {
+      console.warn("[dailyAutoStockPick] 股票清單為空，略過");
+      return;
+    }
+
+    console.log(`[dailyAutoStockPick] 開始掃描 ${scanList.length} 支股票`);
+
+    // 2. 批次掃描技術面（重用 screenStocksWithAI 的核心邏輯）
+    const passing = [];
+    for (let i = 0; i < scanList.length; i += BATCH_SIZE) {
+      const batch = scanList.slice(i, i + BATCH_SIZE);
+      try {
+        // 直接呼叫 Yahoo Finance 技術面分析（與 screenStocksWithAI 相同邏輯）
+        for (const raw of batch) {
+          const ticker = String(raw.ticker || "")
+            .trim()
+            .toUpperCase();
+          if (!ticker) continue;
+          const market = String(raw.market || "twse");
+          const yTicker = /\.(TW|TWO|HK|US)$/i.test(ticker)
+            ? ticker
+            : market === "tpex"
+              ? `${ticker}.TWO`
+              : `${ticker}.TW`;
+
+          try {
+            const since = new Date(Date.now() - 130 * 24 * 60 * 60 * 1000);
+            let history = [];
+            try {
+              history = await yahooFinance.historical(
+                yTicker,
+                { period1: since, period2: new Date(), interval: "1d" },
+                { validateResult: false },
+              );
+            } catch (_) {
+              try {
+                const chartData = await yahooFinance.chart(
+                  yTicker,
+                  { period1: since, period2: new Date(), interval: "1d" },
+                  { validateResult: false },
+                );
+                history = (chartData?.quotes ?? [])
+                  .filter((q) => q.close != null && q.volume != null)
+                  .map((q) => ({ ...q, adjClose: q.adjclose ?? q.close }));
+              } catch (_) {
+                // 無法取得資料
+              }
+            }
+            history = history.filter(
+              (d) => d.close != null && d.volume != null,
+            );
+            if (!history || history.length < 60) continue;
+
+            const closes = history.map((d) => d.close);
+            const volumes = history.map((d) => d.volume || 0);
+            const sma = (arr, n) => {
+              const sl = arr.slice(-n);
+              return sl.reduce((a, v) => a + v, 0) / sl.length;
+            };
+
+            const ma5 = sma(closes, 5);
+            const ma10 = sma(closes, 10);
+            const ma20 = sma(closes, 20);
+            const ma60 = sma(closes, 60);
+            const maAligned = ma5 > ma10 && ma10 > ma20 && ma20 > ma60;
+
+            const recent20 = history.slice(-20);
+            const avgVol20 = volumes.slice(-20).reduce((a, v) => a + v, 0) / 20;
+            const lowDay = recent20.reduce(
+              (m, d) => (d.low < m.low ? d : m),
+              recent20[0],
+            );
+            const volumeSpike = avgVol20 > 0 && lowDay.volume > avgVol20 * 3;
+
+            // 預設條件：多頭排列 + 低點爆大量
+            const passes = DEFAULT_CONDITIONS.every((cond) => {
+              if (cond === "maAligned") return maAligned;
+              if (cond === "volumeSpike") return volumeSpike;
+              return true;
+            });
+
+            if (passes) {
+              const latestClose = closes[closes.length - 1];
+              passing.push({
+                ticker,
+                name: raw.name || "",
+                sector: raw.sector || "",
+                latestClose: +latestClose.toFixed(2),
+              });
+            }
+          } catch (e) {
+            // 個別股票失敗，跳過
+          }
+        }
+      } catch (e) {
+        console.error(`[dailyAutoStockPick] 批次 ${i} 失敗:`, e?.message);
+      }
+    }
+
+    if (!passing.length) {
+      console.log("[dailyAutoStockPick] 今日無符合條件股票");
+      return;
+    }
+
+    console.log(
+      `[dailyAutoStockPick] 符合條件 ${passing.length} 支，寫入 StockPicks`,
+    );
+
+    // 3. 寫入 StockPicks（批次避免重複：同一天同代號只寫一次）
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const existingSnap = await db
+      .collection("StockPicks")
+      .where("autoPickDate", "==", today)
+      .get();
+    const existingTickers = new Set(
+      existingSnap.docs.map((d) => d.data().ticker),
+    );
+
+    const toWrite = passing.filter((p) => !existingTickers.has(p.ticker));
+    if (!toWrite.length) {
+      console.log("[dailyAutoStockPick] 今日已全部寫入，跳過");
+      return;
+    }
+
+    const WRITE_CHUNK = 400;
+    for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
+      const chunk = toWrite.slice(i, i + WRITE_CHUNK);
+      const writeBatch = db.batch();
+      chunk.forEach((p) => {
+        const ref = db.collection("StockPicks").doc();
+        writeBatch.set(ref, {
+          ticker: p.ticker,
+          name: p.name,
+          sector: p.sector,
+          pickedPrice: p.latestClose,
+          note: "自動選股（下午2點排程）",
+          autoPickDate: today,
+          isAuto: true,
+          pickedAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+      await writeBatch.commit();
+    }
+
+    console.log(`[dailyAutoStockPick] 完成，寫入 ${toWrite.length} 筆`);
+  },
+);
+
+// 測試：用 PDF 搜尋找訂單資料夾，回傳找到的路徑與耗時
+exports.testOrderFolderSearch = onCall(
+  { secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET] },
+  async (payload, ctx) => {
+    const auth = (ctx && ctx.auth) || payload.auth || null;
+    const authUid = auth && auth.uid ? auth.uid : null;
+    if (!authUid) {
+      throw new functions.https.HttpsError("unauthenticated", "請先登入");
+    }
+    const role = await readUserRole(authUid);
+    if (!isStaffRole(role)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "僅管理者或員工可使用",
+      );
+    }
+
+    const orderNumber = String(
+      (payload && (payload.data?.orderNumber || payload.orderNumber)) || "",
+    ).trim();
+    if (!orderNumber) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "請提供 orderNumber",
+      );
+    }
+
+    const nasOrderPath = await getNasOrderPath();
+    if (!nasOrderPath) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "請先在系統設定填入訂單資料夾路徑",
+      );
+    }
+
+    const baseUrl = buildSynologyBaseUrl();
+    const { username, password } = getSynologyCredentials();
+
+    let sid = null;
+    try {
+      const loginStart = Date.now();
+      sid = await synologyLogin(baseUrl, username, password);
+      const loginMs = Date.now() - loginStart;
+
+      // Discover available Finder/Search APIs on NAS
+      const discoveryStart = Date.now();
+      const queryUrl = new URL("/webapi/query.cgi", baseUrl).toString();
+      const queryBody = new URLSearchParams();
+      queryBody.set("api", "SYNO.API.Info");
+      queryBody.set("version", "1");
+      queryBody.set("method", "query");
+      queryBody.set("query", "SYNO.Finder");
+      const queryResp = await fetch(queryUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: queryBody.toString(),
+      });
+      const queryJson = await parseJsonSafe(queryResp);
+      const finderApis = queryJson?.data ? Object.keys(queryJson.data) : [];
+      const discoveryMs = Date.now() - discoveryStart;
+
+      const searchStart = Date.now();
+      const pdfPath = await synologySearchFileByName({
+        baseUrl,
+        sid,
+        rootPath: nasOrderPath,
+        fileName: `${orderNumber}.pdf`,
+      });
+      const searchMs = Date.now() - searchStart;
+
+      if (!pdfPath) {
+        // Diagnostic: try folder-name search to see if the order folder exists
+        let folderHint = null;
+        try {
+          const folders = await synologyFinderSearchFolders({
+            baseUrl,
+            sid,
+            pattern: orderNumber,
+          });
+          const match = folders.find((f) =>
+            String(f?.name || "").includes(orderNumber),
+          );
+          if (match) folderHint = match.path;
+        } catch (_) {
+          /* ignore */
+        }
+
+        const totalMs = Date.now() - loginStart;
+        return {
+          found: false,
+          orderNumber,
+          searchedRoot: nasOrderPath,
+          loginMs,
+          searchMs,
+          discoveryMs,
+          finderApis,
+          totalMs,
+          folderHint,
+          message: folderHint
+            ? `找不到 ${orderNumber}.pdf，但找到資料夾: ${folderHint}`
+            : `找不到 ${orderNumber}.pdf，資料夾也找不到`,
+        };
+      }
+
+      const lastSlash = pdfPath.lastIndexOf("/");
+      const folderPath = lastSlash > 0 ? pdfPath.slice(0, lastSlash) : "";
+
+      return {
+        found: true,
+        orderNumber,
+        pdfPath,
+        folderPath,
+        searchedRoot: nasOrderPath,
+        loginMs,
+        searchMs,
+        discoveryMs,
+        finderApis,
+        totalMs: loginMs + searchMs,
+      };
+    } finally {
+      if (sid) {
+        synologyLogout(baseUrl, sid).catch(() => {});
+      }
+    }
   },
 );

@@ -125,8 +125,24 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Stock picks log (recorded from AI screening results)
+    match /StockPicks/{docId} {
+      allow read: if isStaff();
+      allow create: if isAdmin()
+        && request.resource.data.ticker is string
+        && request.resource.data.ticker.size() > 0;
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
     // TWSE/TPEX daily stock list (written by Cloud Function scheduler)
     match /TwseStockList/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    // Batch search progress (written by Cloud Function, read by staff)
+    match /_system/{docId} {
       allow read: if isStaff();
       allow write: if false;
     }

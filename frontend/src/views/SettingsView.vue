@@ -81,7 +81,7 @@
         <button
           class="btn-query"
           :disabled="queryingOrderFolder || !orderNumberQuery"
-          @click="findOrderFolderOnNas"
+          @click="findOrderFolderOnNasQuery"
         >
           查詢 NAS 資料夾
         </button>
@@ -92,15 +92,120 @@
           >查詢中…</span
         >
       </div>
-      <p v-if="orderFolderResult" class="muted-text">{{ orderFolderResult }}</p>
-      <p v-if="orderFolderError" class="error-text">{{ orderFolderError }}</p>
-      <p
-        v-if="nasQueryElapsed !== null && !queryingOrderFolder"
+      <pre
+        v-if="orderFolderResult"
         class="muted-text"
-        style="font-size: 0.85em"
+        style="white-space: pre-wrap; margin: 8px 0"
+        >{{ orderFolderResult }}</pre
       >
-        查詢耗時：{{ nasQueryElapsed }} ms
+      <p
+        v-if="nasQueryElapsed != null"
+        class="muted-text"
+        style="margin: 4px 0"
+      >
+        耗時：{{ nasQueryElapsed }} ms
       </p>
+      <p v-if="orderFolderError" class="error-text">{{ orderFolderError }}</p>
+
+      <!-- 批次查詢：上傳含訂單號碼的文字檔 -->
+      <div
+        class="field-row"
+        style="margin-top: 16px; align-items: center; gap: 12px"
+      >
+        <label style="white-space: nowrap; font-weight: 500"
+          >批次查詢（文字檔，每行一個訂單號碼）：</label
+        >
+        <input
+          ref="batchFileInput"
+          type="file"
+          accept=".txt,.csv"
+          style="flex: 1"
+          @change="onBatchFileChange"
+        />
+        <button
+          class="btn-query"
+          :disabled="batchRunning || !batchOrderNumbers.length"
+          @click="runBatchOrderFolderSearch"
+        >
+          {{
+            batchRunning
+              ? `搜尋中 ${batchDone}/${batchTotal}…`
+              : `批次搜尋（${batchOrderNumbers.length} 筆）`
+          }}
+        </button>
+        <button
+          v-if="batchRunning"
+          class="btn-aux"
+          style="color: #dc2626"
+          @click="cancelBatchSearch"
+        >
+          取消
+        </button>
+        <button
+          v-if="batchResults.length"
+          class="btn-aux"
+          :disabled="batchRunning"
+          @click="exportBatchResultsCsv"
+        >
+          匯出 CSV
+        </button>
+      </div>
+      <div
+        v-if="batchResults.length"
+        style="margin-top: 12px; overflow-x: auto"
+      >
+        <table class="batch-result-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>訂單號碼</th>
+              <th>結果</th>
+              <th>資料夾路徑</th>
+              <th>耗時(ms)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(r, i) in batchResults"
+              :key="r.orderNumber"
+              :class="
+                r.status === 'found'
+                  ? ''
+                  : r.status === 'error'
+                    ? 'row-error'
+                    : 'row-notfound'
+              "
+            >
+              <td>{{ i + 1 }}</td>
+              <td>{{ r.orderNumber }}</td>
+              <td>
+                {{
+                  r.status === "found"
+                    ? "✅ 找到"
+                    : r.status === "error"
+                      ? "⚠ 錯誤"
+                      : "❌ 找不到"
+                }}
+              </td>
+              <td style="word-break: break-all; max-width: 400px">
+                {{ r.folderPath || r.message || "" }}
+              </td>
+              <td>{{ r.totalMs ?? "" }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="muted-text" style="margin-top: 6px; font-size: 0.85em">
+          共 {{ batchResults.length }} 筆完成，找到
+          {{ batchResults.filter((r) => r.status === "found").length }}
+          筆，找不到
+          {{ batchResults.filter((r) => r.status === "notfound").length }} 筆
+          <span v-if="batchResults.filter((r) => r.status === 'error').length"
+            >，錯誤
+            {{ batchResults.filter((r) => r.status === "error").length }}
+            筆</span
+          >
+        </p>
+      </div>
 
       <!-- 完工照片路徑修復工具 -->
       <div class="toolbar-row" style="margin-top: 28px">
@@ -413,6 +518,25 @@
       <p v-if="message" class="muted-text">{{ message }}</p>
       <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
 
+      <!-- 一次性清除 searchKeywords -->
+      <div class="toolbar-row" style="margin-top: 28px">
+        <h2 style="margin: 0">清除舊搜尋索引</h2>
+      </div>
+      <p class="muted-text" style="font-size: 0.9em">
+        移除所有訂單的 searchKeywords 欄位，節省 Firestore 儲存空間。此操作僅需執行一次。
+      </p>
+      <div class="toolbar-row">
+        <button
+          class="btn-query"
+          :disabled="removingKw"
+          @click="runRemoveSearchKeywords"
+        >
+          {{ removingKw ? "清除中…" : "清除 searchKeywords" }}
+        </button>
+      </div>
+      <p v-if="removeKwMessage" class="muted-text">{{ removeKwMessage }}</p>
+      <p v-if="removeKwError" class="error-text">{{ removeKwError }}</p>
+
       <div class="toolbar-row" style="margin-top: 20px">
         <h2 style="margin: 0">庫存顏色維護</h2>
       </div>
@@ -478,6 +602,13 @@ const queryingOrderFolder = ref(false);
 const orderFolderResult = ref("");
 const orderFolderError = ref("");
 const nasQueryElapsed = ref(null);
+const batchFileInput = ref(null);
+const batchOrderNumbers = ref([]);
+const batchRunning = ref(false);
+const batchCancelled = ref(false);
+const batchDone = ref(0);
+const batchTotal = ref(0);
+const batchResults = ref([]);
 
 // 完工照片路徑修復
 const repairingPhotoPaths = ref(false);
@@ -543,7 +674,103 @@ const migrateHasMatched = computed(
     ),
 );
 
-async function findOrderFolderOnNas() {
+function onBatchFileChange(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const text = ev.target.result || "";
+    batchOrderNumbers.value = text
+      .split(/[\r\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    batchResults.value = [];
+  };
+  reader.readAsText(file);
+}
+
+function cancelBatchSearch() {
+  batchCancelled.value = true;
+}
+
+async function runBatchOrderFolderSearch() {
+  if (!batchOrderNumbers.value.length || batchRunning.value) return;
+  batchRunning.value = true;
+  batchCancelled.value = false;
+  batchDone.value = 0;
+  batchTotal.value = batchOrderNumbers.value.length;
+  batchResults.value = [];
+
+  const batchId = `b${Date.now()}`;
+  let unsubscribe = null;
+
+  try {
+    // 訂閱 Firestore 即時進度
+    const { getFirestore, doc, onSnapshot } =
+      await import("firebase/firestore");
+    const { app } = await import("../firebase");
+    const db = getFirestore(app);
+    const progressRef = doc(db, "_system", `batchSearch_${batchId}`);
+
+    unsubscribe = onSnapshot(progressRef, (snap) => {
+      const data = snap.data();
+      if (!data) return;
+      batchDone.value = data.done || 0;
+      const results = data.results || [];
+      batchResults.value = results.map((r) => ({
+        orderNumber: r.orderNumber,
+        status: r.found ? "found" : "notfound",
+        folderPath: r.folderPath || "",
+        message: r.message || "",
+        totalMs: r.totalMs ?? 0,
+      }));
+    });
+
+    // 呼叫批次搜尋（登入一次，一筆一筆查）
+    const { batchFindOrderFolderOnNas } = await import("../firebase");
+    await batchFindOrderFolderOnNas(batchOrderNumbers.value, batchId);
+  } catch (err) {
+    // 如果還沒有結果，顯示錯誤
+    if (!batchResults.value.length) {
+      batchResults.value = batchOrderNumbers.value.map((n) => ({
+        orderNumber: n,
+        status: "error",
+        folderPath: "",
+        message: err?.message || "批次查詢失敗",
+        totalMs: 0,
+      }));
+      batchDone.value = batchResults.value.length;
+    }
+  } finally {
+    if (unsubscribe) unsubscribe();
+    batchRunning.value = false;
+  }
+}
+
+function exportBatchResultsCsv() {
+  const header = "訂單號碼,結果,資料夾路徑,耗時ms";
+  const rows = batchResults.value.map((r) => {
+    const status =
+      r.status === "found" ? "找到" : r.status === "error" ? "錯誤" : "找不到";
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    return [
+      escape(r.orderNumber),
+      escape(status),
+      escape(r.folderPath || r.message),
+      r.totalMs ?? "",
+    ].join(",");
+  });
+  const csv = "\uFEFF" + [header, ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `nas-folder-search-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function findOrderFolderOnNasQuery() {
   if (!orderNumberQuery.value) return;
   queryingOrderFolder.value = true;
   orderFolderResult.value = "";
@@ -551,11 +778,16 @@ async function findOrderFolderOnNas() {
   nasQueryElapsed.value = null;
   const t0 = Date.now();
   try {
-    // 假設 findOrderFolderOnNas 為 firebase.js 的 API
-    const result = await (
-      await import("../firebase")
-    ).findOrderFolderOnNas(orderNumberQuery.value);
-    orderFolderResult.value = result?.message || "查詢完成";
+    const { findOrderFolderOnNas } = await import("../firebase");
+    const result = await findOrderFolderOnNas(orderNumberQuery.value);
+    if (result.found) {
+      orderFolderResult.value =
+        `✅ ${result.folderName}\n` +
+        `資料夾：${result.folderPath}\n` +
+        `比對分數：${result.matchScore}`;
+    } else {
+      orderFolderResult.value = `❌ ${result.message}`;
+    }
   } catch (err) {
     orderFolderError.value = err?.message || "查詢失敗";
   } finally {
@@ -1420,6 +1652,33 @@ function reload() {
   loadSettings();
 }
 
+// 清除 searchKeywords
+const removingKw = ref(false);
+const removeKwMessage = ref("");
+const removeKwError = ref("");
+
+async function runRemoveSearchKeywords() {
+  if (!confirm("確定要清除所有訂單的 searchKeywords 欄位？")) return;
+  removingKw.value = true;
+  removeKwMessage.value = "清除中，請稍候…";
+  removeKwError.value = "";
+  try {
+    const { httpsCallable } = await import("firebase/functions");
+    const { functionsInstance } = await import("../firebase");
+    const callable = httpsCallable(functionsInstance, "removeSearchKeywords", {
+      timeout: 540000,
+    });
+    const resp = await callable({});
+    const r = resp.data || {};
+    removeKwMessage.value = `完成！共處理 ${r.totalProcessed} 筆，清除 ${r.totalCleaned} 筆`;
+  } catch (err) {
+    removeKwError.value = err?.message || "清除失敗";
+    removeKwMessage.value = "";
+  } finally {
+    removingKw.value = false;
+  }
+}
+
 onMounted(() => {
   loadSettings();
 });
@@ -1432,5 +1691,27 @@ onMounted(() => {
 
 .error-text {
   color: #dc2626;
+}
+
+.batch-result-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88em;
+}
+.batch-result-table th,
+.batch-result-table td {
+  border: 1px solid #d1d5db;
+  padding: 4px 8px;
+  text-align: left;
+}
+.batch-result-table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+.batch-result-table .row-notfound td {
+  background: #fef9c3;
+}
+.batch-result-table .row-error td {
+  background: #fee2e2;
 }
 </style>
