@@ -1055,7 +1055,18 @@ export async function getSystemSettings() {
       ? Number(data.loanInterestRate)
       : 2,
     publicHolidays: Array.isArray(data.publicHolidays)
-      ? data.publicHolidays
+      ? data.publicHolidays.map((h) =>
+          typeof h === "string"
+            ? { date: h, name: "" }
+            : { date: h.date || "", name: h.name || "" },
+        )
+      : [],
+    makeupWorkdays: Array.isArray(data.makeupWorkdays)
+      ? data.makeupWorkdays.map((h) =>
+          typeof h === "string"
+            ? { date: h, name: "補班" }
+            : { date: h.date || "", name: h.name || "" },
+        )
       : [],
   };
 }
@@ -1107,9 +1118,24 @@ export async function saveSystemSettings(payload = {}) {
         ? Number(payload.loanInterestRate)
         : 2,
       publicHolidays: Array.isArray(payload.publicHolidays)
-        ? payload.publicHolidays.filter(
-            (d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d),
-          )
+        ? payload.publicHolidays
+            .filter(
+              (h) =>
+                h &&
+                typeof h.date === "string" &&
+                /^\d{4}-\d{2}-\d{2}$/.test(h.date),
+            )
+            .map((h) => ({ date: h.date, name: String(h.name || "") }))
+        : [],
+      makeupWorkdays: Array.isArray(payload.makeupWorkdays)
+        ? payload.makeupWorkdays
+            .filter(
+              (h) =>
+                h &&
+                typeof h.date === "string" &&
+                /^\d{4}-\d{2}-\d{2}$/.test(h.date),
+            )
+            .map((h) => ({ date: h.date, name: String(h.name || "") }))
         : [],
     },
     { merge: true },

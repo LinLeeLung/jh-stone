@@ -8950,7 +8950,16 @@ async function runPayrollCalculation(yyyyMM) {
       }
 
       // 曠職自動偵測：工作日（週一至五）無打卡且無請假
-      const publicHolidaySet = new Set(settingsData.publicHolidays || []);
+      const publicHolidaySet = new Set(
+        (settingsData.publicHolidays || []).map((h) =>
+          typeof h === "string" ? h : h && h.date ? h.date : null,
+        ).filter(Boolean),
+      );
+      const makeupWorkdaySet = new Set(
+        (settingsData.makeupWorkdays || []).map((h) =>
+          typeof h === "string" ? h : h && h.date ? h.date : null,
+        ).filter(Boolean),
+      );
       const empStartDate = s.startDate
         ? String(s.startDate).slice(0, 10)
         : null;
@@ -8987,7 +8996,8 @@ async function runPayrollCalculation(yyyyMM) {
         if (dateStr > todayStr) continue; // 未來日期不計
         if (empStartDate && dateStr < empStartDate) continue; // 到職前
         const dow = new Date(dateStr + "T00:00:00").getDay();
-        if (dow === 0 || dow === 6) continue; // 週末
+        const isMakeup = makeupWorkdaySet.has(dateStr);
+        if ((dow === 0 || dow === 6) && !isMakeup) continue; // 週末（非補班）
         if (publicHolidaySet.has(dateStr)) continue; // 國定假日
         if (punchedDates.has(dateStr)) continue; // 有打卡
         if (leaveCoveredDates.has(dateStr)) continue; // 有請假

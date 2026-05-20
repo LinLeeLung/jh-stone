@@ -8,6 +8,7 @@ import StaffView from "../views/StaffView.vue";
 import AttendanceView from "../views/AttendanceView.vue";
 import LeaveView from "../views/LeaveView.vue";
 import PayrollView from "../views/PayrollView.vue";
+import PayrollHelpView from "../views/PayrollHelpView.vue";
 import DrawingLayout from "../views/drawing/DrawingLayout.vue";
 import StraightDrawingView from "../views/drawing/StraightDrawingView.vue";
 import LShapeDrawingView from "../views/drawing/LShapeDrawingView.vue";
@@ -116,6 +117,12 @@ const router = createRouter({
       name: "payroll",
       component: PayrollView,
       meta: { roles: ["admin", "管理者"], title: "薪資單" },
+    },
+    {
+      path: "/payroll/help",
+      name: "payroll-help",
+      component: PayrollHelpView,
+      meta: { roles: ["admin", "管理者"], title: "薪資計算說明" },
     },
   ],
 });

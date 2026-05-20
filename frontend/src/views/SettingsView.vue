@@ -263,18 +263,52 @@
         </div>
         <div v-if="form.publicHolidays && form.publicHolidays.length" style="margin-top: 10px">
           <div
-            v-for="h in form.publicHolidays.slice().sort()"
-            :key="h"
+            v-for="h in form.publicHolidays.slice().sort((a,b) => a.date < b.date ? -1 : 1)"
+            :key="h.date"
             style="display: inline-flex; align-items: center; gap: 6px; margin: 3px 6px 3px 0; background: #f0f4ff; border: 1px solid #c5d3f0; border-radius: 5px; padding: 3px 8px; font-size: 0.88rem;"
           >
-            <span>{{ h }}</span>
+            <span>{{ h.date }}<span v-if="h.name" style="margin-left:5px;color:#555;">{{ h.name }}</span></span>
             <button
-              @click="removeHoliday(h)"
+              @click="removeHoliday(h.date)"
               style="background: none; border: none; cursor: pointer; color: #c0392b; font-size: 0.95rem; padding: 0; line-height: 1;"
             >×</button>
           </div>
         </div>
         <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">尚未設定假日</div>
+      </div>
+
+      <!-- 補班日設定 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">補班日</h3>
+          <p class="section-desc">
+            設定需要補班的週末日期，計算虦資時這些日期如未出勤將計入曠職。
+          </p>
+        </div>
+        <div class="field-row" style="gap: 8px; align-items: flex-end">
+          <div class="field-item">
+            <label>新增補班日</label>
+            <input type="date" v-model="newMakeupDay" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 5px;" />
+          </div>
+          <button class="btn-aux" @click="addMakeupDay" :disabled="!newMakeupDay">新增</button>
+          <button class="btn-aux" @click="autoLoadMakeupDays" :disabled="loadingMakeupDays" style="margin-left: 8px">
+            {{ loadingMakeupDays ? '載入中…' : '自動載入 ' + new Date().getFullYear() + ' 補班日' }}
+          </button>
+        </div>
+        <div v-if="form.makeupWorkdays && form.makeupWorkdays.length" style="margin-top: 10px">
+          <div
+            v-for="h in form.makeupWorkdays.slice().sort((a,b) => a.date < b.date ? -1 : 1)"
+            :key="h.date"
+            style="display: inline-flex; align-items: center; gap: 6px; margin: 3px 6px 3px 0; background: #fff8e1; border: 1px solid #f0d080; border-radius: 5px; padding: 3px 8px; font-size: 0.88rem;"
+          >
+            <span>{{ h.date }}<span v-if="h.name" style="margin-left:5px;color:#555;">{{ h.name }}</span></span>
+            <button
+              @click="removeMakeupDay(h.date)"
+              style="background: none; border: none; cursor: pointer; color: #c0392b; font-size: 0.95rem; padding: 0; line-height: 1;"
+            >×</button>
+          </div>
+        </div>
+        <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">尚未設定補班日</div>
       </div>
 
       <!-- 儲存工具列 -->
@@ -878,6 +912,7 @@ const form = ref({
   },
   loanInterestRate: 2,
   publicHolidays: [],
+  makeupWorkdays: [],
 });
 
 // 新增：訂單號碼查詢相關
@@ -897,16 +932,77 @@ const batchResults = ref([]);
 // 假日管理
 const newHoliday = ref("");
 const loadingHolidays = ref(false);
+// 補班日管理
+const newMakeupDay = ref("");
+const loadingMakeupDays = ref(false);
+function addMakeupDay() {
+  const d = newMakeupDay.value;
+  if (!d) return;
+  if (!form.value.makeupWorkdays.some((h) => h.date === d)) {
+    form.value.makeupWorkdays.push({ date: d, name: "補班" });
+  }
+  newMakeupDay.value = "";
+}
+function removeMakeupDay(d) {
+  form.value.makeupWorkdays = form.value.makeupWorkdays.filter(
+    (h) => h.date !== d,
+  );
+}
+async function autoLoadMakeupDays() {
+  const year = new Date().getFullYear();
+  loadingMakeupDays.value = true;
+  try {
+    const res = await fetch(
+      `https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${year}.json`,
+    );
+    if (!res.ok) throw new Error("載入失敗");
+    const data = await res.json();
+    // 補班日：週末但標誌為上班（isHoliday=false，描述含「補班」）
+    const items = data
+      .filter((item) => {
+        if (item.isHoliday) return false;
+        const s = String(item.date);
+        const dateStr = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+        const dow = new Date(dateStr + "T00:00:00").getDay();
+        return (dow === 0 || dow === 6) && item.description && item.description.includes("補班");
+      })
+      .map((item) => {
+        const s = String(item.date);
+        return {
+          date: `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`,
+          name: item.description,
+        };
+      });
+    let added = 0;
+    for (const item of items) {
+      if (!form.value.makeupWorkdays.some((h) => h.date === item.date)) {
+        form.value.makeupWorkdays.push(item);
+        added++;
+      }
+    }
+    message.value = added > 0
+      ? `已載入 ${added} 個補班日（重複者已跳過）`
+      : `${year} 年度無補班日`;
+    setTimeout(() => (message.value = ""), 3000);
+  } catch (e) {
+    errorMessage.value = `無法自動載入補班日：${e.message}`;
+    setTimeout(() => (errorMessage.value = ""), 4000);
+  } finally {
+    loadingMakeupDays.value = false;
+  }
+}
 function addHoliday() {
   const d = newHoliday.value;
   if (!d) return;
-  if (!form.value.publicHolidays.includes(d)) {
-    form.value.publicHolidays.push(d);
+  if (!form.value.publicHolidays.some((h) => h.date === d)) {
+    form.value.publicHolidays.push({ date: d, name: "" });
   }
   newHoliday.value = "";
 }
 function removeHoliday(d) {
-  form.value.publicHolidays = form.value.publicHolidays.filter((h) => h !== d);
+  form.value.publicHolidays = form.value.publicHolidays.filter(
+    (h) => h.date !== d,
+  );
 }
 async function autoLoadHolidays() {
   const year = new Date().getFullYear();
@@ -917,16 +1013,19 @@ async function autoLoadHolidays() {
     );
     if (!res.ok) throw new Error("載入失敗");
     const data = await res.json();
-    const dates = data
+    const items = data
       .filter((item) => item.isHoliday && item.description)
       .map((item) => {
         const s = String(item.date); // "20260101"
-        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+        return {
+          date: `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`,
+          name: item.description,
+        };
       });
     let added = 0;
-    for (const d of dates) {
-      if (!form.value.publicHolidays.includes(d)) {
-        form.value.publicHolidays.push(d);
+    for (const item of items) {
+      if (!form.value.publicHolidays.some((h) => h.date === item.date)) {
+        form.value.publicHolidays.push(item);
         added++;
       }
     }
@@ -1261,6 +1360,9 @@ async function loadSettings() {
       : 2;
     form.value.publicHolidays = Array.isArray(data.publicHolidays)
       ? data.publicHolidays.slice()
+      : [];
+    form.value.makeupWorkdays = Array.isArray(data.makeupWorkdays)
+      ? data.makeupWorkdays.slice()
       : [];
   } catch (error) {
     console.error("讀取系統設定失敗:", error);

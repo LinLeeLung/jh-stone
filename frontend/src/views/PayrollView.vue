@@ -1,6 +1,9 @@
 <template>
   <div class="payroll-wrap">
-    <h2 class="page-title">{{ t("payroll_title") }}</h2>
+    <div style="display:flex; align-items:baseline; gap:16px; flex-wrap:wrap;">
+      <h2 class="page-title">{{ t("payroll_title") }}</h2>
+      <router-link to="/payroll/help" style="font-size:0.85rem; color:#2563eb;">？ 薪資計算說明</router-link>
+    </div>
 
     <!-- Month picker -->
     <div class="month-bar">
@@ -228,7 +231,7 @@
             </td>
             <td>
               <button
-                v-if="ln.paidInstallments === 0"
+                v-if="ln.paidInstallments === 0 || isAdmin"
                 class="btn-sm btn-del"
                 @click="removeLoan(ln)"
               >
@@ -239,95 +242,6 @@
           </tr>
         </tbody>
       </table>
-    </div>
-
-    <!-- ── Payroll guide ──────────────────────────────────────────────── -->
-    <div v-if="isManager" class="loan-section payroll-guide">
-      <h3
-        class="loan-section-title"
-        style="cursor: pointer"
-        @click="guideOpen = !guideOpen"
-      >
-        薪資計算說明
-        <span style="font-size: 0.85em; font-weight: normal">{{
-          guideOpen ? "▲ 收合" : "▼ 展開"
-        }}</span>
-      </h3>
-      <div v-show="guideOpen">
-        <h4>一、加班費（勞基法第24條）</h4>
-        <p>
-          來源：<code>overtimeRequests</code>
-          已雙層簽核（approved2）的當月申請。員工需有系統帳號。
-        </p>
-        <p>時薪 ＝ 月薪 ÷ 240（30天×8小時）</p>
-        <table class="guide-table">
-          <thead>
-            <tr>
-              <th>加班時數</th>
-              <th>費率</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>前 2 小時</td>
-              <td>時薪 × 4/3</td>
-            </tr>
-            <tr>
-              <td>第 3 小時起</td>
-              <td>時薪 × 5/3</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h4>二、請假扣薪</h4>
-        <p>
-          來源：<code>leaveRequests</code>
-          已雙層簽核的當月申請。「天」單位自動換算 × 8 小時。
-        </p>
-        <table class="guide-table">
-          <thead>
-            <tr>
-              <th>假別</th>
-              <th>扣薪</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>特休</td>
-              <td>不扣</td>
-            </tr>
-            <tr>
-              <td>病假</td>
-              <td>半薪（× 0.5）</td>
-            </tr>
-            <tr>
-              <td>事假、其他</td>
-              <td>全扣（× 1.0）</td>
-            </tr>
-          </tbody>
-        </table>
-        <p>
-          另有<strong>遲到 / 早退扣薪</strong>（獨立計算），規則可於「系統設定 →
-          差勤規則」調整。
-        </p>
-
-        <h4>三、新進員工未滿月計薪（月薪制）</h4>
-        <p>當月底薪 ＝ 月薪 × 到職日至月底天數 ÷ 當月總天數</p>
-        <p class="guide-example">
-          範例：5/15 到職，月薪 40,000 → 40,000 × 17/31 ≈ 21,935 元
-        </p>
-        <p>時薪制、日薪制不受影響；次月起恢復全額。</p>
-
-        <h4>四、實領薪資公式</h4>
-        <p class="guide-formula">
-          底薪 ＋ 獎金 ＋ 加班費 ＋ 伙食費<br />
-          － 請假扣薪 － 遲到早退扣薪<br />
-          － 勞保費 － 健保費 － 眷屬健保費 － 便當費<br />
-          － 房租（外勞）－ 水費 － 電費 － 體檢費（外勞）－ 服務費（外勞）<br />
-          － 借款本金 － 借款利息<br />
-          <strong>最小值 0（不會出現負數）</strong>
-        </p>
-      </div>
     </div>
 
     <!-- Detail modal -->
@@ -599,6 +513,7 @@ const userRole = ref(null);
 const isManager = computed(
   () => userRole.value === "admin" || userRole.value === "管理者",
 );
+const isAdmin = computed(() => userRole.value === "admin");
 
 function todayYYYYMM() {
   const d = new Date();
@@ -630,7 +545,6 @@ const loanForm = ref({
 });
 
 const staffList = ref([]);
-const guideOpen = ref(false);
 
 const totalGross = computed(() =>
   allRecords.value.reduce((sum, r) => sum + (r.grossPay || 0), 0),
@@ -876,6 +790,7 @@ function printSlip(r, mode) {
       ${deductRow('電費', r.electricFee)}
       ${deductRow('體檢費（外勞）', r.foreignMedical)}
       ${deductRow('服務費（外勞）', r.foreignService)}
+      ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
       ${deductRow('借款本金', r.loanPrincipal)}
       ${deductRow('借款利息', r.loanInterest)}
       <tr class="total-row"><th>5日實發</th><td class="gross">${n(r.firstPayment)}</td></tr>
@@ -1136,40 +1051,6 @@ function mealTotals(r) {
   margin-top: 0.5rem;
 }
 
-/* Payroll guide */
-.payroll-guide h4 {
-  margin: 16px 0 6px;
-  font-size: 0.97rem;
-}
-.guide-table {
-  width: auto;
-  min-width: 260px;
-  border-collapse: collapse;
-  margin: 6px 0 10px;
-  font-size: 13px;
-}
-.guide-table th,
-.guide-table td {
-  border: 1px solid #ddd;
-  padding: 5px 12px;
-}
-.guide-table th {
-  background: #f4f4f4;
-}
-.guide-example {
-  background: #fff8e1;
-  border-left: 3px solid #ffc107;
-  padding: 6px 10px;
-  margin: 4px 0 10px;
-  font-size: 13px;
-}
-.guide-formula {
-  background: #f0f4ff;
-  border-left: 3px solid #2563eb;
-  padding: 8px 14px;
-  font-size: 13px;
-  line-height: 1.9;
-}
 /* Loan section */
 .loan-section {
   margin-top: 2.5rem;
