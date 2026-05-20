@@ -8820,6 +8820,33 @@ async function runPayrollCalculation(yyyyMM) {
       otDetail.push({ date: ot.date || "", hours: h, pay });
     }
 
+    // Official OT (for labor compliance ≤46 h/month)
+    const OT_MONTHLY_CAP = 46;
+    let otPayOfficial = 0;
+    let otHoursOfficial = 0;
+    const otDetailOfficial = [];
+    for (const ot of otRecords) {
+      const hRaw =
+        Number(ot.officialHours != null ? ot.officialHours : ot.hours) || 0;
+      const hOff = Math.min(
+        hRaw,
+        Math.max(0, OT_MONTHLY_CAP - otHoursOfficial),
+      );
+      if (hOff <= 0) continue;
+      otHoursOfficial += hOff;
+      let payOff;
+      if (hOff <= 2) {
+        payOff = hOff * baseHourlyRate * (4 / 3);
+      } else {
+        payOff =
+          2 * baseHourlyRate * (4 / 3) +
+          (hOff - 2) * baseHourlyRate * (5 / 3);
+      }
+      payOff = Math.round(payOff);
+      otPayOfficial += payOff;
+      otDetailOfficial.push({ date: ot.date || "", hours: hOff, pay: payOff });
+    }
+
     // Leave deduction
     let leaveDeduction = 0;
     const leaveDetail = [];
@@ -8830,6 +8857,7 @@ async function runPayrollCalculation(yyyyMM) {
       let deduction = 0;
       if (
         lv.type === "年假（特休）" ||
+        lv.type === "特休" ||
         lv.type === "婚假" ||
         lv.type === "喪假" ||
         lv.type === "產假" ||
@@ -8858,6 +8886,9 @@ async function runPayrollCalculation(yyyyMM) {
     const mealDetail = [];
     let lateEarlyDeduction = 0;
     const lateEarlyDetail = [];
+    let absentDeduction = 0;
+    let absentDays = 0;
+    const absentDetail = [];
     if (userUid) {
       const attSnap = await db
         .collection("attendance")
@@ -8917,6 +8948,53 @@ async function runPayrollCalculation(yyyyMM) {
           });
         }
       }
+
+      // 曠職自動偵測：工作日（週一至五）無打卡且無請假
+      const publicHolidaySet = new Set(settingsData.publicHolidays || []);
+      const empStartDate = s.startDate
+        ? String(s.startDate).slice(0, 10)
+        : null;
+      // 展開核准請假涵蓋的日期
+      const leaveCoveredDates = new Set();
+      for (const lv of leaveRecords) {
+        const lstart = lv.startDate
+          ? String(lv.startDate).slice(0, 10)
+          : null;
+        if (!lstart) continue;
+        const daysN =
+          lv.unit === "小時" ? 1 : Math.max(1, Number(lv.days) || 1);
+        for (let i = 0; i < daysN; i++) {
+          const d = new Date(lstart + "T00:00:00");
+          d.setDate(d.getDate() + i);
+          leaveCoveredDates.add(d.toISOString().slice(0, 10));
+        }
+      }
+      // 有打卡（至少有 punchIn）的日期
+      const punchedDates = new Set(
+        attSnap.docs
+          .map((d) => d.data())
+          .filter(
+            (r) =>
+              String(r.date || "").startsWith(monthPrefix) && r.punchIn,
+          )
+          .map((r) => r.date),
+      );
+      // 每天檢查
+      const daysInMonthN = new Date(Number(yyyy), Number(mm), 0).getDate();
+      const todayStr = new Date().toISOString().slice(0, 10);
+      for (let day = 1; day <= daysInMonthN; day++) {
+        const dateStr = `${yyyy}-${mm}-${String(day).padStart(2, "0")}`;
+        if (dateStr > todayStr) continue; // 未來日期不計
+        if (empStartDate && dateStr < empStartDate) continue; // 到職前
+        const dow = new Date(dateStr + "T00:00:00").getDay();
+        if (dow === 0 || dow === 6) continue; // 週末
+        if (publicHolidaySet.has(dateStr)) continue; // 國定假日
+        if (punchedDates.has(dateStr)) continue; // 有打卡
+        if (leaveCoveredDates.has(dateStr)) continue; // 有請假
+        absentDays++;
+        absentDetail.push(dateStr);
+      }
+      absentDeduction = Math.round(baseHourlyRate * 8 * absentDays);
     }
 
     // Fixed monthly bonuses
@@ -8952,31 +9030,31 @@ async function runPayrollCalculation(yyyyMM) {
     }
 
     // 借款扣款（等額本金法）
-    // 若當月薪資單已存在且已處理過借款，重算時直接沿用舊金額，不重複扣款
+    // 每筆借款以 processedMonths[yyyyMM] 獨立追蹤是否已處理，
+    // 避免重算時漏算新增借款或重複異動餘額。
     let loanPrincipal = 0;
     let loanInterest = 0;
-    const loanUpdates = []; // { loanId, newRemaining, newPaid, newStatus }
-    const alreadyProcessedLoan =
-      existingPayrollSnap.exists &&
-      existingPayrollSnap.data().loanPrincipal !== undefined;
+    const loanUpdates = []; // { loanId, newRemaining, newPaid, newStatus, monthlyPrincipal, monthlyInterestAmt }
 
-    if (alreadyProcessedLoan) {
-      // 重算：沿用已記錄的借款金額，不再異動貸款餘額
-      loanPrincipal = Number(existingPayrollSnap.data().loanPrincipal) || 0;
-      loanInterest = Number(existingPayrollSnap.data().loanInterest) || 0;
-    } else {
-      const loansSnap = await db
-        .collection("loans")
-        .where("empNo", "==", String(empNo))
-        .where("status", "==", "active")
-        .get();
+    const loansSnap = await db
+      .collection("loans")
+      .where("empNo", "==", String(empNo))
+      .where("status", "==", "active")
+      .get();
 
-      for (const loanDoc of loansSnap.docs) {
-        const ln = loanDoc.data();
-        // Only process if startMonth <= yyyyMM
-        const loanStartNum = String(ln.startMonth || "").replace("-", "");
-        if (loanStartNum > yyyyMM) continue;
+    for (const loanDoc of loansSnap.docs) {
+      const ln = loanDoc.data();
+      // Only process if startMonth <= yyyyMM
+      const loanStartNum = String(ln.startMonth || "").replace("-", "");
+      if (loanStartNum > yyyyMM) continue;
 
+      const processedMonths = ln.processedMonths || {};
+      if (processedMonths[yyyyMM]) {
+        // 本月已處理過此筆借款：沿用已記錄金額，不重複異動餘額
+        loanPrincipal += Number(processedMonths[yyyyMM].principal) || 0;
+        loanInterest += Number(processedMonths[yyyyMM].interest) || 0;
+      } else {
+        // 本月尚未處理：計算並排入更新
         const monthlyPrincipal = Math.round(
           (Number(ln.principal) || 0) / (Number(ln.installments) || 1),
         );
@@ -8998,6 +9076,8 @@ async function runPayrollCalculation(yyyyMM) {
           newRemaining,
           newPaid,
           newStatus,
+          monthlyPrincipal,
+          monthlyInterestAmt,
         });
       }
     }
@@ -9010,6 +9090,7 @@ async function runPayrollCalculation(yyyyMM) {
         mealAllowance -
         leaveDeduction -
         lateEarlyDeduction -
+        absentDeduction -
         laborInsurance -
         healthInsurance -
         dependentHealth -
@@ -9022,6 +9103,30 @@ async function runPayrollCalculation(yyyyMM) {
         loanPrincipal -
         loanInterest,
     );
+
+    // 分兩次發薪：5日依投保薪資為底薪、扣固定項目後先發；10日補實際差額
+    const laborInsuranceSalaryBase = Math.max(
+      0,
+      Number(s.laborInsuranceSalary) || 0,
+    );
+    const firstPayment = Math.max(
+      0,
+      laborInsuranceSalaryBase +
+        otPayOfficial -
+        laborInsurance -
+        healthInsurance -
+        dependentHealth -
+        lunchFee -
+        foreignRent -
+        waterFee -
+        electricFee -
+        foreignMedical -
+        foreignService -
+        loanPrincipal -
+        loanInterest -
+        absentDeduction,
+    );
+    const secondPayment = grossPay - firstPayment;
 
     await db
       .collection("payroll")
@@ -9045,12 +9150,18 @@ async function runPayrollCalculation(yyyyMM) {
         otDetail,
         otHours,
         otPay,
+        otDetailOfficial,
+        otHoursOfficial,
+        otPayOfficial,
         mealAllowance,
         mealDetail,
         leaveDetail,
         leaveDeduction,
         lateEarlyDeduction,
         lateEarlyDetail,
+        absentDeduction,
+        absentDays,
+        absentDetail,
         laborInsurance,
         healthInsurance,
         dependentHealth,
@@ -9062,6 +9173,9 @@ async function runPayrollCalculation(yyyyMM) {
         foreignService,
         loanPrincipal,
         loanInterest,
+        laborInsuranceSalaryBase,
+        firstPayment,
+        secondPayment,
         grossPay,
         status: "draft",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -9074,6 +9188,10 @@ async function runPayrollCalculation(yyyyMM) {
         remainingBalance: lu.newRemaining,
         paidInstallments: lu.newPaid,
         status: lu.newStatus,
+        [`processedMonths.${yyyyMM}`]: {
+          principal: lu.monthlyPrincipal,
+          interest: lu.monthlyInterestAmt,
+        },
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     }

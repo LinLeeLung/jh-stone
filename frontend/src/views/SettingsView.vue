@@ -243,6 +243,40 @@
         </div>
       </div>
 
+      <!-- 國定假日設定 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">國定假日 / 公司休假日</h3>
+          <p class="section-desc">
+            設定当年國定假日及公司休假日，計算薪資時這些日期不會列為曠職。
+          </p>
+        </div>
+        <div class="field-row" style="gap: 8px; align-items: flex-end">
+          <div class="field-item">
+            <label>新增假日</label>
+            <input type="date" v-model="newHoliday" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 5px;" />
+          </div>
+          <button class="btn-aux" @click="addHoliday" :disabled="!newHoliday">新增</button>
+          <button class="btn-aux" @click="autoLoadHolidays" :disabled="loadingHolidays" style="margin-left: 8px">
+            {{ loadingHolidays ? '載入中…' : '自動載入 ' + new Date().getFullYear() + ' 國定假日' }}
+          </button>
+        </div>
+        <div v-if="form.publicHolidays && form.publicHolidays.length" style="margin-top: 10px">
+          <div
+            v-for="h in form.publicHolidays.slice().sort()"
+            :key="h"
+            style="display: inline-flex; align-items: center; gap: 6px; margin: 3px 6px 3px 0; background: #f0f4ff; border: 1px solid #c5d3f0; border-radius: 5px; padding: 3px 8px; font-size: 0.88rem;"
+          >
+            <span>{{ h }}</span>
+            <button
+              @click="removeHoliday(h)"
+              style="background: none; border: none; cursor: pointer; color: #c0392b; font-size: 0.95rem; padding: 0; line-height: 1;"
+            >×</button>
+          </div>
+        </div>
+        <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">尚未設定假日</div>
+      </div>
+
       <!-- 儲存工具列 -->
       <div class="save-bar">
         <button class="btn-query" :disabled="saving" @click="save">
@@ -843,6 +877,7 @@ const form = ref({
     deductEarlyLeave: true,
   },
   loanInterestRate: 2,
+  publicHolidays: [],
 });
 
 // 新增：訂單號碼查詢相關
@@ -858,6 +893,52 @@ const batchCancelled = ref(false);
 const batchDone = ref(0);
 const batchTotal = ref(0);
 const batchResults = ref([]);
+
+// 假日管理
+const newHoliday = ref("");
+const loadingHolidays = ref(false);
+function addHoliday() {
+  const d = newHoliday.value;
+  if (!d) return;
+  if (!form.value.publicHolidays.includes(d)) {
+    form.value.publicHolidays.push(d);
+  }
+  newHoliday.value = "";
+}
+function removeHoliday(d) {
+  form.value.publicHolidays = form.value.publicHolidays.filter((h) => h !== d);
+}
+async function autoLoadHolidays() {
+  const year = new Date().getFullYear();
+  loadingHolidays.value = true;
+  try {
+    const res = await fetch(
+      `https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${year}.json`,
+    );
+    if (!res.ok) throw new Error("載入失敗");
+    const data = await res.json();
+    const dates = data
+      .filter((item) => item.isHoliday && item.description)
+      .map((item) => {
+        const s = String(item.date); // "20260101"
+        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+      });
+    let added = 0;
+    for (const d of dates) {
+      if (!form.value.publicHolidays.includes(d)) {
+        form.value.publicHolidays.push(d);
+        added++;
+      }
+    }
+    message.value = `已載入 ${added} 個假日（重複者已跳過）`;
+    setTimeout(() => (message.value = ""), 3000);
+  } catch (e) {
+    errorMessage.value = `無法自動載入假日：${e.message}`;
+    setTimeout(() => (errorMessage.value = ""), 4000);
+  } finally {
+    loadingHolidays.value = false;
+  }
+}
 
 // 打卡地點
 const fetchingLoc = ref(false);
@@ -1178,6 +1259,9 @@ async function loadSettings() {
     form.value.loanInterestRate = Number.isFinite(Number(data.loanInterestRate))
       ? Number(data.loanInterestRate)
       : 2;
+    form.value.publicHolidays = Array.isArray(data.publicHolidays)
+      ? data.publicHolidays.slice()
+      : [];
   } catch (error) {
     console.error("讀取系統設定失敗:", error);
     errorMessage.value = "讀取設定失敗，請稍後再試。";

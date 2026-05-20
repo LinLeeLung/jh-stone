@@ -16,6 +16,14 @@
       >
         {{ calculating ? "計算中…" : "計算薪資" }}
       </button>
+      <button
+        v-if="isManager"
+        class="btn-cleanup"
+        @click="cleanupDuplicates"
+        title="刪除同一員工的舊格式重複記錄"
+      >
+        清除重複
+      </button>
       <span v-if="calcMsg" :class="['calc-msg', calcMsgIsErr ? 'err' : 'ok']">{{
         calcMsg
       }}</span>
@@ -41,7 +49,9 @@
             <th>伙食費</th>
             <th>請假扣薪</th>
             <th>便當費</th>
-            <th>實領薪資</th>
+            <th>5日發薪</th>
+            <th>10日發薪</th>
+            <th>實領合計</th>
             <th>明細</th>
           </tr>
         </thead>
@@ -86,6 +96,10 @@
                   : "—"
               }}</span>
             </td>
+            <td class="num gross">{{ r.firstPayment?.toLocaleString() ?? '—' }}</td>
+            <td class="num" :class="(r.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'">
+              {{ r.secondPayment?.toLocaleString() ?? '—' }}
+            </td>
             <td class="num gross">{{ r.grossPay?.toLocaleString() }}</td>
             <td>
               <button class="btn-sm btn-detail" @click="openDetail(r)">
@@ -97,6 +111,8 @@
         <tfoot>
           <tr>
             <td colspan="9" class="total-label">合計</td>
+            <td class="num gross">{{ totalFirst.toLocaleString() }}</td>
+            <td class="num gross">{{ totalSecond.toLocaleString() }}</td>
             <td class="num gross">{{ totalGross.toLocaleString() }}</td>
             <td></td>
           </tr>
@@ -277,7 +293,7 @@
           </thead>
           <tbody>
             <tr>
-              <td>年假（特休）</td>
+              <td>特休</td>
               <td>不扣</td>
             </tr>
             <tr>
@@ -352,7 +368,7 @@
               <td class="num">+{{ b.toLocaleString() }}</td>
             </tr>
             <tr v-if="detailRecord.otPay > 0">
-              <th>加班費合計</th>
+              <th>加班費合計（實際）</th>
               <td class="num ot">+{{ detailRecord.otPay.toLocaleString() }}</td>
             </tr>
             <template
@@ -373,16 +389,14 @@
                 +{{ detailRecord.mealAllowance.toLocaleString() }}
               </td>
             </tr>
-            <template
-              v-if="detailRecord.mealDetail && detailRecord.mealDetail.length"
-            >
-              <tr
-                v-for="(ml, i) in detailRecord.mealDetail"
-                :key="'dml' + i"
-                class="sub"
-              >
-                <th>{{ ml.date }}（{{ ml.punchIn }}~{{ ml.punchOut }}）</th>
-                <td class="num meal">+{{ ml.meal?.toLocaleString() }}</td>
+            <template v-if="detailRecord.mealDetail && detailRecord.mealDetail.length">
+              <tr v-if="mealTotals(detailRecord).lunch > 0" class="sub">
+                <th>午餐</th>
+                <td class="num meal">+{{ mealTotals(detailRecord).lunch.toLocaleString() }}</td>
+              </tr>
+              <tr v-if="mealTotals(detailRecord).dinner > 0" class="sub">
+                <th>晚餐</th>
+                <td class="num meal">+{{ mealTotals(detailRecord).dinner.toLocaleString() }}</td>
               </tr>
             </template>
             <tr v-if="detailRecord.leaveDeduction > 0">
@@ -433,6 +447,24 @@
                 </th>
                 <td class="num deduct">
                   −{{ le.deduction?.toLocaleString() }}
+                </td>
+              </tr>
+            </template>
+            <tr v-if="(detailRecord.absentDeduction || 0) > 0">
+              <th>曠職扣薪（{{ detailRecord.absentDays }}天）</th>
+              <td class="num deduct">
+                −{{ detailRecord.absentDeduction.toLocaleString() }}
+              </td>
+            </tr>
+            <template v-if="detailRecord.absentDetail && detailRecord.absentDetail.length">
+              <tr
+                v-for="(d, i) in detailRecord.absentDetail"
+                :key="'abs' + i"
+                class="sub"
+              >
+                <th>{{ d }} 曠職</th>
+                <td class="num deduct">
+                  −{{ Math.round(detailRecord.absentDeduction / detailRecord.absentDays).toLocaleString() }}
                 </td>
               </tr>
             </template>
@@ -508,9 +540,26 @@
                 {{ detailRecord.grossPay?.toLocaleString() }}
               </td>
             </tr>
+            <tr class="sep">
+              <th>5日發薪（投保薪資＋申報加班費）</th>
+              <td class="num gross">
+                {{ (detailRecord.firstPayment ?? 0).toLocaleString() }}
+              </td>
+            </tr>
+            <tr>
+              <th>10日發薪（補差額）</th>
+              <td
+                class="num"
+                :class="(detailRecord.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'"
+              >
+                {{ (detailRecord.secondPayment ?? 0).toLocaleString() }}
+              </td>
+            </tr>
           </tbody>
         </table>
         <div class="modal-actions">
+          <button class="btn-sm btn-print" @click="printSlip(detailRecord, 'first')">列印 5日明細</button>
+          <button class="btn-sm btn-print" @click="printSlip(detailRecord, 'full')">列印全部明細</button>
           <button class="btn-sm" @click="detailRecord = null">關閉</button>
         </div>
       </div>
@@ -539,6 +588,7 @@ import {
   getDocs,
   getDoc,
   doc,
+  deleteDoc,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 
@@ -585,6 +635,12 @@ const guideOpen = ref(false);
 const totalGross = computed(() =>
   allRecords.value.reduce((sum, r) => sum + (r.grossPay || 0), 0),
 );
+const totalFirst = computed(() =>
+  allRecords.value.reduce((sum, r) => sum + (r.firstPayment || 0), 0),
+);
+const totalSecond = computed(() =>
+  allRecords.value.reduce((sum, r) => sum + (r.secondPayment || 0), 0),
+);
 
 // ── Init ───────────────────────────────────────────────────────────────────
 onMounted(async () => {
@@ -612,14 +668,55 @@ async function loadPayroll() {
     const snap = await getDocs(
       query(collection(db, "payroll"), where("yyyyMM", "==", yyyyMM)),
     );
-    allRecords.value = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a, b) =>
-        String(a.empNo ?? "").localeCompare(String(b.empNo ?? "")),
-      );
+    const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    // Deduplicate by empNo: if same empNo has multiple docs (old empNo_-keyed + new uid-keyed),
+    // prefer the uid-based one (id does NOT start with "empNo_").
+    const byEmpNo = {};
+    for (const r of raw) {
+      const key = String(r.empNo ?? r.id);
+      if (!byEmpNo[key]) {
+        byEmpNo[key] = r;
+      } else {
+        const existingIsOld = byEmpNo[key].id.startsWith("empNo_") ||
+          /^\d+_/.test(byEmpNo[key].id);
+        const newIsOld = r.id.startsWith("empNo_") || /^\d+_/.test(r.id);
+        if (existingIsOld && !newIsOld) byEmpNo[key] = r;
+      }
+    }
+    allRecords.value = Object.values(byEmpNo).sort((a, b) =>
+      String(a.empNo ?? "").localeCompare(String(b.empNo ?? "")),
+    );
   } finally {
     loading.value = false;
   }
+}
+
+async function cleanupDuplicates() {
+  const yyyyMM = selectedMonth.value.replace("-", "");
+  if (!confirm(`清除 ${selectedMonth.value} 的重複舊薪資記錄？\n（保留UID格式，刪除empNo格式的舊資料）`)) return;
+  const snap = await getDocs(
+    query(collection(db, "payroll"), where("yyyyMM", "==", yyyyMM)),
+  );
+  const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Find empNo that appear more than once
+  const empCount = {};
+  for (const r of raw) {
+    const key = String(r.empNo ?? r.id);
+    empCount[key] = (empCount[key] || 0) + 1;
+  }
+  const toDelete = raw.filter((r) => {
+    const key = String(r.empNo ?? r.id);
+    return empCount[key] > 1 && (r.id.startsWith("empNo_") || /^\d+_/.test(r.id));
+  });
+  if (!toDelete.length) {
+    alert("沒有找到重複記錄。");
+    return;
+  }
+  for (const r of toDelete) {
+    await deleteDoc(doc(db, "payroll", r.id));
+  }
+  alert(`已刪除 ${toDelete.length} 筆重複舊記錄。`);
+  await loadPayroll();
 }
 
 async function triggerCalculation() {
@@ -730,6 +827,159 @@ async function removeLoan(ln) {
   }
 }
 
+// ── Print ─────────────────────────────────────────────────────────────────
+function n(v) {
+  return (Number(v) || 0).toLocaleString();
+}
+
+function printSlip(r, mode) {
+  const title =
+    mode === 'first'
+      ? `${r.name}（${r.empNo}）${r.monthLabel} 5日薪資單`
+      : `${r.name}（${r.empNo}）${r.monthLabel} 完整薪資單`;
+
+  const deductRow = (label, val) =>
+    val > 0
+      ? `<tr><th>${label}</th><td class="deduct">−${Number(val).toLocaleString()}</td></tr>`
+      : '';
+
+  let bodyRows = '';
+
+  if (mode === 'first') {
+    const deductSum =
+      (Number(r.laborInsurance) || 0) +
+      (Number(r.healthInsurance) || 0) +
+      (Number(r.dependentHealth) || 0) +
+      (Number(r.lunchFee) || 0) +
+      (Number(r.foreignRent) || 0) +
+      (Number(r.waterFee) || 0) +
+      (Number(r.electricFee) || 0) +
+      (Number(r.foreignMedical) || 0) +
+      (Number(r.foreignService) || 0) +
+      (Number(r.loanPrincipal) || 0) +
+      (Number(r.loanInterest) || 0);
+    // 若 Firestore 沒存此欄位（舊資料），由 5日實發 + 各扣款反推
+    const base =
+      Number(r.laborInsuranceSalaryBase) || (Number(r.firstPayment) || 0) + deductSum;
+    const otOffRows = (r.otDetailOfficial || [])
+      .map((ot) => `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`)
+      .join('');
+    bodyRows = `
+      <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
+      ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ''}
+      ${deductRow('勞保費', r.laborInsurance)}
+      ${deductRow('健保費', r.healthInsurance)}
+      ${deductRow('眷屬健保費', r.dependentHealth)}
+      ${deductRow('便當費', r.lunchFee)}
+      ${deductRow('房租（外勞）', r.foreignRent)}
+      ${deductRow('水費', r.waterFee)}
+      ${deductRow('電費', r.electricFee)}
+      ${deductRow('體檢費（外勞）', r.foreignMedical)}
+      ${deductRow('服務費（外勞）', r.foreignService)}
+      ${deductRow('借款本金', r.loanPrincipal)}
+      ${deductRow('借款利息', r.loanInterest)}
+      <tr class="total-row"><th>5日實發</th><td class="gross">${n(r.firstPayment)}</td></tr>
+    `;
+  } else {
+    const bonuses = [r.bonus1, r.bonus2, r.bonus3, r.bonus4, r.bonus5]
+      .filter((b) => b && b > 0)
+      .map((b, i) => `<tr class="sub"><th>獎金(${i + 1})</th><td>+${Number(b).toLocaleString()}</td></tr>`)
+      .join('');
+
+    const otRows = (r.otDetail || [])
+      .map((ot) => `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`)
+      .join('');
+
+    let lunchTotal = 0;
+    let dinnerTotal = 0;
+    for (const ml of r.mealDetail || []) {
+      const inT = String(ml.punchIn).length <= 5 ? ml.punchIn + ':00' : String(ml.punchIn);
+      const outT = String(ml.punchOut).length <= 5 ? ml.punchOut + ':00' : String(ml.punchOut);
+      if (inT < '14:00:00' && outT > '11:00:00') lunchTotal += 100;
+      if (inT < '18:30:00' && outT > '17:30:00') dinnerTotal += 100;
+    }
+    const mealRows =
+      (lunchTotal > 0 ? `<tr class="sub"><th>午餐</th><td class="meal">+${lunchTotal.toLocaleString()}</td></tr>` : '') +
+      (dinnerTotal > 0 ? `<tr class="sub"><th>晚餐</th><td class="meal">+${dinnerTotal.toLocaleString()}</td></tr>` : '');
+
+    const leaveRows = (r.leaveDetail || [])
+      .map((lv) => {
+        const unit = lv.unit === '小時' ? `${lv.hours}h` : `${lv.days}天`;
+        return `<tr class="sub"><th>${lv.type}（${unit}）</th><td class="deduct">−${n(lv.deduction)}</td></tr>`;
+      })
+      .join('');
+
+    const lateRows = (r.lateEarlyDetail || [])
+      .map((le) => {
+        const parts = [];
+        if (le.lateMins > 0) parts.push(`遲到${le.lateMins}分`);
+        if (le.earlyMins > 0) parts.push(`早退${le.earlyMins}分`);
+        return `<tr class="sub"><th>${le.date} ${parts.join('/')}</th><td class="deduct">−${n(le.deduction)}</td></tr>`;
+      })
+      .join('');
+
+    bodyRows = `
+      <tr><th>薪資類型</th><td>${r.salaryType || ''}</td></tr>
+      <tr class="sep"><th>底薪</th><td>${n(r.baseSalary)}</td></tr>
+      ${r.bonusTotal > 0 ? `<tr><th>固定獎金合計</th><td>+${n(r.bonusTotal)}</td></tr>${bonuses}` : ''}
+      ${r.otPay > 0 ? `<tr><th>加班費合計（實際，${r.otHours || 0}h）</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ''}
+      ${(r.otPayOfficial != null && r.otPayOfficial !== r.otPay) ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>` : ''}
+      ${r.mealAllowance > 0 ? `<tr><th>伙食費合計</th><td class="meal">+${n(r.mealAllowance)}</td></tr>${mealRows}` : ''}
+      ${r.leaveDeduction > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ''}
+      ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ''}
+      ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>${(r.absentDetail || []).map(d => `<tr class="sub"><th>${d} 曠職</th><td class="deduct">−${n(Math.round(r.absentDeduction / r.absentDays))}</td></tr>`).join('')}` : ''}
+      ${deductRow('勞保費', r.laborInsurance)}
+      ${deductRow('健保費', r.healthInsurance)}
+      ${deductRow('眷屬健保費', r.dependentHealth)}
+      ${deductRow('便當費', r.lunchFee)}
+      ${deductRow('房租（外勞）', r.foreignRent)}
+      ${deductRow('水費', r.waterFee)}
+      ${deductRow('電費', r.electricFee)}
+      ${deductRow('體檢費（外勞）', r.foreignMedical)}
+      ${deductRow('服務費（外勞）', r.foreignService)}
+      ${deductRow('借款本金', r.loanPrincipal)}
+      ${deductRow('借款利息', r.loanInterest)}
+      <tr class="total-row"><th>實領薪資</th><td class="gross">${n(r.grossPay)}</td></tr>
+      <tr class="sep"><th>5日發薪（投保薪資＋申報加班費）</th><td class="gross">${n(r.firstPayment)}</td></tr>
+      <tr><th>10日發薪（補差額）</th><td class="${(r.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'}">${n(r.secondPayment)}</td></tr>
+    `;
+  }
+
+  const html = `<!DOCTYPE html><html lang="zh-Hant"><head>
+    <meta charset="UTF-8"><title>${title}</title>
+    <style>
+      body { font-family: 'Noto Sans TC', Arial, sans-serif; font-size: 13px; margin: 24px; color: #222; }
+      h2 { font-size: 1.1rem; margin-bottom: 4px; }
+      p.sub { color: #555; margin: 2px 0 14px; font-size: 12px; }
+      table { width: auto; min-width: 320px; border-collapse: collapse; margin-top: 8px; }
+      th, td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+      th { text-align: left; white-space: nowrap; padding-right: 2rem; font-weight: 500; color: #444; }
+      td { text-align: right; min-width: 80px; }
+      tr.sep th, tr.sep td { border-top: 2px solid #aaa; }
+      tr.sub th, tr.sub td { font-size: 11px; color: #888; padding-left: 18px; }
+      tr.total-row th, tr.total-row td { border-top: 2px solid #555; font-weight: 700; font-size: 1.05em; }
+      .deduct { color: #b71c1c; }
+      .gross { color: #1a237e; font-weight: 700; }
+      .ot { color: #2e7d32; }
+      .meal { color: #e65100; }
+      @media print { @page { margin: 1.5cm; } }
+    </style>
+  </head><body>
+    <h2>${title}</h2>
+    <p class="sub">列印時間：${new Date().toLocaleString('zh-TW')}</p>
+    <table><tbody>${bodyRows}</tbody></table>
+  </body></html>`;
+
+  const win = window.open('', '_blank', 'width=480,height=820');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+    win.onafterprint = () => win.close();
+  };
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 function bonusList(r) {
   return [r.bonus1, r.bonus2, r.bonus3, r.bonus4, r.bonus5].filter(
@@ -739,6 +989,17 @@ function bonusList(r) {
 
 function openDetail(r) {
   detailRecord.value = r;
+}
+
+function mealTotals(r) {
+  let lunch = 0, dinner = 0;
+  for (const ml of r.mealDetail || []) {
+    const inT = String(ml.punchIn).length <= 5 ? ml.punchIn + ':00' : String(ml.punchIn);
+    const outT = String(ml.punchOut).length <= 5 ? ml.punchOut + ':00' : String(ml.punchOut);
+    if (inT < '14:00:00' && outT > '11:00:00') lunch += 100;
+    if (inT < '18:30:00' && outT > '17:30:00') dinner += 100;
+  }
+  return { lunch, dinner };
 }
 </script>
 
@@ -778,6 +1039,19 @@ function openDetail(r) {
 .btn-calc:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.btn-cleanup {
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  margin-left: 6px;
+}
+.btn-cleanup:hover {
+  background: #96281b;
 }
 .calc-msg {
   font-size: 0.9rem;
@@ -1085,6 +1359,13 @@ function openDetail(r) {
   margin-top: 1.2rem;
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.btn-print {
+  background: #e8f5e9;
+  border-color: #a5d6a7;
+  color: #1b5e20;
 }
 .btn-sm {
   padding: 0.3rem 0.8rem;

@@ -1054,6 +1054,9 @@ export async function getSystemSettings() {
     loanInterestRate: Number.isFinite(Number(data.loanInterestRate))
       ? Number(data.loanInterestRate)
       : 2,
+    publicHolidays: Array.isArray(data.publicHolidays)
+      ? data.publicHolidays
+      : [],
   };
 }
 
@@ -1103,6 +1106,11 @@ export async function saveSystemSettings(payload = {}) {
       loanInterestRate: Number.isFinite(Number(payload.loanInterestRate))
         ? Number(payload.loanInterestRate)
         : 2,
+      publicHolidays: Array.isArray(payload.publicHolidays)
+        ? payload.publicHolidays.filter(
+            (d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d),
+          )
+        : [],
     },
     { merge: true },
   );

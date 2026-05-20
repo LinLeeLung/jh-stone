@@ -36,6 +36,13 @@
       >
         {{ t("tab_quota") }}
       </button>
+      <button
+        v-if="isManager"
+        :class="['tab-btn', { active: tab === 'otreport' }]"
+        @click="switchOTReport"
+      >
+        加班申報
+      </button>
     </div>
 
     <!-- ─── 申請假單 ────────────────────────────────── -->
@@ -574,9 +581,91 @@
           </tr>
         </tbody>
       </table>
-      <button class="btn-aux" style="margin-top: 12px" @click="initQuotaForAll">
-        為所有員工建立配額
-      </button>
+      <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap">
+        <button class="btn-aux" @click="initQuotaForAll">
+          為所有員工建立配額
+        </button>
+        <button class="btn-aux" @click="recalcAnnualLeave">
+          依年資重算特休
+        </button>
+      </div>
+    </div>
+
+    <!-- ─── 加班申報（官方時數） ──────────────────────── -->
+    <div v-if="tab === 'otreport' && isManager" class="tab-content">
+      <h3>加班申報時數管理</h3>
+      <p class="hint">
+        設定每筆已核准加班的「申報時數」（供5日薪資單及勞動局申報用，每月合計上限46小時）。不填則沿用實際時數。
+      </p>
+      <div class="filter-bar" style="margin-bottom: 12px">
+        <label
+          >月份
+          <input type="month" v-model="otReportMonth" @change="loadOTReport" />
+        </label>
+      </div>
+      <div
+        v-if="otReportByPerson.length"
+        style="margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 8px"
+      >
+        <span
+          v-for="p in otReportByPerson"
+          :key="p.name"
+          :style="
+            p.official > 46 ? 'color:#b71c1c;font-weight:700' : 'color:#555'
+          "
+          style="
+            font-size: 13px;
+            padding: 2px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+          "
+        >
+          {{ p.name }}：實際 {{ p.actual }}h ／ 申報 {{ p.official }}h
+          <span v-if="p.official > 46"> ⚠ 超過46h</span>
+        </span>
+      </div>
+      <p v-if="loadingOTReport" class="loading">載入中…</p>
+      <table v-else class="rec-table">
+        <thead>
+          <tr>
+            <th>員工</th>
+            <th>部門</th>
+            <th>加班日</th>
+            <th>時間</th>
+            <th>實際時數</th>
+            <th>申報時數</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in otReportList" :key="r.id">
+            <td>{{ r.name }}</td>
+            <td>{{ r.dept || "—" }}</td>
+            <td>{{ r.date }}</td>
+            <td>{{ r.startTime }} – {{ r.endTime }}</td>
+            <td>{{ r.hours }} h</td>
+            <td>
+              <input
+                type="number"
+                min="0"
+                :max="r.hours"
+                step="0.5"
+                v-model.number="r._officialHours"
+                class="quota-input"
+                style="width: 70px"
+              />
+            </td>
+            <td>
+              <button class="btn-sm btn-ok" @click="saveOfficialHours(r)">
+                儲存
+              </button>
+            </td>
+          </tr>
+          <tr v-if="!otReportList.length">
+            <td colspan="7" class="empty">該月無已核准加班記錄</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- ─── 拒絕 Dialog ─────────────────────────────── -->
@@ -634,22 +723,30 @@ const LEAVE_TYPES = [
   "病假",
   "生理假",
   "無薪假",
-  "年假（特休）",
+  "特休",
   "婚假",
   "喪假",
   "產假",
-  "陪產假",
   "公假",
 ];
 
 const QUOTA_TYPES = {
   personal: { label: "事假" },
   sick: { label: "病假" },
-  annual: { label: "年假" },
+  annual: { label: "特休" },
+  maternity: { label: "產假" },
+  menstrual: { label: "生理假" },
 };
 
 // Map leave type → quota key (only tracked types)
-const QUOTA_KEY = { 事假: "personal", 病假: "sick", "年假（特休）": "annual" };
+const QUOTA_KEY = {
+  事假: "personal",
+  病假: "sick",
+  "年假（特休）": "annual",
+  特休: "annual",
+  產假: "maternity",
+  生理假: "menstrual",
+};
 
 // ── Auth & user state ──────────────────────────────────────────────────────
 const currentUser = ref(null);
@@ -817,6 +914,25 @@ const rejectDialog = reactive({
 const loadingQuota = ref(false);
 const quotaList = ref([]);
 
+// ── OT Report (official hours) ─────────────────────────────────────────────
+const loadingOTReport = ref(false);
+const _now = new Date();
+const otReportMonth = ref(
+  `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, "0")}`,
+);
+const otReportList = ref([]);
+// 按員工分組統計（46h 上限每人各自計算）
+const otReportByPerson = computed(() => {
+  const map = {};
+  for (const r of otReportList.value) {
+    const key = r.uid || r.name;
+    if (!map[key]) map[key] = { name: r.name, actual: 0, official: 0 };
+    map[key].actual += Number(r.hours) || 0;
+    map[key].official += Number(r._officialHours) || 0;
+  }
+  return Object.values(map);
+});
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 function statusLabel(s) {
   return (
@@ -857,6 +973,41 @@ function switchApprove() {
 function switchQuota() {
   tab.value = "quota";
   loadQuotas();
+}
+function switchOTReport() {
+  tab.value = "otreport";
+  loadOTReport();
+}
+async function loadOTReport() {
+  loadingOTReport.value = true;
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, "overtimeRequests"),
+        where("status", "==", "approved2"),
+      ),
+    );
+    const ym = otReportMonth.value; // "YYYY-MM"
+    otReportList.value = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((r) => r.date && r.date.startsWith(ym))
+      .sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : 0))
+      .map((r) => ({
+        ...r,
+        _officialHours: r.officialHours != null ? r.officialHours : r.hours,
+      }));
+  } finally {
+    loadingOTReport.value = false;
+  }
+}
+async function saveOfficialHours(r) {
+  try {
+    await updateDoc(doc(db, "overtimeRequests", r.id), {
+      officialHours: Number(r._officialHours) || 0,
+    });
+  } catch (e) {
+    alert("儲存失敗：" + e.message);
+  }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -1248,6 +1399,8 @@ async function loadQuotas() {
         annual: { total: 0, used: 0 },
         sick: { total: 30, used: 0 },
         personal: { total: 14, used: 0 },
+        maternity: { total: 56, used: 0 },
+        menstrual: { total: 3, used: 0 },
       },
       ...d.data(),
     }));
@@ -1266,6 +1419,14 @@ async function saveQuota(q) {
       annual: { total: q.annual?.total ?? 0, used: q.annual?.used ?? 0 },
       sick: { total: q.sick?.total ?? 0, used: q.sick?.used ?? 0 },
       personal: { total: q.personal?.total ?? 0, used: q.personal?.used ?? 0 },
+      maternity: {
+        total: q.maternity?.total ?? 56,
+        used: q.maternity?.used ?? 0,
+      },
+      menstrual: {
+        total: q.menstrual?.total ?? 3,
+        used: q.menstrual?.used ?? 0,
+      },
       updatedAt: serverTimestamp(),
     });
     alert("已儲存 " + (q.name || q.uid));
@@ -1297,15 +1458,80 @@ async function initQuotaForAll() {
         empNo: s.empNo || d.id,
         name: s.name || "",
         year: new Date().getFullYear(),
-        annual: { total: 0, used: 0 },
+        annual: { total: calcAnnualLeaveDays(s.startDate), used: 0 },
         sick: { total: 30, used: 0 },
         personal: { total: 14, used: 0 },
+        maternity: { total: 56, used: 0 },
+        menstrual: { total: 3, used: 0 },
         updatedAt: serverTimestamp(),
       });
       added++;
     }
     alert(added ? `已建立 ${added} 筆員工配額` : "所有員工已有配額");
     loadQuotas();
+  } catch (e) {
+    alert("失敗：" + e.message);
+  }
+}
+
+// ── 勞基法特休計算（依到職日年資）─────────────────────────────────────────────
+// 勞基法第38條：6個月3天、1年7天、2年10天、3年14天、5年15天、10年起每年+1天（上限30天）
+function calcAnnualLeaveDays(startDateStr) {
+  if (!startDateStr) return 0;
+  const start = new Date(startDateStr);
+  const today = new Date();
+  let months =
+    (today.getFullYear() - start.getFullYear()) * 12 +
+    (today.getMonth() - start.getMonth());
+  if (today.getDate() < start.getDate()) months--;
+  if (months < 6) return 0;
+  if (months < 12) return 3;
+  const years = Math.floor(months / 12);
+  if (years < 2) return 7;
+  if (years < 3) return 10;
+  if (years < 5) return 14;
+  if (years < 10) return 15;
+  return Math.min(30, 15 + (years - 10));
+}
+
+async function recalcAnnualLeave() {
+  if (
+    !confirm("將依所有員工到職日（年資）重新計算特休天數，已用天數不變，確定？")
+  )
+    return;
+  try {
+    const [staffSnap, usersSnap] = await Promise.all([
+      getDocs(collection(db, "staff")),
+      getDocs(collection(db, "Users")),
+    ]);
+    const emailToUid = {};
+    usersSnap.docs.forEach((d) => {
+      const v = d.data();
+      if (v.email) emailToUid[v.email] = d.id;
+    });
+    const emailToStart = {};
+    staffSnap.docs.forEach((d) => {
+      const v = d.data();
+      if (v.email && v.startDate) emailToStart[v.email] = v.startDate;
+    });
+
+    let updated = 0;
+    for (const q of quotaList.value) {
+      // find staff email by uid
+      const userDoc = usersSnap.docs.find((d) => d.id === q.uid);
+      if (!userDoc) continue;
+      const email = userDoc.data().email;
+      const startDate = emailToStart[email];
+      if (!startDate) continue;
+      const days = calcAnnualLeaveDays(startDate);
+      await updateDoc(doc(db, "leaveQuota", q.uid), {
+        "annual.total": days,
+        updatedAt: serverTimestamp(),
+      });
+      q.annual = { ...q.annual, total: days };
+      updated++;
+    }
+    alert(`已重算 ${updated} 位員工的特休天數`);
   } catch (e) {
     alert("失敗：" + e.message);
   }
