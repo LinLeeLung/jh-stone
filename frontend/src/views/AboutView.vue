@@ -5,7 +5,7 @@
       <div class="about-hero-icon">🪨</div>
       <h1 class="about-title">JH Stone 石材管理系統</h1>
       <p class="about-subtitle">
-        整合訂單查詢、庫存管理、完工照片、客戶服務與選股工具的一站式平台
+        整合訂單查詢、庫存管理、完工照片與客戶服務的一站式平台
       </p>
     </div>
 
@@ -55,6 +55,14 @@
           <li>
             <span class="feat-tag tag-purple">拆料單 / 訂單 PDF</span>
             點擊訂單號碼或拆料單連結可直接開啟 PDF
+          </li>
+          <li>
+            <span class="feat-tag tag-green">日期區間</span>
+            勾選日期區間條件後輸入起訖日，或點「本月」（上月26日～本月25日）、「上個月」（上上月26日～上月25日）快速帶入
+          </li>
+          <li>
+            <span class="feat-tag tag-orange">欄位排序</span>
+            點擊表頭可依安裝日、訂單號碼、銷售額、顏色、客戶名稱、安１、裁切者、水刀者、安裝地點、車號、公分數、完工照片排序，再點一次切換升／降冪
           </li>
         </ul>
       </div>
@@ -136,31 +144,6 @@
         </ul>
       </div>
 
-      <!-- 選股工具 -->
-      <div v-if="isAdminOnly" class="about-card">
-        <div class="about-card-icon">📈</div>
-        <h2>選股工具 <span class="badge-admin">Admin Only</span></h2>
-        <p class="about-card-desc">以 AI 輔助的個人選股備忘錄。</p>
-        <ul class="feature-list">
-          <li>
-            <span class="feat-tag tag-blue">觀察清單</span>
-            記錄股票代號、現價、PE、PB、殖利率
-          </li>
-          <li>
-            <span class="feat-tag tag-green">狀態追蹤</span> 觀察中 / 已買入 /
-            已賣出 三種狀態
-          </li>
-          <li>
-            <span class="feat-tag tag-orange">多維篩選</span>
-            依關鍵字、狀態、產業即時篩選排序
-          </li>
-          <li>
-            <span class="feat-tag tag-purple">AI 選股（開發中）</span>
-            技術面多頭排列、低點爆大量、產業前景分析
-          </li>
-        </ul>
-      </div>
-
       <!-- 客戶服務 -->
       <div v-if="isCustomer" class="about-card">
         <div class="about-card-icon">🏠</div>
@@ -184,8 +167,54 @@
     </div>
 
     <!-- 更新記錄 -->
-    <div class="about-changelog">
+    <div v-if="userDoc" class="about-changelog">
       <h2 class="changelog-title">更新記錄</h2>
+      <div class="changelog-item">
+        <span class="changelog-version">v1.3.0</span>
+        <span class="changelog-date">2026-04-28</span>
+        <ul class="changelog-list">
+          <li>
+            員工查詢：訂單號碼、安裝日期、顏色／客戶／地址關鍵字等輸入框支援
+            Enter 鍵直接送出查詢
+          </li>
+          <li>訂單 PDF：修正橫向（旋轉 90°）訂單的價格遮罩位置偏移問題</li>
+          <li>
+            訂單 PDF：新增 PDF 1.5+ 壓縮格式相容性說明及 Chrome 另存為 PDF
+            解決步驟（管理者說明頁）
+          </li>
+        </ul>
+      </div>
+      <div class="changelog-item">
+        <span class="changelog-version">v1.2.0</span>
+        <span class="changelog-date">2026-04-23</span>
+        <ul class="changelog-list">
+          <li>
+            員工查詢：新增表格欄位排序功能，點擊表頭即可排序，再點一次反轉
+            <ul>
+              <li>
+                可排序欄位：訂單號碼、銷售額、顏色、客戶名稱、安１、裁切者、水刀者、安裝地點、車號、公分數、完工照片
+              </li>
+              <li>銷售額、公分數以數字排序；完工照片依是否已上傳排序</li>
+              <li>
+                訂單號碼若為純數字以數字排序，其餘以字串排序；空值一律排在最後
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+      <div class="changelog-item">
+        <span class="changelog-version">v1.1.0</span>
+        <span class="changelog-date">2026-04-09</span>
+        <ul class="changelog-list">
+          <li>
+            完工照片上傳：新增客戶端圖片壓縮（最大 2048px、JPEG 品質
+            0.82），大幅縮小檔案體積，降低行動網路上傳失敗率
+          </li>
+          <li>
+            說明頁面：修正部署新版後舊版快取導致動態載入失敗（自動重新整理）
+          </li>
+        </ul>
+      </div>
       <div class="changelog-item">
         <span class="changelog-version">v1.0.0</span>
         <span class="changelog-date">2026-03-24</span>
@@ -202,16 +231,13 @@
             完工照片列表：修正 iOS 上快速開關對話框造成
             <code>null.id</code> 崩潰
           </li>
-          <li>選股工具：新增上櫃股票（.TWO）自動偵測，修正現價捉不到的問題</li>
-          <li>選股工具：新增大盤偏弱警示（加權指數 MA5 / MA20）</li>
-          <li>選股工具：新增週線多頭排列篩選條件（MA5 &gt; MA10 &gt; MA20）</li>
-          <li>選股工具：停損列（跌幅 ≤ −5%）背景標紅提示</li>
         </ul>
       </div>
     </div>
 
     <!-- 版本 & 技術 -->
     <div class="about-tech">
+      <span>v1.3.0</span>
       <span>Vue 3</span>
       <span>Vite</span>
       <span>Firebase Auth</span>

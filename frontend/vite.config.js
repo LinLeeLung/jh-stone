@@ -44,4 +44,8 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
+  server: {
+    host: true, // 監聽 0.0.0.0，區域網路手機可連
+    port: 5173,
+  },
 });

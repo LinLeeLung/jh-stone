@@ -24,7 +24,9 @@
             </thead>
             <tbody>
               <tr v-for="u in users" :key="u.id">
-                <td>{{ u.displayName }}</td>
+                <td>
+                  <input class="name-input" v-model="u.displayName" />
+                </td>
                 <td class="secondary-col">{{ u.email }}</td>
                 <td>
                   <select v-model="u.role">
@@ -37,7 +39,7 @@
                   <button
                     class="btn-manage"
                     @click="applyRole(u)"
-                    :disabled="!changed(u) || u.email === adminEmail"
+                    :disabled="!changed(u)"
                   >
                     更新
                   </button>
@@ -47,108 +49,118 @@
           </table>
         </div>
 
-        <div class="toolbar-row" style="margin-top: 20px">
-          <h2 style="margin: 0">舊照片遷移（Storage -> NAS）</h2>
-          <button
-            class="btn-aux"
-            :disabled="migrationLoading || migrationPrecheckLoading"
-            @click="runLegacyMigrationPrecheck"
-          >
-            {{ migrationPrecheckLoading ? "檢查中..." : "遷移前檢查" }}
-          </button>
-          <button
-            class="btn-manage"
-            :disabled="!canRunMigration"
-            @click="runLegacyMigration"
-          >
-            {{ migrationLoading ? "執行中..." : "執行一批遷移" }}
-          </button>
-        </div>
-
-        <div class="field-row" style="margin-top: 10px">
-          <div class="field-item tight">
-            <label>單一訂單（可留空）：</label>
-            <input
-              v-model.trim="migrationForm.orderId"
-              placeholder="orderDocId"
-            />
+        <!--
+          舊照片遷移工具：所有歷史 Storage 照片已遷移完成後隱藏。
+          後端 callable function 仍保留，必要時可改為 v-if="true" 重新顯示。
+        -->
+        <template v-if="showLegacyMigration">
+          <div class="toolbar-row" style="margin-top: 20px">
+            <h2 style="margin: 0">舊照片遷移（Storage -> NAS）</h2>
+            <button
+              class="btn-aux"
+              :disabled="migrationLoading || migrationPrecheckLoading"
+              @click="runLegacyMigrationPrecheck"
+            >
+              {{ migrationPrecheckLoading ? "檢查中..." : "遷移前檢查" }}
+            </button>
+            <button
+              class="btn-manage"
+              :disabled="!canRunMigration"
+              @click="runLegacyMigration"
+            >
+              {{ migrationLoading ? "執行中..." : "執行一批遷移" }}
+            </button>
           </div>
-          <div class="field-item tight">
-            <label>本批筆數：</label>
-            <input
-              type="number"
-              min="1"
-              max="100"
-              v-model.number="migrationForm.limit"
-            />
+
+          <div class="field-row" style="margin-top: 10px">
+            <div class="field-item tight">
+              <label>單一訂單（可留空）：</label>
+              <input
+                v-model.trim="migrationForm.orderId"
+                placeholder="orderDocId"
+              />
+            </div>
+            <div class="field-item tight">
+              <label>本批筆數：</label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                v-model.number="migrationForm.limit"
+              />
+            </div>
+            <label style="display: flex; align-items: center; gap: 6px">
+              <input
+                type="checkbox"
+                v-model="migrationForm.deleteStorageAfterSync"
+                style="width: auto; height: auto"
+              />
+              遷移成功後刪除 Storage 舊檔
+            </label>
           </div>
-          <label style="display: flex; align-items: center; gap: 6px">
-            <input
-              type="checkbox"
-              v-model="migrationForm.deleteStorageAfterSync"
-              style="width: auto; height: auto"
-            />
-            遷移成功後刪除 Storage 舊檔
-          </label>
-        </div>
 
-        <div v-if="migrationResult" class="summary-row" style="margin-top: 8px">
-          <span>掃描：{{ migrationResult.scanned || 0 }}</span>
-          <span>成功：{{ migrationResult.migrated || 0 }}</span>
-          <span>失敗：{{ migrationResult.failed || 0 }}</span>
-          <span>略過：{{ migrationResult.skipped || 0 }}</span>
-        </div>
+          <div
+            v-if="migrationResult"
+            class="summary-row"
+            style="margin-top: 8px"
+          >
+            <span>掃描：{{ migrationResult.scanned || 0 }}</span>
+            <span>成功：{{ migrationResult.migrated || 0 }}</span>
+            <span>失敗：{{ migrationResult.failed || 0 }}</span>
+            <span>略過：{{ migrationResult.skipped || 0 }}</span>
+          </div>
 
-        <div
-          v-if="migrationPrecheckResult"
-          class="summary-row"
-          style="margin-top: 8px"
-        >
-          <span>檢查角色：{{ migrationPrecheckResult.role || "-" }}</span>
-          <span>
-            NAS 路徑：{{ migrationPrecheckResult.normalizedNasPath || "-" }}
-          </span>
-          <span>掃描：{{ migrationPrecheckResult.scanned || 0 }}</span>
-          <span>候選：{{ migrationPrecheckResult.candidates || 0 }}</span>
-        </div>
+          <div
+            v-if="migrationPrecheckResult"
+            class="summary-row"
+            style="margin-top: 8px"
+          >
+            <span>檢查角色：{{ migrationPrecheckResult.role || "-" }}</span>
+            <span>
+              NAS 路徑：{{ migrationPrecheckResult.normalizedNasPath || "-" }}
+            </span>
+            <span>掃描：{{ migrationPrecheckResult.scanned || 0 }}</span>
+            <span>候選：{{ migrationPrecheckResult.candidates || 0 }}</span>
+          </div>
 
-        <p v-if="!canRunMigration" class="muted-text" style="margin-top: 6px">
-          需先完成遷移前檢查，且目前條件下有候選資料，才可執行遷移。
-        </p>
+          <p v-if="!canRunMigration" class="muted-text" style="margin-top: 6px">
+            需先完成遷移前檢查，且目前條件下有候選資料，才可執行遷移。
+          </p>
 
-        <div
-          v-if="
-            migrationResult &&
-            Array.isArray(migrationResult.details) &&
-            migrationResult.details.length
-          "
-          class="table-wrap"
-          style="margin-top: 8px"
-        >
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>訂單</th>
-                <th>照片</th>
-                <th>結果</th>
-                <th class="secondary-col">說明</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(item, idx) in migrationResult.details"
-                :key="`${item.orderId || '-'}-${item.photoId || '-'}-${idx}`"
-              >
-                <td>{{ item.orderId || "-" }}</td>
-                <td>{{ item.photoId || "-" }}</td>
-                <td>{{ item.status || "-" }}</td>
-                <td class="secondary-col">
-                  {{ item.reason || item.nasPath || "-" }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+          <div
+            v-if="
+              migrationResult &&
+              Array.isArray(migrationResult.details) &&
+              migrationResult.details.length
+            "
+            class="table-wrap"
+            style="margin-top: 8px"
+          >
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>訂單</th>
+                  <th>照片</th>
+                  <th>結果</th>
+                  <th class="secondary-col">說明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(item, idx) in migrationResult.details"
+                  :key="`${item.orderId || '-'}-${item.photoId || '-'}-${idx}`"
+                >
+                  <td>{{ item.orderId || "-" }}</td>
+                  <td>{{ item.photoId || "-" }}</td>
+                  <td>{{ item.status || "-" }}</td>
+                  <td class="secondary-col">
+                    {{ item.reason || item.nasPath || "-" }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
 
         <div class="toolbar-row" style="margin-top: 20px">
           <h2 style="margin: 0">上傳錯誤日誌</h2>
@@ -239,21 +251,166 @@
             </tbody>
           </table>
         </div>
+
+        <div class="toolbar-row" style="margin-top: 20px">
+          <h2 style="margin: 0">完工照片資料夾自動新建紀錄</h2>
+          <button class="btn-manage" @click="loadFolderCreationLogs">
+            重新整理
+          </button>
+        </div>
+        <p class="muted-text" style="margin-top: 4px">
+          理論上每張完工照片都應該對應到既有訂單資料夾。當系統找不到該訂單資料夾、改為自動新建時會記錄一筆，請逐筆核對是否需要將檔案搬到正確位置。
+        </p>
+
+        <div class="summary-row" style="margin-top: 8px">
+          <span>總筆數：{{ folderCreationLogs.length }}</span>
+        </div>
+
+        <div v-if="folderCreationsLoading" class="muted-text">日誌讀取中…</div>
+        <div v-else-if="folderCreationLogs.length === 0" class="muted-text">
+          目前沒有自動新建資料夾的紀錄
+        </div>
+        <div v-else class="table-wrap" style="margin-top: 8px">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th>訂單號</th>
+                <th>新建資料夾</th>
+                <th>原因</th>
+                <th class="secondary-col">上層路徑</th>
+                <th class="secondary-col">員工</th>
+                <th class="secondary-col">建立失敗訊息</th>
+                <th>修復</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in folderCreationLogs" :key="item.id">
+                <td>{{ formatFolderCreationTime(item) }}</td>
+                <td>{{ item.orderNumber || item.orderDocId || "-" }}</td>
+                <td>{{ item.newFolderName || "-" }}</td>
+                <td>{{ item.reason || "-" }}</td>
+                <td class="secondary-col">{{ item.parentPath || "-" }}</td>
+                <td class="secondary-col">
+                  {{ item.uploadedByEmail || item.uploadedByUid || "-" }}
+                </td>
+                <td class="secondary-col">
+                  {{ item.createFolderError || "-" }}
+                </td>
+                <td style="min-width: 260px">
+                  <span v-if="repairedIds.has(item.id)" style="color: #198754"
+                    >✅ 已修復</span
+                  >
+                  <template v-else>
+                    <input
+                      v-model="item.correctPathInput"
+                      type="text"
+                      placeholder="正確路徑(可選)"
+                      style="width: 110px; font-size: 13px; margin-right: 4px"
+                      @click.stop
+                      @keydown.stop
+                    />
+                    <button
+                      class="btn-manage"
+                      :disabled="repairingIds.has(item.id)"
+                      @click="handleRepairFolder(item, item.correctPathInput)"
+                    >
+                      {{ repairingIds.has(item.id) ? "修復中…" : "修復" }}
+                    </button>
+                    <button
+                      v-if="!item.suggesting && !item.suggestedPath"
+                      class="btn-manage"
+                      style="margin-left: 4px; background: #eee; color: #333"
+                      @click="suggestFolderPath(item)"
+                    >
+                      搜尋建議
+                    </button>
+                    <span
+                      v-if="item.suggesting"
+                      style="margin-left: 4px; color: #888"
+                      >搜尋中…</span
+                    >
+                    <template v-if="item.suggestedPath">
+                      <div
+                        style="margin-top: 2px; font-size: 12px; color: #0a0"
+                      >
+                        建議路徑：<span style="word-break: break-all">{{
+                          item.suggestedPath
+                        }}</span>
+                        <button
+                          class="btn-manage"
+                          style="margin-left: 4px"
+                          :disabled="repairingIds.has(item.id)"
+                          @click="handleRepairFolder(item, item.suggestedPath)"
+                        >
+                          執行搬移
+                        </button>
+                        <button
+                          class="btn-manage"
+                          style="
+                            margin-left: 2px;
+                            background: #eee;
+                            color: #333;
+                          "
+                          @click="item.suggestedPath = ''"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </template>
+                  </template>
+                </td>
+                import { findOrderFolderOnNas } from "../firebase"; //
+                搜尋建議路徑 async function suggestFolderPath(item) { if (!item
+                || !item.orderNumber) return; item.suggesting = true;
+                item.suggestedPath = ""; try { const result = await
+                findOrderFolderOnNas(item.orderNumber); if (result &&
+                result.found && result.folderPath) { item.suggestedPath =
+                result.folderPath; } else { alert(result?.message ||
+                "查無建議路徑"); } } catch (e) { alert(e?.message || e); }
+                finally { item.suggesting = false; } }
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
+import { findOrderFolderOnNas } from "../firebase";
+
+// 搜尋建議路徑
+async function suggestFolderPath(item) {
+  if (!item || !item.orderNumber) return;
+  item.suggesting = true;
+  item.suggestedPath = "";
+  try {
+    const result = await findOrderFolderOnNas(item.orderNumber);
+    if (result && result.found && result.folderPath) {
+      item.suggestedPath = result.folderPath;
+    } else {
+      alert(result?.message || "查無建議路徑");
+    }
+  } catch (e) {
+    alert(e?.message || e);
+  } finally {
+    item.suggesting = false;
+  }
+}
 import { ref, onMounted, computed, watch } from "vue";
 import {
   subscribeAuthState,
   fetchAllUsers,
+  updateUserDisplayName,
   updateUserRole,
   ROLES,
   listClientUploadErrors,
+  listCompletionPhotoFolderCreations,
   migrateLegacyCompletionPhotosToNas,
   precheckLegacyCompletionPhotosToNas,
+  repairWrongOrderFolder,
 } from "../firebase";
 import { getUserByUid } from "../firebase";
 
@@ -263,6 +420,12 @@ const isAdmin = ref(false);
 const currentUid = ref(null);
 const logsLoading = ref(false);
 const uploadErrorLogs = ref([]);
+const folderCreationsLoading = ref(false);
+const folderCreationLogs = ref([]);
+const repairingIds = ref(new Set());
+const repairedIds = ref(new Set());
+// 舊照片遷移工具預設隱藏；若日後又有需要可改為 true 暫時打開。
+const showLegacyMigration = ref(false);
 const logFilters = ref({
   days: 7,
   action: "",
@@ -279,7 +442,7 @@ const migrationResult = ref(null);
 const migrationPrecheckResult = ref(null);
 const migrationPrecheckKey = ref("");
 // 不能修改的超級管理者 email
-const adminEmail = "linlilung@gmal.com";
+const adminEmail = "linlilung@gmail.com";
 
 // 可用角色清單
 const roles = ROLES;
@@ -291,24 +454,30 @@ async function loadUsers() {
     ...u,
     role: u.role || "遊客",
     _origRole: u.role || "遊客",
+    _origName: u.displayName || "",
   }));
   loading.value = false;
 }
 
 function changed(u) {
-  return u.role !== u._origRole;
+  return u.role !== u._origRole || (u.displayName || "") !== u._origName;
 }
 
 async function applyRole(u) {
-  if (u.id === currentUid.value) {
-    alert("無法變更自己的角色。");
-    return;
+  if (u.role !== u._origRole) {
+    if (u.id === currentUid.value) {
+      alert("無法變更自己的角色。");
+      return;
+    }
+    if (u.email === adminEmail) {
+      alert("此帳號的角色不可變更。");
+      return;
+    }
+    await updateUserRole(u.id, u.role);
   }
-  if (u.email === adminEmail) {
-    alert("此帳號的角色不可變更。");
-    return;
+  if ((u.displayName || "") !== u._origName) {
+    await updateUserDisplayName(u.id, u.displayName || "");
   }
-  await updateUserRole(u.id, u.role);
   await loadUsers();
 }
 
@@ -525,6 +694,84 @@ async function loadUploadErrorLogs() {
   logsLoading.value = false;
 }
 
+async function loadFolderCreationLogs() {
+  folderCreationsLoading.value = true;
+  try {
+    folderCreationLogs.value = await listCompletionPhotoFolderCreations(250);
+  } catch (e) {
+    console.error("讀取資料夾自動新建紀錄失敗：", e);
+    folderCreationLogs.value = [];
+  }
+  folderCreationsLoading.value = false;
+}
+
+function formatFolderCreationTime(item) {
+  const d = toDate(item?.createdAt);
+  if (!d) return "-";
+  return d.toLocaleString("zh-TW", { hour12: false });
+}
+
+async function handleRepairFolder(item, userInputCorrectPath = "") {
+  const orderNumber = String(
+    item?.orderNumber || item?.orderDocId || "",
+  ).trim();
+  if (!orderNumber) {
+    alert("此筆紀錄沒有訂單號碼，無法修復");
+    return;
+  }
+  if (
+    !confirm(
+      `確定要修復訂單「${orderNumber}」嗎？\n會把錯誤資料夾內的檔案搬到正確資料夾，並刪除空的錯誤資料夾。`,
+    )
+  )
+    return;
+
+  // 觸發 reactivity（Set 直接 add 不會觸發 Vue 重繪）
+  repairingIds.value = new Set(repairingIds.value).add(item.id);
+  try {
+    // 從稽核紀錄組出實際被新建的「錯誤資料夾路徑」，避免修復程式誤判
+    let wrongPath = String(item?.fullPath || "").trim();
+    if (!wrongPath) {
+      const parent = String(item?.parentPath || "").trim();
+      const folderName = String(item?.newFolderName || "").trim();
+      if (parent && folderName) {
+        wrongPath = parent.endsWith("/")
+          ? parent + folderName
+          : `${parent}/${folderName}`;
+      }
+    }
+    let correctPath = String(userInputCorrectPath || "").trim();
+    const result = await repairWrongOrderFolder(
+      orderNumber,
+      false,
+      wrongPath,
+      correctPath,
+    );
+    if (result?.ok) {
+      const movedFiles = Number(result?.movedFiles || 0);
+      const folderDeleted = Boolean(result?.folderDeleted);
+      const updatedDocs = Number(result?.updatedPhotoDocs || 0);
+      alert(
+        `修復成功：\n搬移檔案 ${movedFiles} 個\n更新照片紀錄 ${updatedDocs} 筆\n錯誤資料夾${folderDeleted ? "已刪除" : "未刪除（可能還有子資料夾）"}\n` +
+          `正確路徑：${result.correctPath}`,
+      );
+      // 修復成功後，從列表移除該筆紀錄
+      folderCreationLogs.value = folderCreationLogs.value.filter(
+        (row) => row.id !== item.id,
+      );
+    } else {
+      alert(`無法修復：${result?.message || "未知原因"}`);
+    }
+  } catch (e) {
+    console.error("repairWrongOrderFolder failed:", e);
+    alert(`修復失敗：${e?.message || e}`);
+  } finally {
+    const next = new Set(repairingIds.value);
+    next.delete(item.id);
+    repairingIds.value = next;
+  }
+}
+
 onMounted(() => {
   subscribeAuthState(async (u) => {
     if (!u) {
@@ -538,7 +785,23 @@ onMounted(() => {
     if (isAdmin.value) {
       await loadUsers();
       await loadUploadErrorLogs();
+      await loadFolderCreationLogs();
     }
   });
 });
 </script>
+
+<style scoped>
+.name-input {
+  width: 100%;
+  max-width: 160px;
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+.name-input:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+</style>

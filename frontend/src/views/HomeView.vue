@@ -20,12 +20,26 @@
 
 <script setup>
 import { ref, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 import { signInWithGoogle, logout, subscribeAuthState } from "../firebase";
 
 const user = ref(null);
+const router = useRouter();
 
 const unsubscribe = subscribeAuthState((u) => {
   user.value = u;
+  // 若登入成功且有暫存的目標 URL，自動帶回
+  if (u) {
+    try {
+      const target = sessionStorage.getItem("postLoginRedirect");
+      if (target && target !== "/") {
+        sessionStorage.removeItem("postLoginRedirect");
+        router.replace(target).catch(() => {});
+      }
+    } catch (_e) {
+      // ignore
+    }
+  }
 });
 
 onUnmounted(() => {

@@ -27,6 +27,7 @@ import {
   deleteDoc,
   orderBy,
   limit,
+  addDoc,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
@@ -68,6 +69,8 @@ const authReadyPromise = new Promise((resolve) => {
   });
 });
 
+export { authReadyPromise };
+
 async function getSignedInUser() {
   await authReadyPromise;
   const user = auth.currentUser;
@@ -91,7 +94,7 @@ function isPermissionDeniedError(error) {
 }
 
 // Designated admin email (as requested)
-const ADMIN_EMAIL = "linlilung@gmal.com";
+const ADMIN_EMAIL = "linlilung@gmail.com";
 
 // allowed roles in the system
 export const ROLES = ["admin", "管理者", "員工", "客戶", "遊客"];
@@ -122,11 +125,12 @@ export function subscribeAuthState(callback) {
         if (!ROLES.includes(role)) {
           role = "遊客";
         }
+        const existingName = snap.exists() ? snap.data().displayName : null;
         await setDoc(
           userRef,
           {
             uid: user.uid,
-            displayName: user.displayName || null,
+            displayName: existingName || user.displayName || null,
             email: user.email || null,
             photoURL: user.photoURL || null,
             role,
@@ -389,6 +393,13 @@ export async function updateUserRole(uid, role) {
   await updateDoc(userRef, { role });
 }
 
+export async function updateUserDisplayName(uid, displayName) {
+  const name = displayName.trim();
+  if (!name) throw new Error("姓名不可為空");
+  const userRef = doc(db, "Users", uid);
+  await updateDoc(userRef, { displayName: name });
+}
+
 // fetch single user doc
 export async function getUserByUid(uid) {
   const userRef = doc(db, "Users", uid);
@@ -396,60 +407,16 @@ export async function getUserByUid(uid) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
-export async function searchPendingOrdersByKeyword(keyword) {
-  if (!keyword) return [];
-  const q = keyword.toString().toLowerCase().trim();
-  try {
-    const functions = functionsInstance;
-    const callable = httpsCallable(functions, "searchPendingOrdersByKeyword");
-    const resp = await callable({ q });
-    return resp.data || [];
-  } catch (e) {
-    console.warn(
-      "searchPendingOrdersByKeyword callable failed, falling back to client query",
-      e,
-    );
-    const col = collection(db, "PendingOrders");
-    const snaps = await getDocs(
-      query(col, where("searchKeywords", "array-contains", q)),
-    );
-    return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }
-}
-
-export async function searchPendingOrdersByKeywords(keywords = []) {
-  const list = (keywords || [])
-    .map((k) =>
-      String(k || "")
-        .toLowerCase()
-        .trim(),
-    )
-    .filter(Boolean);
-  if (!list.length) return [];
-  try {
-    const functions = functionsInstance;
-    const callable = httpsCallable(functions, "searchPendingOrdersByKeywords");
-    const resp = await callable({ keywords: list });
-    return resp.data || [];
-  } catch (e) {
-    console.warn(
-      "searchPendingOrdersByKeywords callable failed, falling back to client filter",
-      e,
-    );
-    const col = collection(db, "PendingOrders");
-    const snaps = await getDocs(
-      query(col, where("searchKeywords", "array-contains", list[0])),
-    );
-    let docs = snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
-    for (let i = 1; i < list.length; i++) {
-      const kw = list[i];
-      docs = docs.filter(
-        (doc) =>
-          Array.isArray(doc.searchKeywords) && doc.searchKeywords.includes(kw),
-      );
-    }
-    return docs;
-  }
+export async function getAllPendingOrdersForSearch() {
+  const callable = httpsCallable(
+    functionsInstance,
+    "getAllPendingOrdersForSearch",
+    {
+      timeout: 60000,
+    },
+  );
+  const resp = await callable({});
+  return resp.data || [];
 }
 
 function sanitizeFilename(name = "") {
@@ -699,6 +666,16 @@ export async function listClientUploadErrors(maxRows = 200) {
   return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// Server-side audit when 完工照片上傳時找不到訂單資料夾，
+// fallback 自動新建 — 理論上不該發生，每筆都需要事後檢視。
+export async function listCompletionPhotoFolderCreations(maxRows = 200) {
+  const safeLimit = Math.max(1, Math.min(500, Number(maxRows || 200)));
+  const logsRef = collection(db, "CompletionPhotoFolderCreations");
+  const q = query(logsRef, orderBy("createdAt", "desc"), limit(safeLimit));
+  const snaps = await getDocs(q);
+  return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 export async function uploadOrderCompletionPhotos(
   orderDocId,
   orderNumber,
@@ -829,6 +806,10 @@ export async function uploadOrderCompletionPhotos(
           // Network error but retries exhausted → skip this file
           failedFiles.push({
             name: file.name || `檔案 ${index + 1}`,
+            size: fileSize,
+            contentType: file.type || "",
+            attempts: uploadAttempt,
+            errorMessage: String(e?.message || ""),
             error: e,
           });
           break;
@@ -845,6 +826,41 @@ export async function uploadOrderCompletionPhotos(
             window.addEventListener("online", handler);
             // Safety cap: don't wait more than 60 s even if "online" never fires
             setTimeout(resolve, 60_000);
+          });
+        }
+
+        // If the page is hidden (user backgrounded the app / locked screen on
+        // iOS), iOS aggressively kills sockets and the next XHR will also
+        // fail. Wait for visibility before sleeping so the retry happens with
+        // the page in foreground.
+        if (typeof document !== "undefined" && document.hidden) {
+          if (typeof onProgress === "function") {
+            onProgress({
+              overallProgress:
+                totalBytes > 0
+                  ? Math.min(1, completedBytes / totalBytes)
+                  : Math.min(1, index / files.length),
+              fileProgress: 0,
+              fileName: file.name || `檔案 ${index + 1}`,
+              fileIndex: index + 1,
+              totalFiles: files.length,
+              retryAttempt: uploadAttempt,
+              waitingVisible: true,
+            });
+          }
+          await new Promise((resolve) => {
+            const handler = () => {
+              if (!document.hidden) {
+                document.removeEventListener("visibilitychange", handler);
+                resolve();
+              }
+            };
+            document.addEventListener("visibilitychange", handler);
+            // Safety cap: don't wait more than 5 minutes
+            setTimeout(() => {
+              document.removeEventListener("visibilitychange", handler);
+              resolve();
+            }, 300_000);
           });
         }
 
@@ -1000,27 +1016,93 @@ export async function getSystemSettings() {
   }
 
   const data = snap.data() || {};
+  const box = data.priceRedactBox || {};
+  const loc = data.punchLocation || {};
   return {
     nasStoragePath: data.nasStoragePath || "",
     nasOrderPath: data.nasOrderPath || "",
+    priceRedactBox: {
+      xPct: Number.isFinite(Number(box.xPct)) ? Number(box.xPct) : 0.2,
+      yPct: Number.isFinite(Number(box.yPct)) ? Number(box.yPct) : 0.04,
+      wPct: Number.isFinite(Number(box.wPct)) ? Number(box.wPct) : 0.45,
+      hPct: Number.isFinite(Number(box.hPct)) ? Number(box.hPct) : 0.13,
+    },
+    punchLocation: {
+      enabled: loc.enabled === true,
+      allowOnFail: loc.allowOnFail !== false,
+      lat: Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null,
+      lng: Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null,
+      radiusMeters: Number.isFinite(Number(loc.radiusMeters))
+        ? Number(loc.radiusMeters)
+        : 200,
+    },
     updatedAt: data.updatedAt || null,
     updatedByUid: data.updatedByUid || "",
     updatedByEmail: data.updatedByEmail || "",
+    attendanceRules: (() => {
+      const ar = data.attendanceRules || {};
+      return {
+        workStart: ar.workStart || "08:30",
+        workEnd: ar.workEnd || "17:30",
+        graceMins: Number.isFinite(Number(ar.graceMins))
+          ? Number(ar.graceMins)
+          : 0,
+        deductUnit: ar.deductUnit || "minute",
+        deductEarlyLeave: ar.deductEarlyLeave === true,
+      };
+    })(),
+    loanInterestRate: Number.isFinite(Number(data.loanInterestRate))
+      ? Number(data.loanInterestRate)
+      : 2,
   };
 }
 
 export async function saveSystemSettings(payload = {}) {
   const user = await getSignedInUser();
 
+  const box = payload.priceRedactBox || {};
   const ref = doc(db, "SystemSettings", "general");
   await setDoc(
     ref,
     {
       nasStoragePath: String(payload.nasStoragePath || "").trim(),
       nasOrderPath: String(payload.nasOrderPath || "").trim(),
+      priceRedactBox: {
+        xPct: Number.isFinite(Number(box.xPct)) ? Number(box.xPct) : 0,
+        yPct: Number.isFinite(Number(box.yPct)) ? Number(box.yPct) : 0,
+        wPct: Number.isFinite(Number(box.wPct)) ? Number(box.wPct) : 0,
+        hPct: Number.isFinite(Number(box.hPct)) ? Number(box.hPct) : 0,
+      },
+      punchLocation: (() => {
+        const pl = payload.punchLocation || {};
+        return {
+          enabled: pl.enabled === true,
+          allowOnFail: pl.allowOnFail !== false,
+          lat: Number.isFinite(Number(pl.lat)) ? Number(pl.lat) : null,
+          lng: Number.isFinite(Number(pl.lng)) ? Number(pl.lng) : null,
+          radiusMeters: Number.isFinite(Number(pl.radiusMeters))
+            ? Number(pl.radiusMeters)
+            : 200,
+        };
+      })(),
       updatedAt: serverTimestamp(),
       updatedByUid: user.uid,
       updatedByEmail: user.email || "",
+      attendanceRules: (() => {
+        const ar = payload.attendanceRules || {};
+        return {
+          workStart: String(ar.workStart || "08:30"),
+          workEnd: String(ar.workEnd || "17:30"),
+          graceMins: Number.isFinite(Number(ar.graceMins))
+            ? Number(ar.graceMins)
+            : 0,
+          deductUnit: ar.deductUnit || "minute",
+          deductEarlyLeave: ar.deductEarlyLeave === true,
+        };
+      })(),
+      loanInterestRate: Number.isFinite(Number(payload.loanInterestRate))
+        ? Number(payload.loanInterestRate)
+        : 2,
     },
     { merge: true },
   );
@@ -1032,6 +1114,71 @@ export async function getAllOrdersForSearch() {
   });
   const resp = await callable({});
   return resp.data || [];
+}
+
+// ── Loan Management ────────────────────────────────────────────────────────
+export async function createLoan({
+  uid,
+  empNo,
+  name,
+  principal,
+  installments,
+  interestRate,
+  startMonth,
+}) {
+  await getSignedInUser();
+  const data = {
+    uid: uid || null,
+    empNo: String(empNo || ""),
+    name: String(name || ""),
+    principal: Number(principal) || 0,
+    installments: Number(installments) || 1,
+    paidInstallments: 0,
+    remainingBalance: Number(principal) || 0,
+    interestRate: Number(interestRate) || 0.02,
+    startMonth: String(startMonth || ""),
+    status: "active",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  const ref = await addDoc(collection(db, "loans"), data);
+  return ref.id;
+}
+
+export async function getLoans({ empNo, status } = {}) {
+  let q = collection(db, "loans");
+  const constraints = [];
+  if (empNo) constraints.push(where("empNo", "==", String(empNo)));
+  if (status) constraints.push(where("status", "==", status));
+  constraints.push(orderBy("createdAt", "desc"));
+  const snap = await getDocs(query(q, ...constraints));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function getAllLoans() {
+  const snap = await getDocs(
+    query(collection(db, "loans"), orderBy("createdAt", "desc")),
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function updateLoan(loanId, updates) {
+  await updateDoc(doc(db, "loans", loanId), {
+    ...updates,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteLoan(loanId) {
+  await deleteDoc(doc(db, "loans", loanId));
+}
+
+// ── Payroll lunchFee update ────────────────────────────────────────────────
+export async function updatePayrollLunchFee(docId, lunchFee) {
+  await updateDoc(doc(db, "payroll", docId), {
+    lunchFee: Number(lunchFee) || 0,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function getOrdersByIds(ids) {
@@ -1092,6 +1239,21 @@ export async function testOrderFolderSearch(orderNumber) {
   return resp.data || {};
 }
 
+// 修復：把先前因搜尋失敗而新建到錯誤資料夾的照片，搬回正確資料夾並刪除空殼資料夾
+export async function repairWrongOrderFolder(
+  orderNumber,
+  dryRun = true,
+  wrongPath = "",
+  correctPath = "",
+) {
+  if (!orderNumber) throw new Error("請輸入訂單號碼");
+  const callable = httpsCallable(functionsInstance, "repairWrongOrderFolder", {
+    timeout: 120000,
+  });
+  const resp = await callable({ orderNumber, dryRun, wrongPath, correctPath });
+  return resp.data || {};
+}
+
 export async function batchFindOrderFolderOnNas(orderNumbers, batchId) {
   if (!Array.isArray(orderNumbers) || !orderNumbers.length)
     throw new Error("請提供訂單號碼陣列");
@@ -1121,162 +1283,4 @@ export async function listNasLegacyPhotos(payload = {}) {
   const callable = httpsCallable(functionsInstance, "listNasLegacyPhotos");
   const resp = await callable(payload);
   return resp.data || {};
-}
-
-// ─── 選股工具 (Stock Watchlist) ──────────────────────────────────────────────
-
-export const STOCK_STATUSES = ["觀察中", "已買入", "已賣出"];
-
-export async function fetchStocks() {
-  const col = collection(db, "Stocks");
-  const q = query(col, orderBy("ticker", "asc"));
-  const snaps = await getDocs(q);
-  return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-export async function addStock(payload = {}) {
-  await getSignedInUser();
-  const ticker = String(payload.ticker || "")
-    .trim()
-    .toUpperCase();
-  if (!ticker) throw new Error("請輸入股票代號");
-  const col = collection(db, "Stocks");
-  const ref = doc(col);
-  await setDoc(ref, {
-    ticker,
-    name: String(payload.name || "").trim(),
-    sector: String(payload.sector || "").trim(),
-    price:
-      payload.price != null && payload.price !== ""
-        ? Number(payload.price)
-        : null,
-    pe: payload.pe != null && payload.pe !== "" ? Number(payload.pe) : null,
-    pb: payload.pb != null && payload.pb !== "" ? Number(payload.pb) : null,
-    dividendYield:
-      payload.dividendYield != null && payload.dividendYield !== ""
-        ? Number(payload.dividendYield)
-        : null,
-    status: STOCK_STATUSES.includes(payload.status) ? payload.status : "觀察中",
-    notes: String(payload.notes || "").trim(),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  return ref.id;
-}
-
-export async function updateStock(id, payload = {}) {
-  await getSignedInUser();
-  if (!id) throw new Error("缺少股票識別碼");
-  const ref = doc(db, "Stocks", id);
-  const ticker = String(payload.ticker || "")
-    .trim()
-    .toUpperCase();
-  if (!ticker) throw new Error("請輸入股票代號");
-  await updateDoc(ref, {
-    ticker,
-    name: String(payload.name || "").trim(),
-    sector: String(payload.sector || "").trim(),
-    price:
-      payload.price != null && payload.price !== ""
-        ? Number(payload.price)
-        : null,
-    pe: payload.pe != null && payload.pe !== "" ? Number(payload.pe) : null,
-    pb: payload.pb != null && payload.pb !== "" ? Number(payload.pb) : null,
-    dividendYield:
-      payload.dividendYield != null && payload.dividendYield !== ""
-        ? Number(payload.dividendYield)
-        : null,
-    status: STOCK_STATUSES.includes(payload.status) ? payload.status : "觀察中",
-    notes: String(payload.notes || "").trim(),
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export async function deleteStock(id) {
-  await getSignedInUser();
-  if (!id) throw new Error("缺少股票識別碼");
-  await deleteDoc(doc(db, "Stocks", id));
-}
-
-export async function screenStocksWithAI(tickers = [], options = {}) {
-  await getSignedInUser();
-  const callable = httpsCallable(functionsInstance, "screenStocksWithAI");
-  const resp = await callable({
-    tickers,
-    skipAI: options.skipAI === true,
-    // conditions[]: list of active condition keys, used for server-side gating
-    conditions: options.conditions ?? null,
-  });
-  const d = resp?.data || {};
-  return { results: d.results || [], marketFilter: d.marketFilter || null };
-}
-
-export async function fetchTwseTopStocks(limit = 200) {
-  await getSignedInUser();
-  const callable = httpsCallable(functionsInstance, "fetchTwseTopStocks");
-  const resp = await callable({ limit });
-  return resp?.data?.stocks || [];
-}
-
-// 從 Firestore TwseStockList 讀取（由排程每日更新）
-export async function fetchTwseStockListFromFirestore(maxCount = 1000) {
-  await getSignedInUser();
-  const col = collection(db, "TwseStockList");
-  const q = query(col, orderBy("volume", "desc"), limit(maxCount));
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({
-    ticker: d.id,
-    name: d.data().name || "",
-    sector: "",
-    market: d.data().market || "twse",
-  }));
-}
-
-export async function triggerUpdateTwseStockList() {
-  await getSignedInUser();
-  const callable = httpsCallable(
-    functionsInstance,
-    "triggerUpdateTwseStockList",
-  );
-  await callable({});
-}
-
-// ── 選股記錄（StockPicks）────────────────────────────────────────────────────
-
-export async function addStockPick(payload = {}) {
-  await getSignedInUser();
-  const ticker = String(payload.ticker || "")
-    .trim()
-    .toUpperCase();
-  if (!ticker) throw new Error("請輸入股票代號");
-  const col = collection(db, "StockPicks");
-  const ref = doc(col);
-  await setDoc(ref, {
-    ticker,
-    name: String(payload.name || "").trim(),
-    sector: String(payload.sector || "").trim(),
-    market: String(payload.market || "twse").trim(),
-    pickedPrice:
-      payload.pickedPrice != null && payload.pickedPrice !== ""
-        ? Number(payload.pickedPrice)
-        : null,
-    note: String(payload.note || "").trim(),
-    pickedAt: serverTimestamp(),
-    createdAt: serverTimestamp(),
-  });
-  return ref.id;
-}
-
-export async function fetchStockPicks() {
-  await getSignedInUser();
-  const col = collection(db, "StockPicks");
-  const q = query(col, orderBy("pickedAt", "desc"));
-  const snaps = await getDocs(q);
-  return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-export async function deleteStockPick(id) {
-  await getSignedInUser();
-  if (!id) throw new Error("缺少識別碼");
-  await deleteDoc(doc(db, "StockPicks", id));
 }

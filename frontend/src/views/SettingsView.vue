@@ -8,558 +8,786 @@
     <div v-if="loading" class="muted-text">讀取設定中…</div>
 
     <div v-else class="settings-wrap">
-      <div class="field-row">
-        <div class="field-item">
-          <label for="nas-path">NAS 儲存路徑：</label>
-          <input
-            id="nas-path"
-            v-model="form.nasStoragePath"
-            placeholder="例如 /峻晟/test"
-          />
+      <div class="settings-group-label">系統設定</div>
+
+      <!-- NAS 設定 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">NAS 設定</h3>
+          <p class="section-desc">
+            NAS 伺服器的儲存路徑，影響完工照上傳與訂單資料夾查詢。
+          </p>
+        </div>
+        <div class="field-row">
+          <div class="field-item">
+            <label for="nas-path">NAS 儲存路徑：</label>
+            <input
+              id="nas-path"
+              v-model="form.nasStoragePath"
+              placeholder="例如 /峻晟/test"
+            />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-item">
+            <label for="nas-order-path"
+              >訂單資料夾路徑（完工照存放位置）：</label
+            >
+            <input
+              id="nas-order-path"
+              v-model="form.nasOrderPath"
+              placeholder="例如 /峻晟/01-訂單相關檔案/0--客戶訂貨單"
+            />
+            <small class="muted-text"
+              >完工照會上傳到此路徑下符合訂單號碼的資料夾，未設定則使用上方 NAS
+              儲存路徑</small
+            >
+          </div>
         </div>
       </div>
 
-      <div class="field-row">
-        <div class="field-item">
-          <label for="nas-order-path">訂單資料夾路徑（完工照存放位置）：</label>
-          <input
-            id="nas-order-path"
-            v-model="form.nasOrderPath"
-            placeholder="例如 /峻晟/01-訂單相關檔案/0--客戶訂貨單"
-          />
-          <small class="muted-text"
-            >完工照會上傳到此路徑下符合訂單號碼的資料夾，未設定則使用上方 NAS
-            儲存路徑</small
+      <!-- 員工查閱設定 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">員工查閱設定</h3>
+          <p class="section-desc">
+            員工檢視訂單 PDF
+            時的價格遮罩位置，以「頁面寬高比例」定義白色矩形（座標原點為頁面左下角，y
+            向上）。僅套用在員工角色，admin／管理者不受影響。
+          </p>
+        </div>
+        <div style="display: flex; gap: 16px; flex-wrap: wrap">
+          <div class="field-item" style="max-width: 160px">
+            <label for="redact-x">X 比例 (左)</label>
+            <input
+              id="redact-x"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              v-model.number="form.priceRedactBox.xPct"
+            />
+          </div>
+          <div class="field-item" style="max-width: 160px">
+            <label for="redact-y">Y 比例 (下)</label>
+            <input
+              id="redact-y"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              v-model.number="form.priceRedactBox.yPct"
+            />
+          </div>
+          <div class="field-item" style="max-width: 160px">
+            <label for="redact-w">寬度比例</label>
+            <input
+              id="redact-w"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              v-model.number="form.priceRedactBox.wPct"
+            />
+          </div>
+          <div class="field-item" style="max-width: 160px">
+            <label for="redact-h">高度比例</label>
+            <input
+              id="redact-h"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              v-model.number="form.priceRedactBox.hPct"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- 打卡設定 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">打卡設定</h3>
+          <p class="section-desc">
+            開啟後員工必須在指定半徑內才能打卡，座標可一鍵擷取目前位置。
+          </p>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <label class="check-row">
+            <input type="checkbox" v-model="form.punchLocation.enabled" />
+            啟用地址驗證
+          </label>
+          <label class="check-row">
+            <input type="checkbox" v-model="form.punchLocation.allowOnFail" />
+            定位失敗時仍允許打卡（記錄未驗證標註）
+          </label>
+        </div>
+        <div
+          style="
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            margin-top: 12px;
+          "
+        >
+          <div class="field-item" style="max-width: 180px">
+            <label>緯度（lat）</label>
+            <input
+              type="number"
+              step="0.000001"
+              v-model.number="form.punchLocation.lat"
+              placeholder="例：25.033"
+            />
+          </div>
+          <div class="field-item" style="max-width: 180px">
+            <label>經度（lng）</label>
+            <input
+              type="number"
+              step="0.000001"
+              v-model.number="form.punchLocation.lng"
+              placeholder="例：121.565"
+            />
+          </div>
+          <div class="field-item" style="max-width: 360px">
+            <label>允許半徑（公尺）</label>
+            <input
+              type="number"
+              min="10"
+              max="5000"
+              v-model.number="form.punchLocation.radiusMeters"
+            />
+          </div>
+        </div>
+        <div style="margin-top: 10px">
+          <button
+            class="btn-aux"
+            @click="fillCurrentLocation"
+            :disabled="fetchingLoc"
           >
+            {{ fetchingLoc ? "定位中…" : "擷取目前位置" }}
+          </button>
+        </div>
+        <p v-if="locMsg" class="muted-text" style="margin: 4px 0">
+          {{ locMsg }}
+        </p>
+      </div>
+
+      <!-- 差勤規則 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">差勤規則</h3>
+          <p class="section-desc">
+            設定上下班時間及遲到/早退的扣薪方式，計算薪資時自動套用。
+          </p>
+        </div>
+        <div class="att-rules-grid">
+          <div class="att-field">
+            <label>上班時間</label>
+            <input type="time" v-model="form.attendanceRules.workStart" />
+          </div>
+          <div class="att-field">
+            <label>下班時間</label>
+            <input type="time" v-model="form.attendanceRules.workEnd" />
+          </div>
+          <div class="att-field att-field--sm">
+            <label>寬限分鐘</label>
+            <input
+              type="number"
+              min="0"
+              max="60"
+              v-model.number="form.attendanceRules.graceMins"
+              placeholder="0"
+            />
+          </div>
+          <div class="att-field">
+            <label>扣薪計算單位</label>
+            <select v-model="form.attendanceRules.deductUnit">
+              <option value="minute">按分鐘（精確計算）</option>
+              <option value="30min">每 30 分鐘為一單位</option>
+              <option value="60min">每 1 小時為一單位</option>
+            </select>
+          </div>
+          <div class="att-field att-field--check">
+            <label>早退扣薪</label>
+            <label class="att-check-label">
+              <input
+                type="checkbox"
+                v-model="form.attendanceRules.deductEarlyLeave"
+              />
+              <span>早退也扣薪（同規則）</span>
+            </label>
+          </div>
         </div>
       </div>
 
-      <div class="toolbar-row">
-        <button class="btn-query" :disabled="saving" @click="save">儲存</button>
+      <!-- 借款利率設定 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">借款利率</h3>
+          <p class="section-desc">員工借款年利率（%），計算每月還款時使用。</p>
+        </div>
+        <div class="field-row">
+          <div class="field-item">
+            <label for="loan-rate">年利率（%）：</label>
+            <input
+              id="loan-rate"
+              type="number"
+              v-model.number="form.loanInterestRate"
+              min="0"
+              max="100"
+              step="0.1"
+              style="width: 100px"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- 儲存工具列 -->
+      <div class="save-bar">
+        <button class="btn-query" :disabled="saving" @click="save">
+          {{ saving ? "儲存中…" : "儲存設定" }}
+        </button>
         <button class="btn-aux" :disabled="saving" @click="reload">
           重新載入
         </button>
-        <button
-          class="btn-aux"
-          :disabled="testingNas || saving"
-          @click="runNasTest"
-        >
-          測試 NAS 寫入
-        </button>
+        <p v-if="message" class="muted-text save-msg">{{ message }}</p>
+        <p v-if="errorMessage" class="error-text save-msg">
+          {{ errorMessage }}
+        </p>
       </div>
 
-      <div class="field-row">
-        <div class="field-item">
-          <label for="nas-test-photo">測試照片：</label>
-          <input
-            id="nas-test-photo"
-            type="file"
-            accept="image/*"
-            @change="onTestPhotoSelected"
-          />
+      <!-- 維護工具 -->
+      <div class="settings-group-label" style="margin-top: 32px">維護工具</div>
+
+      <!-- NAS 連線測試 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">NAS 連線測試</h3>
+          <p class="section-desc">
+            測試 NAS 寫入權限及照片上傳，驗證路徑設定是否正確。
+          </p>
         </div>
-        <button
-          class="btn-query"
-          :disabled="testingPhotoUpload || saving || testingNas"
-          @click="uploadTestPhotoToNas"
-        >
-          上傳測試照片到 NAS
-        </button>
+        <div class="toolbar-row">
+          <button
+            class="btn-aux"
+            :disabled="testingNas || saving"
+            @click="runNasTest"
+          >
+            測試 NAS 寫入
+          </button>
+        </div>
+        <div class="field-row" style="margin-top: 12px">
+          <div class="field-item">
+            <label for="nas-test-photo">測試照片：</label>
+            <input
+              id="nas-test-photo"
+              type="file"
+              accept="image/*"
+              @change="onTestPhotoSelected"
+            />
+          </div>
+          <button
+            class="btn-query"
+            :disabled="testingPhotoUpload || saving || testingNas"
+            @click="uploadTestPhotoToNas"
+          >
+            上傳測試照片到 NAS
+          </button>
+        </div>
       </div>
 
-      <!-- 新增：訂單號碼查詢 NAS 資料夾 -->
-      <div class="field-row" style="margin-top: 24px">
-        <div class="field-item">
-          <label for="order-nas-query">查詢訂單號碼（NAS 資料夾）：</label>
-          <input
-            id="order-nas-query"
-            v-model="orderNumberQuery"
-            placeholder="請輸入訂單號碼"
-            style="width: 200px"
-          />
+      <!-- NAS 資料夾查詢 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">NAS 資料夾查詢</h3>
+          <p class="section-desc">
+            依訂單號碼查詢 NAS
+            上的資料夾路徑，支援批次查詢（上傳文字檔，每行一個訂單號碼）。
+          </p>
         </div>
-        <button
-          class="btn-query"
-          :disabled="queryingOrderFolder || !orderNumberQuery"
-          @click="findOrderFolderOnNasQuery"
-        >
-          查詢 NAS 資料夾
-        </button>
-        <span
-          v-if="queryingOrderFolder"
+
+        <div class="field-row" style="margin-top: 0">
+          <div class="field-item">
+            <label for="order-nas-query">查詢訂單號碼（NAS 資料夾）：</label>
+            <input
+              id="order-nas-query"
+              v-model="orderNumberQuery"
+              placeholder="請輸入訂單號碼"
+              style="width: 200px"
+            />
+          </div>
+          <button
+            class="btn-query"
+            :disabled="queryingOrderFolder || !orderNumberQuery"
+            @click="findOrderFolderOnNasQuery"
+          >
+            查詢 NAS 資料夾
+          </button>
+          <span
+            v-if="queryingOrderFolder"
+            class="muted-text"
+            style="margin-left: 12px"
+            >查詢中…</span
+          >
+        </div>
+        <pre
+          v-if="orderFolderResult"
           class="muted-text"
-          style="margin-left: 12px"
-          >查詢中…</span
+          style="white-space: pre-wrap; margin: 8px 0"
+          >{{ orderFolderResult }}</pre
         >
-      </div>
-      <pre
-        v-if="orderFolderResult"
-        class="muted-text"
-        style="white-space: pre-wrap; margin: 8px 0"
-        >{{ orderFolderResult }}</pre
-      >
-      <p
-        v-if="nasQueryElapsed != null"
-        class="muted-text"
-        style="margin: 4px 0"
-      >
-        耗時：{{ nasQueryElapsed }} ms
-      </p>
-      <p v-if="orderFolderError" class="error-text">{{ orderFolderError }}</p>
+        <p
+          v-if="nasQueryElapsed != null"
+          class="muted-text"
+          style="margin: 4px 0"
+        >
+          耗時：{{ nasQueryElapsed }} ms
+        </p>
+        <p v-if="orderFolderError" class="error-text">{{ orderFolderError }}</p>
 
-      <!-- 批次查詢：上傳含訂單號碼的文字檔 -->
-      <div
-        class="field-row"
-        style="margin-top: 16px; align-items: center; gap: 12px"
-      >
-        <label style="white-space: nowrap; font-weight: 500"
-          >批次查詢（文字檔，每行一個訂單號碼）：</label
+        <!-- 批次查詢 -->
+        <div
+          class="field-row"
+          style="margin-top: 16px; align-items: center; gap: 12px"
         >
-        <input
-          ref="batchFileInput"
-          type="file"
-          accept=".txt,.csv"
-          style="flex: 1"
-          @change="onBatchFileChange"
-        />
-        <button
-          class="btn-query"
-          :disabled="batchRunning || !batchOrderNumbers.length"
-          @click="runBatchOrderFolderSearch"
-        >
-          {{
-            batchRunning
-              ? `搜尋中 ${batchDone}/${batchTotal}…`
-              : `批次搜尋（${batchOrderNumbers.length} 筆）`
-          }}
-        </button>
-        <button
-          v-if="batchRunning"
-          class="btn-aux"
-          style="color: #dc2626"
-          @click="cancelBatchSearch"
-        >
-          取消
-        </button>
-        <button
+          <label style="white-space: nowrap; font-weight: 500"
+            >批次查詢（文字檔，每行一個訂單號碼）：</label
+          >
+          <input
+            ref="batchFileInput"
+            type="file"
+            accept=".txt,.csv"
+            style="flex: 1"
+            @change="onBatchFileChange"
+          />
+          <button
+            class="btn-query"
+            :disabled="batchRunning || !batchOrderNumbers.length"
+            @click="runBatchOrderFolderSearch"
+          >
+            {{
+              batchRunning
+                ? `搜尋中 ${batchDone}/${batchTotal}…`
+                : `批次搜尋（${batchOrderNumbers.length} 筆）`
+            }}
+          </button>
+          <button
+            v-if="batchRunning"
+            class="btn-aux"
+            style="color: #dc2626"
+            @click="cancelBatchSearch"
+          >
+            取消
+          </button>
+          <button
+            v-if="batchResults.length"
+            class="btn-aux"
+            :disabled="batchRunning"
+            @click="exportBatchResultsCsv"
+          >
+            匯出 CSV
+          </button>
+        </div>
+        <div
           v-if="batchResults.length"
-          class="btn-aux"
-          :disabled="batchRunning"
-          @click="exportBatchResultsCsv"
+          style="margin-top: 12px; overflow-x: auto"
         >
-          匯出 CSV
-        </button>
-      </div>
-      <div
-        v-if="batchResults.length"
-        style="margin-top: 12px; overflow-x: auto"
-      >
-        <table class="batch-result-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>訂單號碼</th>
-              <th>結果</th>
-              <th>資料夾路徑</th>
-              <th>耗時(ms)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(r, i) in batchResults"
-              :key="r.orderNumber"
-              :class="
-                r.status === 'found'
-                  ? ''
-                  : r.status === 'error'
-                    ? 'row-error'
-                    : 'row-notfound'
-              "
-            >
-              <td>{{ i + 1 }}</td>
-              <td>{{ r.orderNumber }}</td>
-              <td>
-                {{
-                  r.status === "found"
-                    ? "✅ 找到"
-                    : r.status === "error"
-                      ? "⚠ 錯誤"
-                      : "❌ 找不到"
-                }}
-              </td>
-              <td style="word-break: break-all; max-width: 400px">
-                {{ r.folderPath || r.message || "" }}
-              </td>
-              <td>{{ r.totalMs ?? "" }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="muted-text" style="margin-top: 6px; font-size: 0.85em">
-          共 {{ batchResults.length }} 筆完成，找到
-          {{ batchResults.filter((r) => r.status === "found").length }}
-          筆，找不到
-          {{ batchResults.filter((r) => r.status === "notfound").length }} 筆
-          <span v-if="batchResults.filter((r) => r.status === 'error').length"
-            >，錯誤
-            {{ batchResults.filter((r) => r.status === "error").length }}
-            筆</span
-          >
-        </p>
-      </div>
-
-      <!-- 完工照片路徑修復工具 -->
-      <div class="toolbar-row" style="margin-top: 28px">
-        <h2 style="margin: 0">完工照片路徑修復</h2>
-      </div>
-      <p class="muted-text" style="font-size: 0.9em">
-        當 NAS
-        上的訂單資料夾被重新命名後，已上傳照片的路徑可能失效（顯示破圖）。<br />
-        先執行「診斷」查看有幾張異常，確認後再執行「修復」更新路徑。
-      </p>
-      <div class="toolbar-row">
-        <button
-          class="btn-aux"
-          :disabled="repairingPhotoPaths"
-          @click="runPhotoPathDiagnose"
-        >
-          {{
-            repairingPhotoPaths && photoPathDryRun
-              ? "診斷中…"
-              : "① 診斷（不修改）"
-          }}
-        </button>
-        <button
-          class="btn-query"
-          :disabled="repairingPhotoPaths || !photoPathDiagnoseResult"
-          @click="runPhotoPathRepair"
-        >
-          {{
-            repairingPhotoPaths && !photoPathDryRun ? "修復中…" : "② 執行修復"
-          }}
-        </button>
-      </div>
-      <div v-if="photoPathDiagnoseResult" style="margin-top: 10px">
-        <p class="muted-text">
-          已檢查 {{ photoPathDiagnoseResult.checkedPhotos }} 張， 路徑失效
-          <strong
-            :style="
-              photoPathDiagnoseResult.brokenPhotos > 0 ? 'color:#c00' : ''
-            "
-          >
-            {{ photoPathDiagnoseResult.brokenPhotos }} 張
-          </strong>
-          <template v-if="!photoPathDiagnoseResult.dryRun">
-            ，已修復
-            <strong style="color: #16a34a"
-              >{{ photoPathDiagnoseResult.fixedPhotos }} 張</strong
-            >， 找不到
-            {{
-              photoPathDiagnoseResult.report.filter(
-                (r) => r.type === "not_found",
-              ).length
-            }}
-            張
-          </template>
-        </p>
-        <table
-          v-if="
-            photoPathDiagnoseResult.report.filter((r) => r.type !== 'ok')
-              .length > 0
-          "
-          style="
-            font-size: 0.82em;
-            border-collapse: collapse;
-            width: 100%;
-            margin-top: 8px;
-          "
-        >
-          <thead>
-            <tr style="background: #f0f0f0">
-              <th style="padding: 4px 8px; text-align: left">狀態</th>
-              <th style="padding: 4px 8px; text-align: left">訂單號碼</th>
-              <th style="padding: 4px 8px; text-align: left">照片 ID</th>
-              <th style="padding: 4px 8px; text-align: left">路徑</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in photoPathDiagnoseResult.report.filter(
-                (r) => r.type !== 'ok',
-              )"
-              :key="row.photoId"
-              style="border-top: 1px solid #e0e0e0"
-            >
-              <td
-                style="padding: 4px 8px; font-weight: 600"
-                :style="
-                  row.type === 'fixed'
-                    ? 'color:#16a34a'
-                    : row.type === 'not_found'
-                      ? 'color:#888'
-                      : 'color:#c00'
-                "
-              >
-                {{
-                  row.type === "fixed"
-                    ? "✓ 已修復"
-                    : row.type === "not_found"
-                      ? "找不到"
-                      : "✗ 失效"
-                }}
-              </td>
-              <td style="padding: 4px 8px">{{ row.orderNumber || "-" }}</td>
-              <td style="padding: 4px 8px; font-size: 0.78em; color: #888">
-                {{ row.photoId }}
-              </td>
-              <td
-                style="
-                  padding: 4px 8px;
-                  word-break: break-all;
-                  font-size: 0.78em;
-                "
-              >
-                {{ row.newNasPath || row.nasPath }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="photoPathRepairError" class="error-text">
-        {{ photoPathRepairError }}
-      </p>
-
-      <!-- 照片搬移工具 -->
-      <div class="toolbar-row" style="margin-top: 28px">
-        <h2 style="margin: 0">照片搬移工具</h2>
-      </div>
-      <p class="muted-text" style="font-size: 0.9em">
-        將放錯位置的完工照（來源資料夾）搬回正確訂單資料夾，搬移後刪除空資料夾。
-      </p>
-      <div class="field-row">
-        <div class="field-item">
-          <label>來源資料夾（放錯的）：</label>
-          <input
-            v-model="migrateSrcPath"
-            placeholder="例如 /峻晟/01-訂單相關檔案/115年3月15日起的訂單"
-            style="width: 420px"
-          />
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field-item">
-          <label
-            >目標基底路徑（正確存放位置，同設定中的訂單資料夾路徑）：</label
-          >
-          <input
-            v-model="migrateTargetPath"
-            placeholder="例如 /峻晟/01-訂單相關檔案/0--客戶訂貨單"
-            style="width: 420px"
-          />
-        </div>
-      </div>
-      <div class="toolbar-row">
-        <button
-          class="btn-aux"
-          :disabled="migrating || !migrateSrcPath"
-          @click="runMigrateScan"
-        >
-          {{ migrating && migrateScanMode ? "掃描中…" : "① 掃描來源資料夾" }}
-        </button>
-        <button
-          class="btn-aux"
-          :disabled="migrating || !migrateSrcPath || !migrateTargetPath"
-          @click="runMigrateDryRun"
-        >
-          {{
-            migrating && migrateDryRun && !migrateScanMode
-              ? "查詢中…"
-              : "② 預覽（不搬移）"
-          }}
-        </button>
-        <button
-          class="btn-query"
-          :disabled="
-            migrating ||
-            !migrateSrcPath ||
-            !migrateTargetPath ||
-            !migrateHasMatched
-          "
-          @click="runMigrateActual"
-        >
-          {{ migrating && !migrateDryRun ? "搬移中…" : "③ 執行搬移" }}
-        </button>
-      </div>
-      <div v-if="migrateResult" style="margin-top: 12px">
-        <!-- 掃描模式結果 -->
-        <template v-if="migrateResult.scanOnly">
-          <p class="muted-text">
-            掃描完成，共 {{ migrateResult.total }} 個訂單資料夾。
-            <button
-              class="btn-aux"
-              style="margin-left: 12px; padding: 2px 10px; font-size: 0.85em"
-              @click="downloadScanCsv"
-            >
-              下載 CSV
-            </button>
-          </p>
-          <table
-            style="
-              font-size: 0.82em;
-              border-collapse: collapse;
-              width: 100%;
-              margin-top: 8px;
-            "
-          >
+          <table class="batch-result-table">
             <thead>
-              <tr style="background: #f0f0f0">
-                <th style="padding: 4px 8px; text-align: left">#</th>
-                <th style="padding: 4px 8px; text-align: left">
-                  來源資料夾名稱
-                </th>
-                <th style="padding: 4px 8px; text-align: left">抽出訂單編號</th>
-                <th style="padding: 4px 8px; text-align: left">來源路徑</th>
+              <tr>
+                <th>#</th>
+                <th>訂單號碼</th>
+                <th>結果</th>
+                <th>資料夾路徑</th>
+                <th>耗時(ms)</th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="(row, idx) in migrateResult.report"
-                :key="row.srcPath"
-                style="border-top: 1px solid #e0e0e0"
+                v-for="(r, i) in batchResults"
+                :key="r.orderNumber"
+                :class="
+                  r.status === 'found'
+                    ? ''
+                    : r.status === 'error'
+                      ? 'row-error'
+                      : 'row-notfound'
+                "
               >
-                <td style="padding: 4px 8px; color: #888">{{ idx + 1 }}</td>
-                <td style="padding: 4px 8px">{{ row.orderFolder }}</td>
-                <td
-                  style="padding: 4px 8px; font-weight: 600"
-                  :style="!row.orderNumber ? 'color:#c00' : ''"
-                >
-                  {{ row.orderNumber || "（無法辨識）" }}
-                </td>
-                <td
-                  style="padding: 4px 8px; word-break: break-all; color: #888"
-                >
-                  {{ row.srcPath }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </template>
-
-        <!-- 預覽/執行結果 -->
-        <template v-else>
-          <p class="muted-text">
-            {{ migrateResult.dryRun ? "[預覽]" : "[已執行]" }}
-            來源共 {{ migrateResult.report?.length || 0 }} 個訂單資料夾，
-            找到目標
-            {{
-              migrateResult.report?.filter((r) => r.status !== "not_found")
-                .length || 0
-            }}
-            筆， 找不到目標
-            {{
-              migrateResult.report?.filter((r) => r.status === "not_found")
-                .length || 0
-            }}
-            筆<span v-if="!migrateResult.dryRun"
-              >，移動 {{ migrateResult.movedCount || 0 }} 個檔案，錯誤
-              {{ migrateResult.errorCount || 0 }} 筆</span
-            >。
-          </p>
-          <table
-            v-if="migrateResult.report?.length"
-            style="
-              font-size: 0.82em;
-              border-collapse: collapse;
-              width: 100%;
-              margin-top: 8px;
-            "
-          >
-            <thead>
-              <tr style="background: #f0f0f0">
-                <th style="padding: 4px 8px; text-align: left">來源資料夾</th>
-                <th style="padding: 4px 8px; text-align: left">訂單編號</th>
-                <th style="padding: 4px 8px; text-align: left">狀態</th>
-                <th style="padding: 4px 8px; text-align: left">檔案數</th>
-                <th style="padding: 4px 8px; text-align: left">目標路徑</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="row in migrateResult.report"
-                :key="row.srcPath"
-                style="border-top: 1px solid #e0e0e0"
-              >
-                <td style="padding: 4px 8px">{{ row.orderFolder }}</td>
-                <td style="padding: 4px 8px; font-weight: 600">
-                  {{ row.orderNumber || "-" }}
-                </td>
-                <td
-                  style="padding: 4px 8px"
-                  :style="row.status === 'not_found' ? 'color:#c00' : ''"
-                >
+                <td>{{ i + 1 }}</td>
+                <td>{{ r.orderNumber }}</td>
+                <td>
                   {{
-                    row.status === "dry_run"
-                      ? "✓ 找到"
-                      : row.status === "not_found"
-                        ? "✗ 找不到"
-                        : row.status
+                    r.status === "found"
+                      ? "✅ 找到"
+                      : r.status === "error"
+                        ? "⚠ 錯誤"
+                        : "❌ 找不到"
                   }}
                 </td>
-                <td style="padding: 4px 8px">{{ row.files ?? "-" }}</td>
-                <td style="padding: 4px 8px; word-break: break-all">
-                  {{ row.destPath || row.error || "-" }}
+                <td style="word-break: break-all; max-width: 400px">
+                  {{ r.folderPath || r.message || "" }}
+                </td>
+                <td>{{ r.totalMs ?? "" }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="muted-text" style="margin-top: 6px; font-size: 0.85em">
+            共 {{ batchResults.length }} 筆完成，找到
+            {{ batchResults.filter((r) => r.status === "found").length }}
+            筆，找不到
+            {{ batchResults.filter((r) => r.status === "notfound").length }} 筆
+            <span v-if="batchResults.filter((r) => r.status === 'error').length"
+              >，錯誤
+              {{ batchResults.filter((r) => r.status === "error").length }}
+              筆</span
+            >
+          </p>
+        </div>
+      </div>
+
+      <!-- 完工照片路徑修復 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">完工照片路徑修復</h3>
+          <p class="section-desc">
+            當 NAS
+            上的訂單資料夾被重新命名後，已上傳照片的路徑可能失效（顯示破圖）。先診斷再修復。
+          </p>
+        </div>
+        <div class="toolbar-row">
+          <button
+            class="btn-aux"
+            :disabled="repairingPhotoPaths"
+            @click="runPhotoPathDiagnose"
+          >
+            {{
+              repairingPhotoPaths && photoPathDryRun
+                ? "診斷中…"
+                : "① 診斷（不修改）"
+            }}
+          </button>
+          <button
+            class="btn-query"
+            :disabled="repairingPhotoPaths || !photoPathDiagnoseResult"
+            @click="runPhotoPathRepair"
+          >
+            {{
+              repairingPhotoPaths && !photoPathDryRun ? "修復中…" : "② 執行修復"
+            }}
+          </button>
+        </div>
+        <div v-if="photoPathDiagnoseResult" style="margin-top: 10px">
+          <p class="muted-text">
+            已檢查 {{ photoPathDiagnoseResult.checkedPhotos }} 張， 路徑失效
+            <strong
+              :style="
+                photoPathDiagnoseResult.brokenPhotos > 0 ? 'color:#c00' : ''
+              "
+            >
+              {{ photoPathDiagnoseResult.brokenPhotos }} 張
+            </strong>
+            <template v-if="!photoPathDiagnoseResult.dryRun">
+              ，已修復
+              <strong style="color: #16a34a"
+                >{{ photoPathDiagnoseResult.fixedPhotos }} 張</strong
+              >， 找不到
+              {{
+                photoPathDiagnoseResult.report.filter(
+                  (r) => r.type === "not_found",
+                ).length
+              }}
+              張
+            </template>
+          </p>
+          <table
+            v-if="
+              photoPathDiagnoseResult.report.filter((r) => r.type !== 'ok')
+                .length > 0
+            "
+            style="
+              font-size: 0.82em;
+              border-collapse: collapse;
+              width: 100%;
+              margin-top: 8px;
+            "
+          >
+            <thead>
+              <tr style="background: #f0f0f0">
+                <th style="padding: 4px 8px; text-align: left">狀態</th>
+                <th style="padding: 4px 8px; text-align: left">訂單號碼</th>
+                <th style="padding: 4px 8px; text-align: left">照片 ID</th>
+                <th style="padding: 4px 8px; text-align: left">路徑</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in photoPathDiagnoseResult.report.filter(
+                  (r) => r.type !== 'ok',
+                )"
+                :key="row.photoId"
+                style="border-top: 1px solid #e0e0e0"
+              >
+                <td
+                  style="padding: 4px 8px; font-weight: 600"
+                  :style="
+                    row.type === 'fixed'
+                      ? 'color:#16a34a'
+                      : row.type === 'not_found'
+                        ? 'color:#888'
+                        : 'color:#c00'
+                  "
+                >
+                  {{
+                    row.type === "fixed"
+                      ? "✓ 已修復"
+                      : row.type === "not_found"
+                        ? "找不到"
+                        : "✗ 失效"
+                  }}
+                </td>
+                <td style="padding: 4px 8px">{{ row.orderNumber || "-" }}</td>
+                <td style="padding: 4px 8px; font-size: 0.78em; color: #888">
+                  {{ row.photoId }}
+                </td>
+                <td
+                  style="
+                    padding: 4px 8px;
+                    word-break: break-all;
+                    font-size: 0.78em;
+                  "
+                >
+                  {{ row.newNasPath || row.nasPath }}
                 </td>
               </tr>
             </tbody>
           </table>
-        </template>
-      </div>
-      <p v-if="migrateError" class="error-text">{{ migrateError }}</p>
-
-      <p v-if="message" class="muted-text">{{ message }}</p>
-      <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
-
-      <!-- 一次性清除 searchKeywords -->
-      <div class="toolbar-row" style="margin-top: 28px">
-        <h2 style="margin: 0">清除舊搜尋索引</h2>
-      </div>
-      <p class="muted-text" style="font-size: 0.9em">
-        移除所有訂單的 searchKeywords 欄位，節省 Firestore 儲存空間。此操作僅需執行一次。
-      </p>
-      <div class="toolbar-row">
-        <button
-          class="btn-query"
-          :disabled="removingKw"
-          @click="runRemoveSearchKeywords"
-        >
-          {{ removingKw ? "清除中…" : "清除 searchKeywords" }}
-        </button>
-      </div>
-      <p v-if="removeKwMessage" class="muted-text">{{ removeKwMessage }}</p>
-      <p v-if="removeKwError" class="error-text">{{ removeKwError }}</p>
-
-      <div class="toolbar-row" style="margin-top: 20px">
-        <h2 style="margin: 0">庫存顏色維護</h2>
+        </div>
+        <p v-if="photoPathRepairError" class="error-text">
+          {{ photoPathRepairError }}
+        </p>
       </div>
 
-      <div class="toolbar-row">
-        <button
-          class="btn-aux"
-          :disabled="masterSyncing || repairSyncing"
-          @click="syncMasterToFirestore"
-        >
-          {{ masterSyncing ? "同步中..." : "同步現有顏色到 Firestore" }}
-        </button>
+      <!-- 照片搬移工具 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">照片搬移工具</h3>
+          <p class="section-desc">
+            將放錯位置的完工照（來源資料夾）搬回正確訂單資料夾，搬移後刪除空資料夾。
+          </p>
+        </div>
+        <div class="field-row">
+          <div class="field-item">
+            <label>來源資料夾（放錯的）：</label>
+            <input
+              v-model="migrateSrcPath"
+              placeholder="例如 /峻晟/01-訂單相關檔案/115年3月15日起的訂單"
+              style="width: 420px"
+            />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-item">
+            <label
+              >目標基底路徑（正確存放位置，同設定中的訂單資料夾路徑）：</label
+            >
+            <input
+              v-model="migrateTargetPath"
+              placeholder="例如 /峻晟/01-訂單相關檔案/0--客戶訂貨單"
+              style="width: 420px"
+            />
+          </div>
+        </div>
+        <div class="toolbar-row">
+          <button
+            class="btn-aux"
+            :disabled="migrating || !migrateSrcPath"
+            @click="runMigrateScan"
+          >
+            {{ migrating && migrateScanMode ? "掃描中…" : "① 掃描來源資料夾" }}
+          </button>
+          <button
+            class="btn-aux"
+            :disabled="migrating || !migrateSrcPath || !migrateTargetPath"
+            @click="runMigrateDryRun"
+          >
+            {{
+              migrating && migrateDryRun && !migrateScanMode
+                ? "查詢中…"
+                : "② 預覽（不搬移）"
+            }}
+          </button>
+          <button
+            class="btn-query"
+            :disabled="
+              migrating ||
+              !migrateSrcPath ||
+              !migrateTargetPath ||
+              !migrateHasMatched
+            "
+            @click="runMigrateActual"
+          >
+            {{ migrating && !migrateDryRun ? "搬移中…" : "③ 執行搬移" }}
+          </button>
+        </div>
+        <div v-if="migrateResult" style="margin-top: 12px">
+          <!-- 掃描模式結果 -->
+          <template v-if="migrateResult.scanOnly">
+            <p class="muted-text">
+              掃描完成，共 {{ migrateResult.total }} 個訂單資料夾。
+              <button
+                class="btn-aux"
+                style="margin-left: 12px; padding: 2px 10px; font-size: 0.85em"
+                @click="downloadScanCsv"
+              >
+                下載 CSV
+              </button>
+            </p>
+            <table
+              style="
+                font-size: 0.82em;
+                border-collapse: collapse;
+                width: 100%;
+                margin-top: 8px;
+              "
+            >
+              <thead>
+                <tr style="background: #f0f0f0">
+                  <th style="padding: 4px 8px; text-align: left">#</th>
+                  <th style="padding: 4px 8px; text-align: left">
+                    來源資料夾名稱
+                  </th>
+                  <th style="padding: 4px 8px; text-align: left">
+                    抽出訂單編號
+                  </th>
+                  <th style="padding: 4px 8px; text-align: left">來源路徑</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(row, idx) in migrateResult.report"
+                  :key="row.srcPath"
+                  style="border-top: 1px solid #e0e0e0"
+                >
+                  <td style="padding: 4px 8px; color: #888">{{ idx + 1 }}</td>
+                  <td style="padding: 4px 8px">{{ row.orderFolder }}</td>
+                  <td
+                    style="padding: 4px 8px; font-weight: 600"
+                    :style="!row.orderNumber ? 'color:#c00' : ''"
+                  >
+                    {{ row.orderNumber || "（無法辨識）" }}
+                  </td>
+                  <td
+                    style="padding: 4px 8px; word-break: break-all; color: #888"
+                  >
+                    {{ row.srcPath }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
 
-        <button
-          class="btn-aux"
-          :disabled="repairSyncing || masterSyncing"
-          @click="repairMissingImagesOnly"
-        >
-          {{ repairSyncing ? "修復中..." : "修復缺失照片（保留現有）" }}
-        </button>
+          <!-- 預覽/執行結果 -->
+          <template v-else>
+            <p class="muted-text">
+              {{ migrateResult.dryRun ? "[預覽]" : "[已執行]" }}
+              來源共 {{ migrateResult.report?.length || 0 }} 個訂單資料夾，
+              找到目標
+              {{
+                migrateResult.report?.filter((r) => r.status !== "not_found")
+                  .length || 0
+              }}
+              筆， 找不到目標
+              {{
+                migrateResult.report?.filter((r) => r.status === "not_found")
+                  .length || 0
+              }}
+              筆<span v-if="!migrateResult.dryRun"
+                >，移動 {{ migrateResult.movedCount || 0 }} 個檔案，錯誤
+                {{ migrateResult.errorCount || 0 }} 筆</span
+              >。
+            </p>
+            <table
+              v-if="migrateResult.report?.length"
+              style="
+                font-size: 0.82em;
+                border-collapse: collapse;
+                width: 100%;
+                margin-top: 8px;
+              "
+            >
+              <thead>
+                <tr style="background: #f0f0f0">
+                  <th style="padding: 4px 8px; text-align: left">來源資料夾</th>
+                  <th style="padding: 4px 8px; text-align: left">訂單編號</th>
+                  <th style="padding: 4px 8px; text-align: left">狀態</th>
+                  <th style="padding: 4px 8px; text-align: left">檔案數</th>
+                  <th style="padding: 4px 8px; text-align: left">目標路徑</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in migrateResult.report"
+                  :key="row.srcPath"
+                  style="border-top: 1px solid #e0e0e0"
+                >
+                  <td style="padding: 4px 8px">{{ row.orderFolder }}</td>
+                  <td style="padding: 4px 8px; font-weight: 600">
+                    {{ row.orderNumber || "-" }}
+                  </td>
+                  <td
+                    style="padding: 4px 8px"
+                    :style="row.status === 'not_found' ? 'color:#c00' : ''"
+                  >
+                    {{
+                      row.status === "dry_run"
+                        ? "✓ 找到"
+                        : row.status === "not_found"
+                          ? "✗ 找不到"
+                          : row.status
+                    }}
+                  </td>
+                  <td style="padding: 4px 8px">{{ row.files ?? "-" }}</td>
+                  <td style="padding: 4px 8px; word-break: break-all">
+                    {{ row.destPath || row.error || "-" }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+        </div>
+        <p v-if="migrateError" class="error-text">{{ migrateError }}</p>
       </div>
 
-      <p v-if="masterMessage" class="muted-text">{{ masterMessage }}</p>
+      <!-- 庫存顏色維護 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">庫存顏色維護</h3>
+          <p class="section-desc">
+            同步顏色主資料到 Firestore，或修復缺失的照片連結。
+          </p>
+        </div>
+        <div class="toolbar-row">
+          <button
+            class="btn-aux"
+            :disabled="masterSyncing || repairSyncing"
+            @click="syncMasterToFirestore"
+          >
+            {{ masterSyncing ? "同步中..." : "同步現有顏色到 Firestore" }}
+          </button>
+          <button
+            class="btn-aux"
+            :disabled="repairSyncing || masterSyncing"
+            @click="repairMissingImagesOnly"
+          >
+            {{ repairSyncing ? "修復中..." : "修復缺失照片（保留現有）" }}
+          </button>
+        </div>
+        <p v-if="masterMessage" class="muted-text" style="margin-top: 8px">
+          {{ masterMessage }}
+        </p>
+      </div>
     </div>
   </section>
 </template>
@@ -594,6 +822,27 @@ const masterMessage = ref("");
 const form = ref({
   nasStoragePath: "",
   nasOrderPath: "",
+  priceRedactBox: {
+    xPct: 0.2,
+    yPct: 0.04,
+    wPct: 0.45,
+    hPct: 0.13,
+  },
+  punchLocation: {
+    enabled: false,
+    allowOnFail: true,
+    lat: null,
+    lng: null,
+    radiusMeters: 200,
+  },
+  attendanceRules: {
+    workStart: "08:30",
+    workEnd: "17:30",
+    graceMins: 0,
+    deductUnit: "minute",
+    deductEarlyLeave: true,
+  },
+  loanInterestRate: 2,
 });
 
 // 新增：訂單號碼查詢相關
@@ -609,6 +858,38 @@ const batchCancelled = ref(false);
 const batchDone = ref(0);
 const batchTotal = ref(0);
 const batchResults = ref([]);
+
+// 打卡地點
+const fetchingLoc = ref(false);
+const locMsg = ref("");
+function fillCurrentLocation() {
+  if (!navigator.geolocation) {
+    locMsg.value = "瀏覽器不支援 GPS";
+    return;
+  }
+  fetchingLoc.value = true;
+  locMsg.value = "";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      form.value.punchLocation.lat = parseFloat(pos.coords.latitude.toFixed(6));
+      form.value.punchLocation.lng = parseFloat(
+        pos.coords.longitude.toFixed(6),
+      );
+      locMsg.value = `已擷取：${form.value.punchLocation.lat}, ${form.value.punchLocation.lng}（精度 ±${Math.round(pos.coords.accuracy)} m）`;
+      fetchingLoc.value = false;
+    },
+    (err) => {
+      const msgs = {
+        1: "位置存取遭拒。請至瀏覽器「網站設定 → 位置」允許本站，或至 Windows 設定 → 隱私權 → 位置，確認位置服務已開啟。",
+        2: "無法取得位置（code 2）。桌機請確認 Windows 設定 → 隱私權 → 位置服務已開啟，並已允許瀏覽器存取位置。",
+        3: "定位逾時，請確認已開啟定位服務後再試。",
+      };
+      locMsg.value = msgs[err.code] || "定位失敗：" + err.message;
+      fetchingLoc.value = false;
+    },
+    { enableHighAccuracy: true, timeout: 10000 },
+  );
+}
 
 // 完工照片路徑修復
 const repairingPhotoPaths = ref(false);
@@ -867,6 +1148,36 @@ async function loadSettings() {
     const data = await getSystemSettings();
     form.value.nasStoragePath = data.nasStoragePath || "";
     form.value.nasOrderPath = data.nasOrderPath || "";
+    const box = data.priceRedactBox || {};
+    form.value.priceRedactBox = {
+      xPct: Number.isFinite(Number(box.xPct)) ? Number(box.xPct) : 0.2,
+      yPct: Number.isFinite(Number(box.yPct)) ? Number(box.yPct) : 0.04,
+      wPct: Number.isFinite(Number(box.wPct)) ? Number(box.wPct) : 0.45,
+      hPct: Number.isFinite(Number(box.hPct)) ? Number(box.hPct) : 0.13,
+    };
+    const loc = data.punchLocation || {};
+    form.value.punchLocation = {
+      enabled: loc.enabled === true,
+      allowOnFail: loc.allowOnFail !== false,
+      lat: Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null,
+      lng: Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null,
+      radiusMeters: Number.isFinite(Number(loc.radiusMeters))
+        ? Number(loc.radiusMeters)
+        : 200,
+    };
+    const rules = data.attendanceRules || {};
+    form.value.attendanceRules = {
+      workStart: rules.workStart || "08:30",
+      workEnd: rules.workEnd || "17:30",
+      graceMins: Number.isFinite(Number(rules.graceMins))
+        ? Number(rules.graceMins)
+        : 0,
+      deductUnit: rules.deductUnit || "minute",
+      deductEarlyLeave: rules.deductEarlyLeave !== false,
+    };
+    form.value.loanInterestRate = Number.isFinite(Number(data.loanInterestRate))
+      ? Number(data.loanInterestRate)
+      : 2;
   } catch (error) {
     console.error("讀取系統設定失敗:", error);
     errorMessage.value = "讀取設定失敗，請稍後再試。";
@@ -1652,33 +1963,6 @@ function reload() {
   loadSettings();
 }
 
-// 清除 searchKeywords
-const removingKw = ref(false);
-const removeKwMessage = ref("");
-const removeKwError = ref("");
-
-async function runRemoveSearchKeywords() {
-  if (!confirm("確定要清除所有訂單的 searchKeywords 欄位？")) return;
-  removingKw.value = true;
-  removeKwMessage.value = "清除中，請稍候…";
-  removeKwError.value = "";
-  try {
-    const { httpsCallable } = await import("firebase/functions");
-    const { functionsInstance } = await import("../firebase");
-    const callable = httpsCallable(functionsInstance, "removeSearchKeywords", {
-      timeout: 540000,
-    });
-    const resp = await callable({});
-    const r = resp.data || {};
-    removeKwMessage.value = `完成！共處理 ${r.totalProcessed} 筆，清除 ${r.totalCleaned} 筆`;
-  } catch (err) {
-    removeKwError.value = err?.message || "清除失敗";
-    removeKwMessage.value = "";
-  } finally {
-    removingKw.value = false;
-  }
-}
-
 onMounted(() => {
   loadSettings();
 });
@@ -1713,5 +1997,115 @@ onMounted(() => {
 }
 .batch-result-table .row-error td {
   background: #fee2e2;
+}
+
+/* 設定頁區塊構成 */
+.settings-group-label {
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+  padding: 0 4px 6px;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 12px;
+}
+.settings-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 18px 20px 16px;
+  margin-bottom: 14px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.section-head {
+  margin-bottom: 14px;
+}
+.section-title {
+  font-size: 0.92em;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 4px;
+}
+.section-desc {
+  font-size: 0.82em;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.5;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.check-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #1d4ed8;
+}
+.save-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: #f8faff;
+  border: 1px solid #c7d8f7;
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.save-msg {
+  margin: 0;
+  font-size: 0.88em;
+}
+
+/* 差勤規則網格（保留） */
+.att-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px 20px;
+  align-items: end;
+}
+.att-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.att-field label:first-child {
+  font-size: 0.82em;
+  color: #6b7280;
+  font-weight: 500;
+}
+.att-field input[type="time"],
+.att-field input[type="number"],
+.att-field select {
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9em;
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+}
+.att-field--sm {
+  max-width: 110px;
+}
+.att-field--check {
+  justify-content: flex-end;
+}
+.att-check-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.88em;
+  cursor: pointer;
+  padding: 6px 0;
+}
+.att-check-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #1d4ed8;
 }
 </style>

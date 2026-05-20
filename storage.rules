@@ -51,6 +51,12 @@ service firebase.storage {
       allow read, write: if isStaff();
     }
 
+    match /leaveDocuments/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

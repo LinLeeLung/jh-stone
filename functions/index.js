@@ -1,4 +1,4 @@
-// ====== All requires/imports moved to top ======
+﻿// ====== All requires/imports moved to top ======
 const functions = require("firebase-functions");
 const { setGlobalOptions } = functions;
 const { onRequest } = require("firebase-functions/https");
@@ -8,14 +8,12 @@ const { onCall } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const { onRequest: onRequestV2 } = require("firebase-functions/v2/https");
+const { PDFDocument, rgb, PDFName } = require("pdf-lib");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const Busboy = require("busboy");
 const admin = require("firebase-admin");
-const YahooFinanceClass = require("yahoo-finance2").default;
-const yahooFinance = new YahooFinanceClass();
-const { GoogleGenAI } = require("@google/genai");
 admin.initializeApp();
 const SYNO_USERNAME_SECRET = defineSecret("SYNO_USERNAME");
 const SYNO_PASSWORD_SECRET = defineSecret("SYNO_PASSWORD");
@@ -24,6 +22,39 @@ const NAS_PDF_API_KEY_SECRET = defineSecret("NAS_PDF_API_KEY");
 
 // Must be called BEFORE any function definitions so it applies to all v2 functions
 setGlobalOptions({ maxInstances: 10, region: "asia-east1" });
+
+// 將 NAS 找到的訂單資料夾路徑寫回對應的 Orders 文件，作為下次查詢/上傳的快取。
+// 若找不到對應文件就靜默略過——本函式絕不丟例外。
+async function cacheOrderFolderPath(orderNumber, folderPath) {
+  try {
+    const cleanOrder = String(orderNumber || "").trim();
+    const cleanPath = String(folderPath || "").trim();
+    if (!cleanOrder || !cleanPath) return;
+    const db = admin.firestore();
+    const direct = await db.collection("Orders").doc(cleanOrder).get();
+    if (direct.exists) {
+      await direct.ref.set({ nasOrderFolderPath: cleanPath }, { merge: true });
+      return;
+    }
+    // 找不到 doc id == orderNumber 的文件時，用欄位查詢
+    const snap = await db
+      .collection("Orders")
+      .where("訂單號碼", "==", cleanOrder)
+      .limit(1)
+      .get();
+    if (!snap.empty) {
+      await snap.docs[0].ref.set(
+        { nasOrderFolderPath: cleanPath },
+        { merge: true },
+      );
+    }
+  } catch (err) {
+    logger.warn("cacheOrderFolderPath: write skipped", {
+      orderNumber,
+      error: err?.message,
+    });
+  }
+}
 
 // 查詢 NAS 是否有包含訂單號碼的資料夾
 exports.findOrderFolderOnNas = onCall(
@@ -114,6 +145,8 @@ exports.findOrderFolderOnNas = onCall(
           pdfPath,
           folderPath,
         });
+        // 寫入 Orders 文件作為快取，下次同訂單上傳/查詢可以瞬間命中
+        cacheOrderFolderPath(orderNumber, folderPath).catch(() => {});
         return {
           found: true,
           folderName,
@@ -139,6 +172,9 @@ exports.findOrderFolderOnNas = onCall(
         defaultDetailFolder: orderNumber,
       });
       if (matchResult.matched) {
+        cacheOrderFolderPath(orderNumber, matchResult.uploadFolder).catch(
+          () => {},
+        );
         return {
           found: true,
           folderName: matchResult.matchedFolderName,
@@ -1108,7 +1144,8 @@ async function buildOrderNasFolderParts(orderId, completionPhotoData = {}) {
     sanitizePathSegment(customerName || "unknown-customer") ||
     "unknown-customer";
 
-  const detailFolderRaw = [orderNumber, color, installAddress]
+  // 明細資料夾名稱：訂單號 + 顏色（不含安裝地址，避免名稱過長）
+  const detailFolderRaw = [orderNumber, color]
     .map((part) => String(part || "").trim())
     .filter(Boolean)
     .join(" ");
@@ -1121,6 +1158,7 @@ async function buildOrderNasFolderParts(orderId, completionPhotoData = {}) {
     customerFolder,
     detailFolder,
     orderNumber: String(orderNumber || "").trim(),
+    installAddress: String(installAddress || "").trim(),
   };
 }
 
@@ -1219,6 +1257,68 @@ function scoreOrderFolderMatch(
   return score;
 }
 
+// Module-level flag: once we know SYNO.Finder.FileIndexed.Search is unavailable
+// on this NAS (errorCode 102 — Universal Search package not installed/disabled),
+// every subsequent call inside the same function instance skips the Finder step
+// entirely. Saves ~6-10 seconds per query.
+let _finderApiUnavailableThisInstance = false;
+
+// Module-level cache: which Finder search API name does this NAS actually
+// expose? Universal Search uses different names across DSM versions:
+//   - SYNO.Finder.FileIndexed.Search   (older)
+//   - SYNO.Finder.File.Search          (newer)
+//   - SYNO.Finder.FileIndexing.Search  (alt)
+// We probe SYNO.API.Info once per instance to discover the right one.
+// Value of null means "not yet probed". Empty string means "probed and none".
+let _finderApiName = null;
+
+// 探測這台 NAS 上有哪個 SYNO.Finder.*Search API 可用。回傳完整 API 名稱字串，
+// 若都找不到就回空字串。結果會快取到 instance 結束。
+async function probeFinderApiName(baseUrl, sid) {
+  if (_finderApiName !== null) return _finderApiName;
+  try {
+    const url = new URL("/webapi/query.cgi", baseUrl);
+    url.searchParams.set("api", "SYNO.API.Info");
+    url.searchParams.set("version", "1");
+    url.searchParams.set("method", "query");
+    url.searchParams.set("query", "SYNO.Finder.");
+    url.searchParams.set("_sid", sid);
+    const resp = await fetch(url.toString(), { method: "GET" });
+    const json = await parseJsonSafe(resp);
+    if (
+      resp.ok &&
+      json?.success &&
+      json.data &&
+      typeof json.data === "object"
+    ) {
+      const allNames = Object.keys(json.data);
+      logger.info("probeFinderApiName: discovered Finder APIs", {
+        count: allNames.length,
+        names: allNames.slice(0, 30),
+      });
+      // Prefer FileIndexed.Search → File.Search → FileIndexing.Search → first *.Search
+      const preferred = [
+        "SYNO.Finder.FileIndexed.Search",
+        "SYNO.Finder.File.Search",
+        "SYNO.Finder.FileIndexing.Search",
+      ];
+      for (const name of preferred) {
+        if (allNames.includes(name)) {
+          _finderApiName = name;
+          return name;
+        }
+      }
+      const anySearch = allNames.find((n) => /\.Search$/i.test(n));
+      _finderApiName = anySearch || "";
+      return _finderApiName;
+    }
+  } catch (err) {
+    logger.warn("probeFinderApiName: error", { error: err?.message });
+  }
+  _finderApiName = "";
+  return "";
+}
+
 // 用唯一檔名在整個 NAS 搜尋，直接取得檔案現在的完整路徑
 async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
   const apiUrl = new URL("/webapi/entry.cgi", baseUrl).toString();
@@ -1226,17 +1326,99 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
   // Strip extension for Finder keyword (full-text search matches better without .ext)
   const stemName = fileName.replace(/\.[^.]+$/, "");
 
+  // Helper: pull display name out of a Finder/FileStation item, trying every
+  // known field name DSM has used across versions.
+  function pickItemName(item) {
+    if (!item || typeof item !== "object") return "";
+    const candidates = [
+      // Synology Universal Search (Finder) Spotlight metadata
+      item.SYNOMDFSName,
+      item.dentry_name,
+      item.name,
+      item.title,
+      item.display_name,
+      item.displayName,
+      item.filename,
+      item.file_name,
+      item.fileName,
+      item.basename,
+      item.base_name,
+    ];
+    for (const c of candidates) {
+      const s = String(c ?? "").trim();
+      if (s) return s;
+    }
+    // Last resort: derive from a path-ish field
+    const pathLike = String(
+      item.SYNOMDPath ||
+        item.SYNOMDSharePath ||
+        item.path ||
+        item.full_path ||
+        item.fullPath ||
+        "",
+    ).trim();
+    if (pathLike) {
+      const seg = pathLike.split("/").filter(Boolean).pop();
+      if (seg) return seg;
+    }
+    return "";
+  }
+
+  // Helper: pull parent directory out of a Finder/FileStation item.
+  function pickItemDir(item) {
+    if (!item || typeof item !== "object") return "";
+    const candidates = [
+      item.dir,
+      item.folder_path,
+      item.folderPath,
+      item.parent_dir,
+      item.parentDir,
+      item.parent_path,
+      item.parentPath,
+      item.parent,
+    ];
+    for (const c of candidates) {
+      const s = String(c ?? "").trim();
+      if (s) return s;
+    }
+    return "";
+  }
+
+  // Helper: build the full path for an item, falling back to dir + name.
+  function pickItemFullPath(item, name) {
+    // Synology Finder 用 SYNOMDSharePath（不含 /volume1 前綴），FileStation 路徑
+    // 通常也是 share-relative，所以優先使用 SharePath
+    const direct = String(
+      item?.SYNOMDSharePath ||
+        item?.SYNOMDPath ||
+        item?.path ||
+        item?.full_path ||
+        item?.fullPath ||
+        "",
+    ).trim();
+    if (direct) {
+      // Strip leading /volume1, /volume2, ... so it lines up with FileStation paths
+      return direct.replace(/^\/volume\d+/, "");
+    }
+    const dir = pickItemDir(item);
+    if (dir && name) return `${dir.replace(/\/+$/, "")}/${name}`;
+    return "";
+  }
+
   // Helper: extract matched path from Finder items array
   function extractMatchFromItems(items, keyword) {
+    const ext = fileName.includes(".")
+      ? fileName.split(".").pop().toLowerCase()
+      : "";
+    const fileNameLower = fileName.toLowerCase();
+    const stemLower = stemName.toLowerCase();
+
     // Pass 1: exact filename match (e.g. "27243ASW.pdf")
     for (const item of items) {
-      const name = String(
-        item?.dentry_name || item?.name || item?.title || "",
-      ).trim();
-      if (name.toLowerCase() === fileName.toLowerCase()) {
-        const dir = String(item?.dir || item?.folder_path || "").trim();
-        const itemPath = String(item?.path || "").trim();
-        const fullPath = itemPath || (dir ? `${dir}/${name}` : "");
+      const name = pickItemName(item);
+      if (!name) continue;
+      if (name.toLowerCase() === fileNameLower) {
+        const fullPath = pickItemFullPath(item, name);
         if (fullPath) {
           logger.info("synologySearchFileByName: found via Finder (exact)", {
             keyword,
@@ -1248,22 +1430,16 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
       }
     }
     // Pass 2: stem match – name starts with stemName and ends with target extension
-    const ext = fileName.includes(".")
-      ? fileName.split(".").pop().toLowerCase()
-      : "";
     for (const item of items) {
-      const name = String(
-        item?.dentry_name || item?.name || item?.title || "",
-      ).trim();
+      const name = pickItemName(item);
+      if (!name) continue;
       const nameLower = name.toLowerCase();
       if (
-        nameLower.startsWith(stemName.toLowerCase()) &&
+        nameLower.startsWith(stemLower) &&
         ext &&
         nameLower.endsWith(`.${ext}`)
       ) {
-        const dir = String(item?.dir || item?.folder_path || "").trim();
-        const itemPath = String(item?.path || "").trim();
-        const fullPath = itemPath || (dir ? `${dir}/${name}` : "");
+        const fullPath = pickItemFullPath(item, name);
         if (fullPath) {
           logger.info("synologySearchFileByName: found via Finder (stem)", {
             keyword,
@@ -1275,99 +1451,219 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
         }
       }
     }
+    // Pass 3: contains stem AND ends with .ext (loosest, last resort)
+    if (ext) {
+      for (const item of items) {
+        const name = pickItemName(item);
+        if (!name) continue;
+        const nameLower = name.toLowerCase();
+        if (nameLower.includes(stemLower) && nameLower.endsWith(`.${ext}`)) {
+          const fullPath = pickItemFullPath(item, name);
+          if (fullPath) {
+            logger.info(
+              "synologySearchFileByName: found via Finder (contains)",
+              { keyword, fileName, matchedName: name, fullPath },
+            );
+            return fullPath;
+          }
+        }
+      }
+    }
     return null;
+  }
+
+  // 通知 Finder server 釋放 query_id 對應的搜尋會話 (best-effort)
+  async function cleanupFinderQuery(apiName, queryId) {
+    if (!apiName || !queryId) return;
+    try {
+      const body = new URLSearchParams();
+      body.set("api", apiName);
+      body.set("version", "1");
+      body.set("method", "clean");
+      body.set("query_id", queryId);
+      body.set("_sid", sid);
+      await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+    } catch (_) {}
   }
 
   // Helper: run Finder search with polling until finished === true (like DSM UI)
+  // Returns one of:
+  //   { result: "<path>" }     – matched file path
+  //   { result: null, apiUnavailable: true }
+  //                            – Finder API not available on this DSM (errorCode 102)
+  //   { result: null }         – Finder finished but no match
   async function finderSearch(keyword) {
-    const serial = String(Date.now()) + String(Math.random()).slice(2, 8);
-    // Poll up to ~8s total — keep going until Finder says finished
-    const maxAttempts = 20;
-    const pollInterval = 400; // ms
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, pollInterval));
-      }
-
-      const finderBody = new URLSearchParams();
-      finderBody.set("api", "SYNO.Finder.FileIndexed.Search");
-      finderBody.set("version", "1");
-      finderBody.set("method", "search");
-      finderBody.set("keyword", keyword);
-      finderBody.set("query_serial", serial);
-      finderBody.set("search_type", "all");
-      finderBody.set("offset", "0");
-      finderBody.set("limit", "200");
-      finderBody.set("_sid", sid);
-
-      const finderResp = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: finderBody.toString(),
-      });
-      const finderJson = await parseJsonSafe(finderResp);
-
-      if (attempt === 0 || finderJson?.data?.total > 0) {
-        logger.info("synologySearchFileByName: Finder poll", {
-          keyword,
-          fileName,
-          attempt,
-          success: finderJson?.success,
-          total: finderJson?.data?.total,
-          finished: finderJson?.data?.finished,
-          itemCount: Array.isArray(finderJson?.data?.items)
-            ? finderJson.data.items.length
-            : undefined,
-          errorCode: finderJson?.error?.code,
-        });
-      }
-
-      if (!finderJson?.success) return null;
-
-      const items =
-        finderJson?.data?.items ||
-        finderJson?.data?.files ||
-        finderJson?.data?.result ||
-        [];
-
-      const match = extractMatchFromItems(items, keyword);
-      if (match) return match;
-
-      // If Finder says search is finished, no more results coming
-      if (finderJson?.data?.finished === true) return null;
-
-      // If Finder returned non-matching items and is finished, stop
-      if (items.length > 0 && finderJson?.data?.finished !== false) return null;
-
-      // Otherwise keep polling — Finder is still searching
+    // 探測這台 NAS 實際提供哪個 Finder Search API 名稱
+    const apiName = await probeFinderApiName(baseUrl, sid);
+    if (!apiName) {
+      return { result: null, apiUnavailable: true };
     }
-    return null;
+
+    // ── DSM Universal Search 單階段流程 ──
+    // method=search 直接回 { has_error, hits, total } —— 不要自己生 query_id
+    // (帶了無效 query_id 會收到 errorCode 119)
+    let lastItemsSample = null;
+
+    // Finder 關鍵字使用 Lucene-like 語法，`-` 會被當成 NOT 運算子，
+    // 含 dash 的訂單號碼（例如 27463-1AGR、214-2ABB）會被 reject 為 errorCode 120。
+    // 用雙引號包起來讓 dash 視為字面字元。
+    const safeKeyword = /[-+!&|()\[\]{}^"~*?:\\\/\s]/.test(
+      String(keyword || ""),
+    )
+      ? `"${String(keyword).replace(/"/g, '\\"')}"`
+      : String(keyword);
+
+    const body = new URLSearchParams();
+    body.set("api", apiName);
+    body.set("version", "1");
+    body.set("method", "search");
+    body.set("agent", "search_now");
+    body.set("indice", "[]");
+    body.set("keyword", safeKeyword);
+    body.set("orig_keyword", safeKeyword);
+    body.set("criteria_list", "[]");
+    body.set("from", "0");
+    body.set("size", "50");
+    body.set("file_type", "");
+    body.set(
+      "fields",
+      JSON.stringify([
+        "SYNOMDFSName",
+        "SYNOMDFSCreationDate",
+        "SYNOMDFSSize",
+        "SYNOMDExtension",
+        "SYNOMDLastUsedDate",
+        "SYNOMDPath",
+        "SYNOMDFSContentChangeDate",
+      ]),
+    );
+    body.set(
+      "search_weight_list",
+      JSON.stringify([
+        { field: "SYNOMDWildcard", weight: 1 },
+        { field: "SYNOMDTextContent", weight: 1 },
+        { field: "SYNOMDSearchFileName", weight: 8.5, trailing_wildcard: true },
+      ]),
+    );
+    body.set("_sid", sid);
+
+    const resp = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    const finderJson = await parseJsonSafe(resp);
+
+    logger.info("synologySearchFileByName: Finder search", {
+      keyword,
+      fileName,
+      success: finderJson?.success,
+      total: finderJson?.data?.total,
+      hitsCount: Array.isArray(finderJson?.data?.hits)
+        ? finderJson.data.hits.length
+        : undefined,
+      itemsCount: Array.isArray(finderJson?.data?.items)
+        ? finderJson.data.items.length
+        : undefined,
+      errorCode: finderJson?.error?.code,
+      dataKeys: finderJson?.data ? Object.keys(finderJson.data) : null,
+    });
+
+    if (!finderJson?.success) {
+      // 只在 errorCode 102（API 不存在）時才永久禁用 Finder。
+      // 其他 error（119 query_id、120 參數、120 SID 過期等）只算這次失敗，
+      // 下次同 instance 仍可再試。
+      const code = finderJson?.error?.code;
+      const fatal = code === 102;
+      return { result: null, apiUnavailable: fatal };
+    }
+
+    const items =
+      finderJson?.data?.hits ||
+      finderJson?.data?.items ||
+      finderJson?.data?.files ||
+      finderJson?.data?.result ||
+      finderJson?.data?.list ||
+      [];
+
+    if (
+      finderJson?.data?.total > 0 &&
+      Array.isArray(items) &&
+      items.length > 0
+    ) {
+      logger.info("synologySearchFileByName: Finder first item dump", {
+        dataKeys: Object.keys(finderJson.data || {}),
+        itemKeys: Object.keys(items[0] || {}),
+        firstItem: JSON.stringify(items[0]).slice(0, 1500),
+      });
+    }
+    if (
+      finderJson?.data?.total > 0 &&
+      (!Array.isArray(items) || items.length === 0)
+    ) {
+      logger.warn(
+        "synologySearchFileByName: Finder reports total>0 but items empty",
+        {
+          total: finderJson?.data?.total,
+          dataKeys: Object.keys(finderJson.data || {}),
+          dataSample: JSON.stringify(finderJson.data).slice(0, 1500),
+        },
+      );
+    }
+
+    if (Array.isArray(items) && items.length > 0) {
+      lastItemsSample = items.slice(0, 3).map((it) => ({
+        keys: Object.keys(it || {}),
+        name: pickItemName(it),
+        dir: pickItemDir(it),
+        path: String(it?.path || it?.full_path || "").trim(),
+      }));
+    }
+
+    const match = extractMatchFromItems(items, keyword);
+    if (match) return { result: match };
+
+    if (lastItemsSample) {
+      logger.warn(
+        "synologySearchFileByName: Finder returned hits but no match",
+        { keyword, fileName, sample: lastItemsSample },
+      );
+    }
+    return { result: null };
   }
 
   // ── Strategy 1: SYNO.Finder (Universal Search, index-based, instant) ──
-  // Try up to 3 attempts — Finder index is async, sometimes needs a second try (like DSM UI)
-  for (let finderAttempt = 0; finderAttempt < 3; finderAttempt++) {
-    if (finderAttempt > 0) {
-      logger.info("synologySearchFileByName: Finder retry", {
-        fileName,
-        attempt: finderAttempt + 1,
-      });
-      await new Promise((r) => setTimeout(r, 2000)); // wait 2s before retry
-    }
+  // 索引搜尋只試 1 次（不重試），失敗或無結果就立刻 fall through。
+  // 索引是靜態的，重試也不會有不同結果，省下時間給 BFS traversal。
+  if (_finderApiUnavailableThisInstance) {
+    logger.info(
+      "synologySearchFileByName: Finder API marked unavailable for this instance, skipping",
+      { fileName },
+    );
+  } else {
     try {
-      const result = await finderSearch(stemName);
-      if (result) return result;
-
-      // Retry with full filename (some Finder configs index differently)
-      if (stemName !== fileName) {
-        const result2 = await finderSearch(fileName);
-        if (result2) return result2;
+      const r1 = await finderSearch(stemName);
+      if (r1?.result) return r1.result;
+      if (r1?.apiUnavailable) {
+        _finderApiUnavailableThisInstance = true;
+        logger.warn(
+          "synologySearchFileByName: Finder API unavailable, skipping",
+          { fileName },
+        );
+      } else if (stemName !== fileName) {
+        const r2 = await finderSearch(fileName);
+        if (r2?.result) return r2.result;
+        if (r2?.apiUnavailable) {
+          _finderApiUnavailableThisInstance = true;
+        }
       }
     } catch (finderErr) {
       logger.warn("synologySearchFileByName: Finder API failed, falling back", {
         fileName,
-        attempt: finderAttempt + 1,
         error: finderErr?.message,
       });
     }
@@ -1393,12 +1689,11 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
   const taskid = startJson?.data?.taskid;
   if (!taskid) return null;
 
-  // ~45s total: large NAS needs more time for recursive scan
+  // ~10s total: keep it tight so callers can fall through to Strategy 3
+  // (deterministic directory traversal) quickly when this scan is unhelpful.
   const pollDelays = [
     200, 300, 500, 500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000,
-    1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000,
-    1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000,
-    1000, 1000, 2000, 2000, 2000, 2000, 2000,
+    1000, 1000,
   ];
   let foundPath = null;
   for (let i = 0; i < pollDelays.length; i++) {
@@ -1431,7 +1726,9 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
       foundPath = String(hit.path).trim();
       break;
     }
-    if (listJson?.data?.finished) break;
+    // Synology bug：剛 start 的 task，前幾次 poll 會回 finished:true 但實際還沒掃。
+    // 至少要等 4 個 poll (~1.5s) 才能信任 finished:true。
+    if (listJson?.data?.finished && i >= 4) break;
   }
 
   // 清除任務
@@ -1493,6 +1790,60 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
         return false;
       });
 
+      // BFS expansion: NAS may have an extra "category" folder layer between
+      // rootPath and the real customer folder (e.g. "900+菲爾體系所有訂單…"),
+      // whose name contains neither the customer code nor the customer number.
+      // After collecting first-level matches, also expand non-matching first-
+      // level folders one layer deep and merge in any second-level folders
+      // that DO match. This keeps the search bounded but covers 3-level trees.
+      const matchedKeys = new Set(
+        candidates.map((c) => c.path || `${rootPath}/${c.name}`),
+      );
+      const nonMatchingTopFolders = dirFolders.filter(
+        (f) => !matchedKeys.has(f.path || `${rootPath}/${f.name}`),
+      );
+      // 智慧過濾：只展開「看起來像類別資料夾」的 top folders。
+      // 客戶資料夾通常以「3 位數字-」開頭（例：`230-菱菲爾...`），
+      // 類別資料夾則不是（例：`900+菲爾體系...`、`0--xxx`、`AAA-...`）。
+      // 因此只展開那些名稱不以 `\d{3}-` 開頭的 top folder。
+      const looksLikeCategory = (n) => !/^\d{3}-/.test(String(n || "").trim());
+      const categoryTops = nonMatchingTopFolders.filter((f) =>
+        looksLikeCategory(f.name),
+      );
+      // 處理所有類別資料夾，分批並行（每批 30 個）以避免一次打爆 NAS
+      // 同時保持速度（800 個 / 30 = 約 27 批 × 300ms ≈ 8 秒以內）
+      const BATCH_SIZE = 30;
+      const expandResults = [];
+      for (let i = 0; i < categoryTops.length; i += BATCH_SIZE) {
+        const batch = categoryTops.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (top) => {
+            const topPath = top.path || `${rootPath}/${top.name}`;
+            try {
+              const subEntries = await synologyListFolderEntries({
+                baseUrl,
+                sid,
+                folderPath: topPath,
+              });
+              return subEntries.filter((s) => {
+                if (!s.isdir) return false;
+                const n = String(s.name || "").toUpperCase();
+                if (n.includes(customerCode)) return true;
+                if (customerNumber && n.includes(customerNumber)) return true;
+                return false;
+              });
+            } catch (_) {
+              return [];
+            }
+          }),
+        );
+        expandResults.push(...batchResults);
+      }
+      const topToExpand = categoryTops; // for logging only
+      for (const matches of expandResults) {
+        for (const m of matches) candidates.push(m);
+      }
+
       // If no narrowed candidates, try ALL folders
       const foldersToCheck = candidates.length > 0 ? candidates : dirFolders;
 
@@ -1500,6 +1851,7 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
         totalFolders: dirFolders.length,
         narrowed: candidates.length,
         checking: foldersToCheck.length,
+        expandedTopFolders: topToExpand.length,
       });
 
       for (const folder of foldersToCheck) {
@@ -1574,6 +1926,61 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
   return null;
 }
 
+// 用訂單 PDF 反推資料夾，PDF 檔名常見有兩種：
+//   1) 完整訂單號碼.pdf （例：27298ACU.pdf）
+//   2) 主訂單號碼.pdf／主訂單號碼維修單.pdf 等（例：27375-1維修單.pdf 對應訂單 27375-1BEP）
+// 為了避免子件號碼（BEP / ACU / B1 …）害我們搜不到，先用完整訂單搜，
+// 找不到再剝掉尾碼重搜，並要求結果資料夾的名稱包含完整訂單號，避免誤抓鄰居資料夾。
+async function searchOrderPdfWithFallback({
+  baseUrl,
+  sid,
+  rootPath,
+  orderNumber,
+}) {
+  const original = String(orderNumber || "").trim();
+  if (!original) return "";
+
+  // Step 1: 完整訂單號
+  let pdfPath = await synologySearchFileByName({
+    baseUrl,
+    sid,
+    rootPath,
+    fileName: `${original}.pdf`,
+  });
+  if (pdfPath) return pdfPath;
+
+  // Step 2: 剝掉尾端英文字（例 27375-1BEP → 27375-1）
+  const stripped = original.replace(/[A-Z]+$/i, "").replace(/[-_.]+$/, "");
+  if (!stripped || stripped === original) return "";
+
+  pdfPath = await synologySearchFileByName({
+    baseUrl,
+    sid,
+    rootPath,
+    fileName: `${stripped}.pdf`,
+  });
+  if (!pdfPath) return "";
+
+  // 防呆：要求 PDF 所在資料夾名稱包含完整訂單號，否則可能抓到隔壁子件的資料夾
+  const parts = pdfPath.split("/").filter(Boolean);
+  const parentFolderName = parts[parts.length - 2] || "";
+  const upperParent = parentFolderName.toUpperCase();
+  const upperOrder = original.toUpperCase();
+  if (upperParent.includes(upperOrder)) {
+    logger.info("searchOrderPdfWithFallback: matched via stripped suffix", {
+      orderNumber: original,
+      stripped,
+      pdfPath,
+    });
+    return pdfPath;
+  }
+  logger.info(
+    "searchOrderPdfWithFallback: stripped match rejected (parent folder lacks full order)",
+    { orderNumber: original, stripped, pdfPath, parentFolderName },
+  );
+  return "";
+}
+
 async function synologyListFolderEntries({ baseUrl, sid, folderPath }) {
   // Use POST with form body to avoid GET URL-length limits with long CJK paths
   const listUrl = new URL("/webapi/entry.cgi", baseUrl);
@@ -1601,86 +2008,142 @@ async function synologyListFolderEntries({ baseUrl, sid, folderPath }) {
 
 // 使用 SYNO.Finder (Universal Search / 索引搜尋) 搜尋資料夾，速度遠勝 FileStation.Search
 async function synologyFinderSearchFolders({ baseUrl, sid, pattern }) {
+  if (_finderApiUnavailableThisInstance) {
+    logger.info(
+      "synologyFinderSearchFolders: Finder API marked unavailable for this instance, skipping",
+      { pattern },
+    );
+    return [];
+  }
+  // 探測這台 NAS 上實際提供哪個 Finder Search API 名稱
+  const apiName = await probeFinderApiName(baseUrl, sid);
+  if (!apiName) {
+    _finderApiUnavailableThisInstance = true;
+    logger.info(
+      "synologyFinderSearchFolders: no Finder Search API discovered, marking instance",
+      { pattern },
+    );
+    return [];
+  }
   const apiUrl = new URL("/webapi/entry.cgi", baseUrl).toString();
   try {
-    const serial = String(Date.now()) + String(Math.random()).slice(2, 8);
-    const maxAttempts = 20;
-    const pollInterval = 400;
+    // 若關鍵字含 Lucene 特殊字元（- + ! 等），需用引號包起來避免被當運算子
+    // 否則例如 "27375-1BEP" 會被解析為 NOT 1BEP，造成無結果
+    const safeKeyword = /[-+!&|()[\]{}^"~*?:\\/\s]/.test(pattern)
+      ? `"${pattern.replace(/"/g, '\\"')}"`
+      : pattern;
+    // 單階段 search call (跟 finderSearch 一樣)，不要自己生 query_id
+    const body = new URLSearchParams();
+    body.set("api", apiName);
+    body.set("version", "1");
+    body.set("method", "search");
+    body.set("agent", "search_now");
+    body.set("indice", "[]");
+    body.set("keyword", safeKeyword);
+    body.set("orig_keyword", safeKeyword);
+    body.set("criteria_list", "[]");
+    body.set("from", "0");
+    body.set("size", "50");
+    body.set("file_type", "");
+    body.set(
+      "fields",
+      JSON.stringify([
+        "SYNOMDFSName",
+        "SYNOMDFSCreationDate",
+        "SYNOMDFSSize",
+        "SYNOMDExtension",
+        "SYNOMDPath",
+        "SYNOMDIsDir",
+      ]),
+    );
+    body.set(
+      "search_weight_list",
+      JSON.stringify([
+        { field: "SYNOMDWildcard", weight: 1 },
+        { field: "SYNOMDTextContent", weight: 1 },
+        { field: "SYNOMDSearchFileName", weight: 8.5, trailing_wildcard: true },
+      ]),
+    );
+    body.set("_sid", sid);
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, pollInterval));
-      }
-
-      const body = new URLSearchParams();
-      body.set("api", "SYNO.Finder.FileIndexed.Search");
-      body.set("version", "1");
-      body.set("method", "search");
-      body.set("keyword", pattern);
-      body.set("query_serial", serial);
-      body.set("search_type", "all");
-      body.set("offset", "0");
-      body.set("limit", "200");
-      body.set("_sid", sid);
-
-      const resp = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      });
-      const json = await parseJsonSafe(resp);
-
-      if (attempt === 0 || json?.data?.total > 0) {
-        logger.info("synologyFinderSearchFolders: poll", {
+    const resp = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    const json = await parseJsonSafe(resp);
+    logger.info("synologyFinderSearchFolders: search", {
+      pattern,
+      success: json?.success,
+      total: json?.data?.total,
+      hitsCount: Array.isArray(json?.data?.hits)
+        ? json.data.hits.length
+        : undefined,
+      errorCode: json?.error?.code,
+    });
+    if (!json?.success) {
+      // 只在 errorCode 102 (API 不存在) 時才永久禁用
+      if (json?.error?.code === 102) {
+        _finderApiUnavailableThisInstance = true;
+        logger.warn(
+          "synologyFinderSearchFolders: Finder API not installed, marking instance",
+          { pattern },
+        );
+      } else {
+        logger.warn("synologyFinderSearchFolders: search failed (non-fatal)", {
           pattern,
-          attempt,
-          success: json?.success,
-          total: json?.data?.total,
-          finished: json?.data?.finished,
           errorCode: json?.error?.code,
         });
       }
-      if (!json?.success) return [];
+      return [];
+    }
 
-      const items =
-        json?.data?.items || json?.data?.files || json?.data?.result || [];
-      // 轉換 Finder 回傳格式為與 FileStation 一致的 { name, path, isdir, additional }
-      const folders = [];
-      for (const item of items) {
-        const isDir =
-          item?.is_dir === true || item?.type === "dir" || item?.isdir === true;
-        if (!isDir) continue;
-        const name = String(
-          item?.dentry_name || item?.name || item?.title || "",
-        ).trim();
-        const dir = String(item?.dir || item?.folder_path || "").trim();
-        const itemPath = String(item?.path || "").trim();
-        const fullPath = itemPath || (dir ? `${dir}/${name}` : "");
-        if (name && fullPath) {
-          folders.push({
-            name,
-            path: fullPath,
-            isdir: true,
-            additional: {
-              time: { mtime: Number(item?.mtime || item?.last_modified || 0) },
-            },
-          });
-        }
-      }
-      if (folders.length > 0) {
-        logger.info("synologyFinderSearchFolders: folders found", {
-          pattern,
-          attempt,
-          count: folders.length,
+    const items =
+      json?.data?.hits ||
+      json?.data?.items ||
+      json?.data?.files ||
+      json?.data?.result ||
+      [];
+    // 轉換 Finder 回傳格式為與 FileStation 一致的 { name, path, isdir, additional }
+    const folders = [];
+    for (const item of items) {
+      const isDir =
+        item?.SYNOMDIsDir === "y" ||
+        item?.SYNOMDIsDir === true ||
+        item?.is_dir === true ||
+        item?.type === "dir" ||
+        item?.isdir === true;
+      if (!isDir) continue;
+      const name = String(
+        item?.SYNOMDFSName ||
+          item?.dentry_name ||
+          item?.name ||
+          item?.title ||
+          "",
+      ).trim();
+      const rawPath = String(
+        item?.SYNOMDSharePath || item?.SYNOMDPath || item?.path || "",
+      ).trim();
+      // 去掉 /volume1 前綴對齊 FileStation 路徑
+      const fullPath = rawPath.replace(/^\/volume\d+/, "");
+      if (name && fullPath) {
+        folders.push({
+          name,
+          path: fullPath,
+          isdir: true,
+          additional: {
+            time: { mtime: Number(item?.mtime || item?.last_modified || 0) },
+          },
         });
-        return folders;
       }
-      // If Finder says search is finished, no more results
-      if (json?.data?.finished === true) return [];
-      // If items exist but no folders matched, and search finished, stop
-      if (items.length > 0 && json?.data?.finished !== false) return [];
-    } // end polling loop
-    return [];
+    }
+    if (folders.length > 0) {
+      logger.info("synologyFinderSearchFolders: folders found", {
+        pattern,
+        count: folders.length,
+      });
+    }
+    return folders;
   } catch (err) {
     logger.warn("synologyFinderSearchFolders: error", {
       pattern,
@@ -1745,8 +2208,10 @@ async function synologySearchFolders({ baseUrl, sid, rootPath, pattern }) {
       : [];
     files = allFiles.filter((f) => f?.isdir === true);
     finished = listJson?.data?.finished === true;
-    // 找到結果就提早結束，不必等 Synology 掃完全部
-    if (finished || files.length > 0) break;
+    // 找到結果就提早結束。Synology bug：前幾次 poll 可能假回 finished:true，
+    // 至少要等 4 個 poll (~1.5s) 才能信任 finished:true。
+    if (files.length > 0) break;
+    if (finished && i >= 4) break;
   }
 
   // Step 3: 清除任務（fire and forget）
@@ -3444,29 +3909,18 @@ function isSidExpiredError(err) {
 
 // ── Global SID cache ──────────────────────────────────────────────
 // Reuse Synology SID across requests within the same Cloud Functions instance
-// to avoid login/logout round-trips (~200-500ms each).
+// to avoid login/logout round-trips (~200-500ms each, ~5-7s on cold start TLS).
 // TTL is conservative (8 min) since Synology default session timeout is 15 min.
 const _sidCache = { sid: "", ts: 0 };
 const SID_CACHE_TTL_MS = 8 * 60 * 1000; // 8 minutes
 
 async function getOrCreateSid(baseUrl, username, password) {
-  if (_sidCache.sid && Date.now() - _sidCache.ts < SID_CACHE_TTL_MS) {
-    return _sidCache.sid;
-  }
-  const sid = await synologyLogin(baseUrl, username, password);
-  _sidCache.sid = sid;
-  _sidCache.ts = Date.now();
-  return sid;
+  // Backward-compat wrapper; new code can just call synologyLogin directly.
+  return synologyLogin(baseUrl, username, password);
 }
 
 async function refreshSid(baseUrl, username, password) {
-  // Force re-login (e.g. after code 119)
-  _sidCache.sid = "";
-  _sidCache.ts = 0;
-  const sid = await synologyLogin(baseUrl, username, password);
-  _sidCache.sid = sid;
-  _sidCache.ts = Date.now();
-  return sid;
+  return synologyLoginForce(baseUrl, username, password);
 }
 
 function invalidateSidCache() {
@@ -3474,7 +3928,8 @@ function invalidateSidCache() {
   _sidCache.ts = 0;
 }
 
-async function synologyLogin(baseUrl, username, password) {
+// 真實打 NAS auth.cgi 的底層 login（不經快取）
+async function synologyLoginFresh(baseUrl, username, password) {
   const loginUrl = new URL("/webapi/auth.cgi", baseUrl);
   loginUrl.searchParams.set("api", "SYNO.API.Auth");
   loginUrl.searchParams.set("version", "6");
@@ -3492,8 +3947,33 @@ async function synologyLogin(baseUrl, username, password) {
   return loginJson.data.sid;
 }
 
+// 公用 login：優先回傳 instance 級快取的 sid。
+// 所有 call site 維持原樣即可自動受益。
+async function synologyLogin(baseUrl, username, password) {
+  if (_sidCache.sid && Date.now() - _sidCache.ts < SID_CACHE_TTL_MS) {
+    return _sidCache.sid;
+  }
+  const sid = await synologyLoginFresh(baseUrl, username, password);
+  _sidCache.sid = sid;
+  _sidCache.ts = Date.now();
+  return sid;
+}
+
+// 強制重新登入（用於 SID 過期 119 重試）
+async function synologyLoginForce(baseUrl, username, password) {
+  _sidCache.sid = "";
+  _sidCache.ts = 0;
+  const sid = await synologyLoginFresh(baseUrl, username, password);
+  _sidCache.sid = sid;
+  _sidCache.ts = Date.now();
+  return sid;
+}
+
 async function synologyLogout(baseUrl, sid) {
   if (!sid) return;
+  // 如果這個 sid 是 instance 共用快取，就保留它供下次請求重用
+  // (省掉每次請求 ~0.3-0.5s 的 login round-trip)。TTL 到期前都安全。
+  if (sid === _sidCache.sid) return;
   const logoutUrl = new URL("/webapi/auth.cgi", baseUrl);
   logoutUrl.searchParams.set("api", "SYNO.API.Auth");
   logoutUrl.searchParams.set("version", "6");
@@ -3799,7 +4279,6 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET],
     memory: "1GiB",
     timeoutSeconds: 540,
-    minInstances: 1,
   },
   async (req, res) => {
     // CORS headers for all requests
@@ -3898,6 +4377,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     const carNumber = String(form?.fields?.carNumber || "").trim();
     const installerParts = [installer1, installer2, installer3].filter(Boolean);
     const carPart = carNumber ? `+${carNumber}` : "";
+    // 新建資料夾用：日期 + 訂單號+顏色 + 安裝員 + 車號（不含安裝地址，名稱較短）
     const desiredParts = [
       installDate,
       folderParts.detailFolder,
@@ -3906,6 +4386,18 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     if (carPart) desiredParts.push(carPart);
     const desiredDetailFolder =
       sanitizePathSegment(desiredParts.join(" ")) || folderParts.detailFolder;
+    // 找到既有 PDF 資料夾時改名用：日期 + 訂單號+顏色 + 安裝地址 + 安裝員 + 車號
+    const addressPart = String(folderParts.installAddress || "").trim();
+    const desiredPartsWithAddress = [
+      installDate,
+      folderParts.detailFolder,
+      addressPart,
+      ...installerParts,
+    ].filter(Boolean);
+    if (carPart) desiredPartsWithAddress.push(carPart);
+    const desiredDetailFolderWithAddress =
+      sanitizePathSegment(desiredPartsWithAddress.join(" ")) ||
+      desiredDetailFolder;
 
     const targetName = `${photoRef.id}-${logicalFileName}`;
 
@@ -3927,73 +4419,76 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       matchedFolderName: "",
       matchScore: 0,
     };
+    // 偵錯用：紀錄這次上傳如何決定資料夾，方便事後稽核
+    const searchDiag = {
+      usedCachedFolder: false,
+      cachedFolder: "",
+      pdfSearchAttempted: false,
+      pdfSearchSucceeded: false,
+      pdfSearchError: "",
+      nameMatchAttempted: false,
+      nameMatchScore: 0,
+      nameMatched: false,
+      nameMatchedFolderName: "",
+    };
 
     // 共用的資料夾解析 + 上傳邏輯
     async function resolveAndUpload(useCachedFolder) {
       if (useCachedFolder) {
         uploadFolder = cachedNasFolder;
         matchMeta = { matched: true, matchedFolderName: "", matchScore: -1 };
+        searchDiag.usedCachedFolder = true;
+        searchDiag.cachedFolder = cachedNasFolder;
         logger.info("uploadCompletionPhotoToNasHttp: using cached NAS folder", {
           orderDocId,
           uploadFolder,
         });
       } else {
-        // Strategy 1: 用訂單號碼.pdf 搜尋，直接定位到正確資料夾（即使客戶資料夾已改名也能找到）
+        // 只走一條路：用訂單號碼.pdf 搜尋（含剝尾碼 fallback）。
+        // 找到 → 用它；找不到 → 直接建新資料夾並寫稽核紀錄，
+        // 不再做名稱模糊比對、不再 list 父層，以維持「同一張完工照片只會落在唯一正確資料夾」的一致性。
         const pdfFileName = `${folderParts.orderNumber || orderNumber}.pdf`;
-        let foundViaPdf = false;
-        if (pdfFileName && pdfFileName !== ".pdf") {
-          try {
-            const pdfPath = await synologySearchFileByName({
-              baseUrl,
-              sid,
-              rootPath: pathCheck.normalized,
-              fileName: pdfFileName,
-            });
-            if (pdfPath) {
-              const pdfLastSlash = pdfPath.lastIndexOf("/");
-              if (pdfLastSlash > 0) {
-                uploadFolder = pdfPath.slice(0, pdfLastSlash);
-                matchMeta = {
-                  matched: true,
-                  matchedFolderName: uploadFolder.split("/").pop() || "",
-                  matchScore: 99999,
-                };
-                foundViaPdf = true;
-                logger.info(
-                  "uploadCompletionPhotoToNasHttp: found order folder via PDF search",
-                  { orderDocId, pdfPath, uploadFolder },
-                );
-                orderDocRef
-                  .update({ nasOrderFolderPath: uploadFolder })
-                  .catch(() => {});
-              }
-            }
-          } catch (pdfSearchErr) {
-            logger.warn(
-              "uploadCompletionPhotoToNasHttp: PDF search failed, falling back to folder matching",
-              { orderDocId, pdfFileName, error: pdfSearchErr?.message },
-            );
-          }
-        }
-
-        // Strategy 2: fallback — 用資料夾名稱比對
-        if (!foundViaPdf) {
-          matchMeta = await resolveExistingOrderFolderPath({
+        searchDiag.pdfSearchAttempted = true;
+        let pdfPath = "";
+        try {
+          pdfPath = await searchOrderPdfWithFallback({
             baseUrl,
             sid,
-            basePath: pathCheck.normalized,
-            customerFolder: folderParts.customerFolder,
+            rootPath: pathCheck.normalized,
             orderNumber: folderParts.orderNumber || orderNumber,
-            defaultDetailFolder: folderParts.detailFolder,
           });
-          uploadFolder = matchMeta.uploadFolder;
-          orderDocRef
-            .update({ nasOrderFolderPath: uploadFolder })
-            .catch(() => {});
+        } catch (pdfSearchErr) {
+          searchDiag.pdfSearchError = String(
+            pdfSearchErr?.message || pdfSearchErr || "",
+          ).slice(0, 500);
+          logger.warn(
+            "uploadCompletionPhotoToNasHttp: PDF search threw error",
+            { orderDocId, pdfFileName, error: pdfSearchErr?.message },
+          );
+        }
+
+        if (pdfPath) {
+          const pdfLastSlash = pdfPath.lastIndexOf("/");
+          if (pdfLastSlash > 0) {
+            uploadFolder = pdfPath.slice(0, pdfLastSlash);
+            matchMeta = {
+              matched: true,
+              matchedFolderName: uploadFolder.split("/").pop() || "",
+              matchScore: 99999,
+            };
+            searchDiag.pdfSearchSucceeded = true;
+            logger.info(
+              "uploadCompletionPhotoToNasHttp: found order folder via PDF search",
+              { orderDocId, pdfPath, uploadFolder },
+            );
+            orderDocRef
+              .update({ nasOrderFolderPath: uploadFolder })
+              .catch(() => {});
+          }
         }
       }
 
-      // If folder doesn't exist yet, create it with desiredDetailFolder name
+      // PDF 找不到 → 建新資料夾，並寫稽核紀錄方便事後核對／搬檔
       if (!matchMeta.matched) {
         const lastSlash = uploadFolder.lastIndexOf("/");
         if (lastSlash > 0) {
@@ -4002,6 +4497,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
           orderDocRef
             .update({ nasOrderFolderPath: uploadFolder })
             .catch(() => {});
+          let createFolderError = "";
           try {
             await synologyCreateFolder({
               baseUrl,
@@ -4010,11 +4506,57 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
               name: desiredDetailFolder,
             });
           } catch (createErr) {
+            createFolderError = String(
+              createErr?.message || createErr || "",
+            ).slice(0, 500);
             logger.warn(
               "uploadCompletionPhotoToNasHttp: explicit folder create failed, will rely on create_parents",
               { orderDocId, error: createErr?.message },
             );
           }
+
+          const reason = searchDiag.usedCachedFolder
+            ? "cachedFolderNotMatched"
+            : searchDiag.pdfSearchError
+              ? "pdfSearchError"
+              : "pdfNotFound";
+
+          logger.warn(
+            "uploadCompletionPhotoToNasHttp: created NEW order folder (PDF not found)",
+            {
+              orderDocId,
+              orderNumber,
+              parentPath,
+              newFolderName: desiredDetailFolder,
+              reason,
+              diag: searchDiag,
+              createFolderError,
+            },
+          );
+
+          admin
+            .firestore()
+            .collection("CompletionPhotoFolderCreations")
+            .add({
+              orderDocId,
+              orderNumber,
+              customerFolder: folderParts.customerFolder,
+              parentPath,
+              newFolderName: desiredDetailFolder,
+              fullPath: uploadFolder,
+              reason,
+              diag: searchDiag,
+              createFolderError: createFolderError || null,
+              uploadedByUid: user?.uid || "",
+              uploadedByEmail: String(user?.token?.email || user?.email || ""),
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            })
+            .catch((auditErr) => {
+              logger.warn(
+                "uploadCompletionPhotoToNasHttp: audit log write failed",
+                { orderDocId, error: auditErr?.message },
+              );
+            });
         }
       }
 
@@ -4029,15 +4571,21 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
 
       // Post-upload: rename folder to include date prefix + installer names if needed.
       // Runs after a successful upload so photos are never split across two folders.
-      if (desiredDetailFolder && uploadFolder) {
+      // 兩種情況：
+      //   1) 找到既有訂單.pdf 資料夾 → 改名加入安裝地址：日期+訂單號+顏色+地址+安裝員+車號
+      //   2) 新建資料夾（PDF 找不到）→ 已經是 desiredDetailFolder（不含地址），不用改名
+      const renameTarget = searchDiag.pdfSearchSucceeded
+        ? desiredDetailFolderWithAddress
+        : desiredDetailFolder;
+      if (renameTarget && uploadFolder) {
         const lastSlash = uploadFolder.lastIndexOf("/");
         if (lastSlash > 0) {
           const parentPath = uploadFolder.slice(0, lastSlash);
           const currentName = uploadFolder.slice(lastSlash + 1);
           const hasDatePrefix = /^\d{2,4}-\d{2}-\d{2}/.test(currentName);
 
-          if (!hasDatePrefix && currentName !== desiredDetailFolder) {
-            const newFolderPath = `${parentPath}/${desiredDetailFolder}`;
+          if (!hasDatePrefix && currentName !== renameTarget) {
+            const newFolderPath = `${parentPath}/${renameTarget}`;
             let shouldRename = false;
             const originalName = currentName;
 
@@ -4071,15 +4619,15 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
                   baseUrl,
                   sid,
                   folderPath: `${parentPath}/${originalName}`,
-                  newName: desiredDetailFolder,
+                  newName: renameTarget,
                 });
                 logger.info(
                   "uploadCompletionPhotoToNasHttp: renamed folder after upload",
-                  { orderDocId, from: originalName, to: desiredDetailFolder },
+                  { orderDocId, from: originalName, to: renameTarget },
                 );
                 // Update nasPath on all existing photo records in this order
                 const oldPrefix = `${parentPath}/${originalName}/`;
-                const newPrefix = `${parentPath}/${desiredDetailFolder}/`;
+                const newPrefix = `${parentPath}/${renameTarget}/`;
                 const existingPhotosSnap = await admin
                   .firestore()
                   .collection("Orders")
@@ -4114,7 +4662,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
                   {
                     orderDocId,
                     from: originalName,
-                    to: desiredDetailFolder,
+                    to: renameTarget,
                     error: renameErr.message,
                   },
                 );
@@ -4230,7 +4778,6 @@ exports.replaceCompletionPhotoInNasHttp = onRequestV2(
     secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET],
     memory: "1GiB",
     timeoutSeconds: 540,
-    minInstances: 1,
   },
   async (req, res) => {
     if (req.method === "OPTIONS") {
@@ -4358,10 +4905,7 @@ exports.replaceCompletionPhotoInNasHttp = onRequestV2(
             "replaceCompletionPhotoInNasHttp: SID expired (119), re-login and retry",
             { orderDocId, photoId, error: uploadErr?.message },
           );
-          try {
-            await synologyLogout(baseUrl, sid);
-          } catch (_) {}
-          sid = await synologyLogin(baseUrl, username, password);
+          sid = await synologyLoginForce(baseUrl, username, password);
           await doUploadAndCleanup();
         } else {
           throw uploadErr;
@@ -4914,10 +5458,7 @@ exports.uploadCompletionPhotoToNas = onCall(
         });
       } catch (uploadErr) {
         if (isSidExpiredError(uploadErr)) {
-          try {
-            await synologyLogout(baseUrl, sid);
-          } catch (_) {}
-          sid = await synologyLogin(baseUrl, username, password);
+          sid = await synologyLoginForce(baseUrl, username, password);
           await synologyUploadFile({
             baseUrl,
             sid,
@@ -5105,10 +5646,7 @@ exports.replaceCompletionPhotoInNas = onCall(
         await doUploadAndCleanup();
       } catch (uploadErr) {
         if (isSidExpiredError(uploadErr)) {
-          try {
-            await synologyLogout(baseUrl, sid);
-          } catch (_) {}
-          sid = await synologyLogin(baseUrl, username, password);
+          sid = await synologyLoginForce(baseUrl, username, password);
           await doUploadAndCleanup();
         } else {
           throw uploadErr;
@@ -5205,10 +5743,7 @@ exports.deleteCompletionPhotoInNas = onCall(
           await synologyDeleteFile({ baseUrl, sid, filePath: nasPath });
         } catch (delErr) {
           if (isSidExpiredError(delErr)) {
-            try {
-              await synologyLogout(baseUrl, sid);
-            } catch (_) {}
-            sid = await synologyLogin(baseUrl, username, password);
+            sid = await synologyLoginForce(baseUrl, username, password);
             await synologyDeleteFile({ baseUrl, sid, filePath: nasPath });
           } else {
             throw delErr;
@@ -5626,6 +6161,7 @@ exports.serveOrderPdf = onRequestV2(
       return;
     }
 
+    let callerRole = null;
     if (token) {
       // Firebase ID token path (EmployeeView)
       let uid;
@@ -5636,8 +6172,8 @@ exports.serveOrderPdf = onRequestV2(
         res.status(401).send("invalid token");
         return;
       }
-      const role = await readUserRole(uid);
-      if (!role) {
+      callerRole = await readUserRole(uid);
+      if (!callerRole) {
         res.status(403).send("forbidden");
         return;
       }
@@ -5774,8 +6310,147 @@ exports.serveOrderPdf = onRequestV2(
         return;
       }
 
-      const body = Buffer.from(await downloadResp.arrayBuffer());
+      let body = Buffer.from(await downloadResp.arrayBuffer());
       const fileName = pdfPath.split("/").pop() || `${orderNumber}.pdf`;
+
+      // 員工角色：套用價格遮罩（白色矩形覆蓋合計區塊）
+      if (callerRole === "員工") {
+        try {
+          const settingsSnap = await admin
+            .firestore()
+            .collection("SystemSettings")
+            .doc("general")
+            .get();
+          const box = settingsSnap.exists
+            ? settingsSnap.data()?.priceRedactBox || {}
+            : {};
+          const xPct =
+            Number.isFinite(Number(box.xPct)) && box.xPct !== undefined
+              ? Number(box.xPct)
+              : 0.2;
+          const yPct =
+            Number.isFinite(Number(box.yPct)) && box.yPct !== undefined
+              ? Number(box.yPct)
+              : 0.04;
+          const wPct =
+            Number.isFinite(Number(box.wPct)) && box.wPct !== undefined
+              ? Number(box.wPct)
+              : 0.45;
+          const hPct =
+            Number.isFinite(Number(box.hPct)) && box.hPct !== undefined
+              ? Number(box.hPct)
+              : 0.13;
+          if (wPct > 0 && hPct > 0) {
+            const pdfHeader = body.slice(0, 5).toString("ascii");
+            if (!pdfHeader.startsWith("%PDF-")) {
+              logger.warn("serveOrderPdf: not a valid PDF, skipping redact", {
+                orderNumber,
+              });
+            } else {
+              const pdfDoc = await PDFDocument.load(body, {
+                ignoreEncryption: true,
+                throwOnInvalidObject: false,
+              });
+              const pages = pdfDoc.getPages();
+              for (const page of pages) {
+                const { width, height } = page.getSize();
+                const rotation = page.getRotation().angle; // 0, 90, 180, 270
+
+                // 將視覺百分比座標轉換為 PDF 原始座標（依旋轉方向換算）
+                let rx1, ry1, rw, rh;
+                if (rotation === 90) {
+                  // 視覺 W = native H, 視覺 H = native W
+                  rx1 = width * (1 - yPct - hPct);
+                  ry1 = height * xPct;
+                  rw = width * hPct;
+                  rh = height * wPct;
+                } else if (rotation === 270) {
+                  rx1 = width * yPct;
+                  ry1 = height * (1 - xPct - wPct);
+                  rw = width * hPct;
+                  rh = height * wPct;
+                } else if (rotation === 180) {
+                  rx1 = width * (1 - xPct - wPct);
+                  ry1 = height * (1 - yPct - hPct);
+                  rw = width * wPct;
+                  rh = height * hPct;
+                } else {
+                  // rotation === 0（一般直向）
+                  rx1 = xPct * width;
+                  ry1 = yPct * height;
+                  rw = wPct * width;
+                  rh = hPct * height;
+                }
+                const rx2 = rx1 + rw;
+                const ry2 = ry1 + rh;
+
+                // 先刪除落在遮罩範圍內的 annotations（否則 annotation 層會疊在白色矩形上）
+                const annotsRef = page.node.get(PDFName.of("Annots"));
+                if (annotsRef) {
+                  const annotArr = pdfDoc.context.lookup(annotsRef);
+                  if (annotArr && typeof annotArr.size === "function") {
+                    const keep = [];
+                    for (let i = 0; i < annotArr.size(); i++) {
+                      const item = annotArr.get(i);
+                      const annotDict =
+                        item &&
+                        item.constructor &&
+                        item.constructor.name === "PDFRef"
+                          ? pdfDoc.context.lookup(item)
+                          : item;
+                      let inBox = false;
+                      try {
+                        const rectObj =
+                          annotDict && annotDict.get(PDFName.of("Rect"));
+                        if (rectObj && typeof rectObj.get === "function") {
+                          const ax1 = rectObj.get(0).value
+                            ? rectObj.get(0).value()
+                            : Number(rectObj.get(0));
+                          const ay1 = rectObj.get(1).value
+                            ? rectObj.get(1).value()
+                            : Number(rectObj.get(1));
+                          const ax2 = rectObj.get(2).value
+                            ? rectObj.get(2).value()
+                            : Number(rectObj.get(2));
+                          const ay2 = rectObj.get(3).value
+                            ? rectObj.get(3).value()
+                            : Number(rectObj.get(3));
+                          // 只要有重疊就刪除
+                          inBox =
+                            ax1 < rx2 && ax2 > rx1 && ay1 < ry2 && ay2 > ry1;
+                        }
+                      } catch (_) {}
+                      if (!inBox) keep.push(item);
+                    }
+                    if (keep.length < annotArr.size()) {
+                      page.node.set(
+                        PDFName.of("Annots"),
+                        pdfDoc.context.obj(keep),
+                      );
+                    }
+                  }
+                }
+
+                // 畫白色矩形蓋住遮罩區
+                page.drawRectangle({
+                  x: rx1,
+                  y: ry1,
+                  width: rw,
+                  height: rh,
+                  color: rgb(1, 1, 1),
+                  opacity: 1,
+                });
+              }
+              body = Buffer.from(await pdfDoc.save());
+            } // end if valid PDF header
+          }
+        } catch (redactErr) {
+          logger.warn("serveOrderPdf: price redact failed, serving original", {
+            orderNumber,
+            error: redactErr?.message,
+          });
+        }
+      }
 
       res.set("Cache-Control", "private, max-age=120");
       res.set("Content-Type", "application/pdf");
@@ -6216,6 +6891,7 @@ exports.getAllOrdersForSearch = onCall(
             "installAddress",
             "訂單號碼",
             "orderNumber",
+            "安裝日",
           )
           .orderBy(admin.firestore.FieldPath.documentId())
           .limit(batchSize);
@@ -6230,6 +6906,7 @@ exports.getAllOrdersForSearch = onCall(
             客戶名稱: d.客戶名稱 || d.customerName || "",
             安裝地點: d.安裝地點 || d.installAddress || "",
             訂單號碼: d["訂單號碼"] || d.orderNumber || "",
+            安裝日: d.安裝日 || "",
           });
         }
         last = snap.docs[snap.docs.length - 1];
@@ -6330,19 +7007,6 @@ function mapPendingRow(raw) {
   const installAddress = getByAliases(row, ["安裝地點"]);
   const dueDate = getByAliases(row, ["預交日"]);
 
-  const tokens = new Set();
-  [orderNo, customerName, customerPhone, installAddress]
-    .filter(Boolean)
-    .forEach((s) => {
-      generateTokens(s).forEach((t) => {
-        const token = String(t || "").trim();
-        if (!token) return;
-        if (token.length > 24) return;
-        if (tokens.size >= 1200) return;
-        tokens.add(token);
-      });
-    });
-
   const docId = orderNo.replace(/\//g, "_").trim();
 
   return {
@@ -6378,7 +7042,6 @@ function mapPendingRow(raw) {
       acceptanceBy: getByAliases(row, ["驗收者"]),
       status: "pending",
       source: "pending-sheet",
-      searchKeywords: Array.from(tokens),
       sourceUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
@@ -6634,55 +7297,19 @@ exports.syncPendingOrdersHttp = onRequest(
   },
 );
 
-// Callable: search PendingOrders by one keyword.
-exports.searchPendingOrdersByKeyword = onCall(async (payload, ctx) => {
-  await assertStaffRole(getCallableAuthUid(payload, ctx));
-  const qRaw = payload.data?.q ?? payload.q ?? "";
-  const q = String(qRaw).toLowerCase().trim();
-  if (!q) return [];
-
-  const snap = await admin
-    .firestore()
-    .collection("PendingOrders")
-    .where("searchKeywords", "array-contains", q)
-    .limit(100)
-    .get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-});
-
-// Callable: search PendingOrders by multiple keywords (AND intersection).
-exports.searchPendingOrdersByKeywords = onCall(async (payload, ctx) => {
-  await assertStaffRole(getCallableAuthUid(payload, ctx));
-  const keywords = (payload.data?.keywords || [])
-    .map((k) =>
-      String(k || "")
-        .toLowerCase()
-        .trim(),
-    )
-    .filter(Boolean);
-  if (!keywords.length) return [];
-
-  // 用最長（最精確）的關鍵字做 Firestore array-contains 查詢
-  const sorted = [...keywords].sort((a, b) => b.length - a.length);
-  const primaryKw = sorted[0];
-  const remainingKws = keywords.filter((k) => k !== primaryKw);
-
-  const snap = await admin
-    .firestore()
-    .collection("PendingOrders")
-    .where("searchKeywords", "array-contains", primaryKw)
-    .limit(300)
-    .get();
-
-  let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  for (const kw of remainingKws) {
-    docs = docs.filter(
-      (doc) =>
-        Array.isArray(doc.searchKeywords) && doc.searchKeywords.includes(kw),
-    );
-  }
-  return docs.slice(0, 100);
-});
+// Callable: return all PendingOrders for client-side search.
+exports.getAllPendingOrdersForSearch = onCall(
+  { timeoutSeconds: 60, memory: "256MiB" },
+  async (payload, ctx) => {
+    await assertStaffRole(getCallableAuthUid(payload, ctx));
+    const snap = await admin.firestore().collection("PendingOrders").get();
+    return snap.docs.map((d) => {
+      const data = d.data();
+      delete data.searchKeywords;
+      return { id: d.id, ...data };
+    });
+  },
+);
 
 // ─── 列出 NAS 訂單資料夾內的舊有照片（尚未透過本系統上傳者）─────────────────
 const NAS_LEGACY_IMAGE_EXTS = new Set([
@@ -7650,707 +8277,259 @@ exports.repairCompletionPhotoNasPaths = onCall(
   },
 );
 
-// ── 取得 TWSE 全上市股票清單（依成交量排序）────────────────────────────────────
-exports.fetchTwseTopStocks = onCall(
-  { timeoutSeconds: 30 },
+// 修復：將「先前因搜尋失敗而新建到錯誤資料夾」的訂單照片，搬回真正的資料夾並刪掉錯誤資料夾
+// 用法：在 client 端 callable 呼叫 repairWrongOrderFolder({ orderNumber: "27375-1BEP", dryRun: true })
+exports.repairWrongOrderFolder = onCall(
+  { secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET] },
   async (payload, ctx) => {
     const authUid = getCallableAuthUid(payload, ctx);
-    if (!authUid) {
-      throw new functions.https.HttpsError("unauthenticated", "請先登入");
-    }
-    const data = unwrapCallablePayload(payload);
-    const limit = Math.min(2000, Math.max(1, Number(data.limit || 200)));
-
-    const resp = await fetch(
-      "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json",
-    );
-    if (!resp.ok) {
-      throw new functions.https.HttpsError("unavailable", "無法取得 TWSE 資料");
-    }
-    const json = await resp.json();
-    if (!json || json.stat !== "OK" || !Array.isArray(json.data)) {
-      throw new functions.https.HttpsError("unavailable", "TWSE 資料格式錯誤");
-    }
-
-    // 過濾普通股（代碼 4 位數字），依成交量降序
-    // data 格式: [ [代號, 名稱, 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 筆數], ... ]
-    const stocks = json.data
-      .filter((r) => /^\d{4}$/.test(String(r[0] || "").trim()))
-      .map((r) => ({
-        ticker: String(r[0]).trim(),
-        name: String(r[1] || "").trim(),
-        volume: Number(String(r[2] || "0").replace(/,/g, "")) || 0,
-      }))
-      .sort((a, b) => b.volume - a.volume)
-      .slice(0, limit)
-      .map(({ ticker, name }) => ({ ticker, name, sector: "" }));
-
-    return { stocks, total: stocks.length };
-  },
-);
-
-// ── 每日排程：更新 TWSE + TPEX 全股清單到 Firestore ─────────────────────────
-// 台股收盤後 15:10 (UTC+8) = 07:10 UTC，每個交易日執行
-exports.updateTwseStockListDaily = onSchedule(
-  {
-    schedule: "10 7 * * 1-5",
-    timeZone: "Asia/Taipei",
-    timeoutSeconds: 120,
-    region: "asia-east1",
-  },
-  async () => {
-    await _doUpdateTwseStockList();
-  },
-);
-
-// 共用更新邏輯
-async function _doUpdateTwseStockList() {
-  const db = admin.firestore();
-  const allStocks = [];
-
-  // 上市 (TWSE) — www.twse.com.tw 主站，回傳 { stat, data: [[代號,名稱,成交股數,...]] }
-  try {
-    const r = await fetch(
-      "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json",
-    );
-    if (r.ok) {
-      const json = await r.json();
-      if (json?.stat === "OK" && Array.isArray(json.data)) {
-        json.data
-          .filter((row) => /^\d{4}$/.test(String(row[0] || "").trim()))
-          .forEach((row) => {
-            allStocks.push({
-              ticker: String(row[0]).trim(),
-              name: String(row[1] || "").trim(),
-              market: "twse",
-              volume: Number(String(row[2] || "0").replace(/,/g, "")) || 0,
-            });
-          });
-        console.log(
-          `[_doUpdateTwseStockList] TWSE: ${allStocks.length} stocks`,
-        );
-      }
-    }
-  } catch (e) {
-    console.error("[_doUpdateTwseStockList] TWSE fetch error:", e?.message);
-  }
-
-  // 上櫃 (TPEX) — 直接用每日報價，包含名稱與成交量
-  try {
-    const rv = await fetch(
-      "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
-    );
-    if (rv.ok) {
-      const rows = await rv.json();
-      if (Array.isArray(rows)) {
-        rows
-          .filter((row) =>
-            /^\d{4}$/.test(String(row.SecuritiesCompanyCode || "").trim()),
-          )
-          .forEach((row) => {
-            allStocks.push({
-              ticker: String(row.SecuritiesCompanyCode).trim(),
-              name: String(
-                row.CompanyName || row.CompanyAbbreviation || "",
-              ).trim(),
-              market: "tpex",
-              volume:
-                Number(String(row.TradingShares || "0").replace(/,/g, "")) || 0,
-            });
-          });
-        console.log(
-          `[_doUpdateTwseStockList] TPEX: ${allStocks.length - /* twse already added */ 0} stocks`,
-        );
-      }
-    }
-  } catch (e) {
-    console.error("[_doUpdateTwseStockList] TPEX fetch error:", e?.message);
-  }
-
-  if (allStocks.length === 0) {
-    console.warn(
-      "[_doUpdateTwseStockList] No stocks fetched, skipping update.",
-    );
-    return 0;
-  }
-
-  allStocks.sort((a, b) => b.volume - a.volume);
-  const col = db.collection("TwseStockList");
-  const existing = await col.listDocuments();
-  for (let i = 0; i < existing.length; i += 500) {
-    const wb = db.batch();
-    existing.slice(i, i + 500).forEach((ref) => wb.delete(ref));
-    await wb.commit();
-  }
-  for (let i = 0; i < allStocks.length; i += 500) {
-    const wb = db.batch();
-    allStocks.slice(i, i + 500).forEach((s) => wb.set(col.doc(s.ticker), s));
-    await wb.commit();
-  }
-  await db.collection("SystemSettings").doc("twseStockListMeta").set(
-    {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      total: allStocks.length,
-    },
-    { merge: true },
-  );
-  console.log(
-    `[_doUpdateTwseStockList] Done: ${allStocks.length} stocks saved.`,
-  );
-  return allStocks.length;
-}
-
-// ── 手動觸發：立即更新 TWSE 股票清單（admin only）──────────────────────────
-exports.triggerUpdateTwseStockList = onCall(
-  { timeoutSeconds: 120 },
-  async (payload) => {
-    const authUid = getCallableAuthUid(payload, null);
-    if (!authUid)
-      throw new functions.https.HttpsError("unauthenticated", "請先登入");
-    const role = await readUserRole(authUid);
-    if (role !== "admin")
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "僅 admin 可使用",
-      );
-
-    // 直接呼叫共用邏輯
-    const total = await _doUpdateTwseStockList();
-    return { ok: true, total };
-  },
-);
-
-// ── AI 選股分析 ───────────────────────────────────────────────────────────────
-// 條件：1. 多頭排列 MA5>MA10>MA20>MA60  2. 低點爆大量(>均量3倍)  3. AI 產業前景分析
-exports.screenStocksWithAI = onCall(
-  { timeoutSeconds: 180, secrets: ["GEMINI_API_KEY"] },
-  async (payload, ctx) => {
-    const authUid = getCallableAuthUid(payload, ctx);
-    if (!authUid) {
-      throw new functions.https.HttpsError("unauthenticated", "請先登入");
-    }
-    const role = await readUserRole(authUid);
-    if (role !== "admin") {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "僅 admin 可使用 AI 選股分析",
-      );
-    }
+    await assertStaffRole(authUid);
 
     const data = unwrapCallablePayload(payload);
-    const rawTickers = Array.isArray(data.tickers) ? data.tickers : [];
-    if (!rawTickers.length) {
+    const orderNumber = String(data.orderNumber || "").trim();
+    const dryRun = data.dryRun !== false; // 預設 dryRun=true，要實際執行請傳 false
+    // 可選：直接指定錯誤資料夾路徑（從 CompletionPhotoFolderCreations 的 parentPath + newFolderName 帶入）
+    const explicitWrongPath = String(data.wrongPath || "").trim();
+    if (!orderNumber) {
       throw new functions.https.HttpsError(
         "invalid-argument",
-        "請提供至少一個股票代號",
-      );
-    }
-    if (rawTickers.length > 50) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "一次最多分析 50 支股票",
+        "缺少 orderNumber",
       );
     }
 
-    const skipAI = data.skipAI === true;
-    // reqConds: if provided, only run checks for listed condition keys
-    // (future-proof: new conditions can be gated here without changing the contract)
-    const reqConds = Array.isArray(data.conditions) ? data.conditions : null;
-    const resolvedSkipAI =
-      skipAI || (reqConds !== null && !reqConds.includes("showAI"));
-    const geminiKey = String(process.env.GEMINI_API_KEY || "").trim();
-
-    // ── 輔助：用 historical + chart 兩種方式嘗試取資料 ────────────────────────
-    // 200 天以取得足夠日線（同時可推導約 28 週的週線資料）
-    async function fetchHistory(sym) {
-      const since = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
-      let h = [];
-      try {
-        h = await yahooFinance.historical(
-          sym,
-          { period1: since, period2: new Date(), interval: "1d" },
-          { validateResult: false },
-        );
-      } catch (_) {
-        try {
-          const cd = await yahooFinance.chart(
-            sym,
-            { period1: since, period2: new Date(), interval: "1d" },
-            { validateResult: false },
-          );
-          h = (cd?.quotes ?? [])
-            .filter((q) => q.close != null && q.volume != null)
-            .map((q) => ({ ...q, adjClose: q.adjclose ?? q.close }));
-        } catch (_2) {
-          // 無法取得資料
-        }
-      }
-      return h.filter((d) => d.close != null && d.volume != null);
+    const nasStoragePath = await getNasOrderPath();
+    if (!nasStoragePath) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "請先在系統設定填入 NAS 儲存路徑",
+      );
+    }
+    const pathCheck = validateSynologyDirPath(nasStoragePath);
+    if (!pathCheck.ok) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        pathCheck.reason,
+      );
     }
 
-    // ── 大盤過濾：取加權指數 ^TWII 趨勢 ──────────────────────────────────────
-    let marketFilter = { bullish: true, warning: null };
-    try {
-      const twiiHistory = await fetchHistory("^TWII");
-      if (twiiHistory.length >= 20) {
-        const tc = twiiHistory.map((d) => d.close);
-        const smaTwii = (n) => tc.slice(-n).reduce((a, v) => a + v, 0) / n;
-        const twiiMa5 = smaTwii(5);
-        const twiiMa20 = smaTwii(20);
-        const twiiLatest = tc[tc.length - 1];
-        const bullish = twiiMa5 > twiiMa20 && twiiLatest > twiiMa20;
-        marketFilter = {
-          bullish,
-          ma5: +twiiMa5.toFixed(0),
-          ma20: +twiiMa20.toFixed(0),
-          latestClose: +twiiLatest.toFixed(0),
-          warning: bullish
-            ? null
-            : `大盤偏弱（加權 ${twiiLatest.toFixed(0)}，MA5 ${twiiMa5.toFixed(0)} 低於 MA20 ${twiiMa20.toFixed(0)}），追高風險偏高`,
-        };
-      }
-    } catch (_) {}
-
-    const results = [];
-
-    for (const raw of rawTickers) {
-      const ticker = String(raw?.ticker || raw || "")
-        .trim()
-        .toUpperCase();
-      if (!ticker) continue;
-      const name = String(raw?.name || "").trim();
-      const sector = String(raw?.sector || "").trim();
-
-      // Yahoo Finance: 台灣上市用 .TW，上櫃用 .TWO
-      const market = String(raw?.market || "twse").trim();
-      const yTicker = /\.(TW|TWO|HK|US)$/i.test(ticker)
-        ? ticker
-        : market === "tpex"
-          ? `${ticker}.TWO`
-          : `${ticker}.TW`;
-
-      const item = {
-        ticker,
-        name,
-        sector,
-        market,
-        techResult: {},
-        aiResult: {},
-      };
-
-      // ── 技術面分析 ────────────────────────────────────────────────────────
-      try {
-        let history = await fetchHistory(yTicker);
-
-        // 若 .TW 資料不足，自動嘗試 .TWO（上櫃股票）
-        let resolvedMarket = market;
-        if (
-          history.length < 60 &&
-          !yTicker.endsWith(".TWO") &&
-          !/\.(HK|US)$/i.test(yTicker)
-        ) {
-          const altTicker = `${ticker}.TWO`;
-          const altHistory = await fetchHistory(altTicker);
-          if (altHistory.length > history.length) {
-            history = altHistory;
-            resolvedMarket = "tpex";
-            item.market = "tpex";
-          }
-        }
-
-        if (!history || history.length < 60) {
-          item.techResult = {
-            error: `歷史資料不足（取得 ${history?.length || 0} 筆，需至少 60 個交易日）`,
-          };
-        } else {
-          const closes = history.map((d) => d.close);
-          const volumes = history.map((d) => d.volume || 0);
-          const sma = (arr, n) => {
-            const sl = arr.slice(-n);
-            return sl.reduce((a, v) => a + v, 0) / sl.length;
-          };
-
-          const ma5 = sma(closes, 5);
-          const ma10 = sma(closes, 10);
-          const ma20 = sma(closes, 20);
-          const ma60 = sma(closes, 60);
-          const maAligned = ma5 > ma10 && ma10 > ma20 && ma20 > ma60;
-
-          // 低點爆大量：近 20 根 K 棒中，找最低 low 那天，看成交量是否 > 近 20 日均量 * 3
-          const recent20 = history.slice(-20);
-          const avgVol20 = volumes.slice(-20).reduce((a, v) => a + v, 0) / 20;
-          const lowDay = recent20.reduce(
-            (m, d) => (d.low < m.low ? d : m),
-            recent20[0],
-          );
-          const volumeSpike = avgVol20 > 0 && lowDay.volume > avgVol20 * 3;
-
-          // 突破近60日新高
-          const high60 = Math.max(
-            ...history.slice(-60).map((d) => d.high || d.close),
-          );
-          const latestClose = closes[closes.length - 1];
-          const breakout60High = latestClose >= high60 * 0.99; // 允許 1% 誤差
-
-          // 量能持續放大：近5日均量 > 近20日均量 * 1.5
-          const avgVol5 = volumes.slice(-5).reduce((a, v) => a + v, 0) / 5;
-          const volumeSurge = avgVol20 > 0 && avgVol5 > avgVol20 * 1.5;
-
-          // 強勢動能：近20日漲幅 > 10%
-          const close20DaysAgo = closes[closes.length - 20] || closes[0];
-          const momentum20 =
-            close20DaysAgo > 0
-              ? (latestClose - close20DaysAgo) / close20DaysAgo
-              : 0;
-          const strongMomentum = momentum20 > 0.1;
-
-          // ── 週線多頭排列（由日線推導，不額外呼叫 API）──────────────────────
-          // 以每週最後一個交易日的收盤價為週K線收盤價
-          const weekMap = {};
-          for (const d of history) {
-            const dt = new Date(d.date || d.Date || 0);
-            const dayOfYear = Math.round(
-              (dt - new Date(dt.getFullYear(), 0, 1)) / 86400000,
-            );
-            const weekKey = `${dt.getFullYear()}-${String(Math.ceil((dayOfYear + 1) / 7)).padStart(3, "0")}`;
-            weekMap[weekKey] = d.close;
-          }
-          const weeklyCloses = Object.keys(weekMap)
-            .sort()
-            .map((k) => weekMap[k]);
-          let weeklyMaAligned = false;
-          if (weeklyCloses.length >= 20) {
-            const wma5 = weeklyCloses.slice(-5).reduce((a, v) => a + v, 0) / 5;
-            const wma10 =
-              weeklyCloses.slice(-10).reduce((a, v) => a + v, 0) / 10;
-            const wma20 =
-              weeklyCloses.slice(-20).reduce((a, v) => a + v, 0) / 20;
-            weeklyMaAligned = wma5 > wma10 && wma10 > wma20;
-          }
-
-          item.techResult = {
-            maAligned,
-            volumeSpike,
-            breakout60High,
-            volumeSurge,
-            strongMomentum,
-            weeklyMaAligned,
-            pass: maAligned && volumeSpike,
-            ma5: +ma5.toFixed(2),
-            ma10: +ma10.toFixed(2),
-            ma20: +ma20.toFixed(2),
-            ma60: +ma60.toFixed(2),
-            latestClose: +latestClose.toFixed(2),
-            avgVolume20: Math.round(avgVol20),
-            avgVolume5: Math.round(avgVol5),
-            momentum20Pct: +(momentum20 * 100).toFixed(1),
-            high60: +high60.toFixed(2),
-            spikeDay: {
-              date: lowDay.date
-                ? new Date(lowDay.date).toISOString().slice(0, 10)
-                : "",
-              low: +lowDay.low.toFixed(2),
-              volume: lowDay.volume,
-              ratio: avgVol20 > 0 ? +(lowDay.volume / avgVol20).toFixed(2) : 0,
-            },
-          };
-        }
-      } catch (e) {
-        item.techResult = {
-          error: String(e?.message || "技術面資料擷取失敗"),
-        };
-      }
-
-      // ── AI 產業前景分析 ──────────────────────────────────────────────────
-      if (resolvedSkipAI) {
-        item.aiResult = null;
-      } else if (!geminiKey) {
-        item.aiResult = { error: "未設定 GEMINI_API_KEY，無法進行 AI 分析" };
-      } else {
-        // Check Firestore cache (24h TTL) before calling Gemini
-        const cacheRef = admin
-          .firestore()
-          .collection("aiAnalysisCache")
-          .doc(ticker);
-        let usedCache = false;
-        try {
-          const cacheSnap = await cacheRef.get();
-          if (cacheSnap.exists) {
-            const cached = cacheSnap.data();
-            const ageMs = Date.now() - (cached.cachedAt?.toMillis?.() || 0);
-            if (ageMs < 24 * 60 * 60 * 1000 && cached.analysis) {
-              item.aiResult = { analysis: cached.analysis, fromCache: true };
-              usedCache = true;
-            }
-          }
-        } catch (cacheErr) {
-          console.warn("[Gemini cache] read error:", cacheErr?.message);
-        }
-
-        if (!usedCache) {
-          // Add 1s delay between calls to avoid per-minute rate limits
-          if (results.length > 0) {
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-
-          const genAI = new GoogleGenAI({ apiKey: geminiKey });
-          const sectorHint = sector || "（未知產業）";
-          const nameHint = name ? `${name}（${ticker}）` : ticker;
-          const prompt = [
-            `你是一位專業的台灣股票產業分析師。`,
-            `請針對以下股票進行產業前景分析，使用繁體中文，回覆150字以內：`,
-            `公司：${nameHint}，產業：${sectorHint}`,
-            `格式：`,
-            `【景氣】一句話說明目前景氣。`,
-            `【動能】未來1-2年主要成長驅動力一句話。`,
-            `【風險】最大風險一句話。`,
-            `【評分】X/10，一句結論。`,
-          ].join("\n");
-
-          // Retry once on 429 after the specified delay
-          let resp = null;
-          for (let attempt = 0; attempt < 2; attempt++) {
-            try {
-              resp = await genAI.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-              });
-              break;
-            } catch (e) {
-              const is429 = String(e?.message || "").includes("429");
-              if (is429 && attempt === 0) {
-                // Parse retryDelay from error message (e.g. "retry in 57s")
-                const retryMatch = String(e?.message || "").match(
-                  /retry[^0-9]*(\d+)/i,
-                );
-                const waitSec = retryMatch
-                  ? Math.min(parseInt(retryMatch[1], 10), 60)
-                  : 30;
-                console.warn(
-                  `[Gemini] 429 for ${ticker}, waiting ${waitSec}s before retry`,
-                );
-                await new Promise((r) => setTimeout(r, waitSec * 1000));
-              } else {
-                console.error("[Gemini] error for", ticker, ":", e?.message);
-                const is429Final = String(e?.message || "").includes("429");
-                item.aiResult = {
-                  error: is429Final
-                    ? "Gemini 免費配額已用完，請明天再試或至 Google AI Studio 開啟付費方案"
-                    : String(e?.message || "AI 分析失敗"),
-                  analysis: "AI 分析暫時無法使用，請稍後重試",
-                };
-                resp = null;
-                break;
-              }
-            }
-          }
-
-          if (resp) {
-            const analysisText = resp.text.trim();
-            item.aiResult = { analysis: analysisText };
-            // Write to cache (fire-and-forget)
-            cacheRef
-              .set({
-                analysis: analysisText,
-                cachedAt: admin.firestore.FieldValue.serverTimestamp(),
-              })
-              .catch((err) =>
-                console.warn("[Gemini cache] write error:", err?.message),
-              );
-          } else if (!item.aiResult?.error) {
-            item.aiResult = {
-              error: "AI 分析失敗",
-              analysis: "AI 分析暫時無法使用，請稍後重試",
-            };
-          }
-        }
-      }
-
-      results.push(item);
+    const baseUrl = buildSynologyBaseUrl();
+    const { username, password } = getSynologyCredentials();
+    if (!username || !password) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "尚未設定 NAS 帳號 / 密碼",
+      );
     }
 
-    return { results, marketFilter };
-  },
-);
-
-// ── 每日排程：下午2:00 自動掃描全股 + 寫入選股回溯 ──────────────────────────
-// 台股交易日 14:00 (UTC+8) = 06:00 UTC
-exports.dailyAutoStockPick = onSchedule(
-  {
-    schedule: "0 6 * * 1-5",
-    timeZone: "Asia/Taipei",
-    timeoutSeconds: 540,
-    region: "asia-east1",
-  },
-  async () => {
+    // 先找到 Orders 文件
     const db = admin.firestore();
-    const BATCH_SIZE = 20;
-    const DEFAULT_CONDITIONS = ["maAligned", "volumeSpike"];
-
-    // 1. 讀取全股清單（最多 2000 支）
-    let scanList = [];
-    try {
+    let orderDoc = await db.collection("Orders").doc(orderNumber).get();
+    if (!orderDoc.exists) {
       const snap = await db
-        .collection("TwseStockList")
-        .orderBy("volume", "desc")
-        .limit(2000)
+        .collection("Orders")
+        .where("訂單號碼", "==", orderNumber)
+        .limit(1)
         .get();
-      scanList = snap.docs.map((d) => ({
-        ticker: d.id,
-        name: d.data().name || "",
-        sector: "",
-        market: d.data().market || "twse",
-      }));
-    } catch (e) {
-      console.error("[dailyAutoStockPick] 讀取清單失敗:", e?.message);
-      return;
+      if (!snap.empty) orderDoc = snap.docs[0];
     }
-    if (!scanList.length) {
-      console.warn("[dailyAutoStockPick] 股票清單為空，略過");
-      return;
+    if (!orderDoc.exists) {
+      throw new functions.https.HttpsError(
+        "not-found",
+        `找不到訂單 ${orderNumber}`,
+      );
     }
+    const orderDocId = orderDoc.id;
+    const orderData = orderDoc.data() || {};
+    const wrongPath =
+      explicitWrongPath || String(orderData.nasOrderFolderPath || "").trim();
 
-    console.log(`[dailyAutoStockPick] 開始掃描 ${scanList.length} 支股票`);
+    // 新增：允許使用者自訂正確路徑
+    const explicitCorrectPath = String(data.correctPath || "").trim();
 
-    // 2. 批次掃描技術面（重用 screenStocksWithAI 的核心邏輯）
-    const passing = [];
-    for (let i = 0; i < scanList.length; i += BATCH_SIZE) {
-      const batch = scanList.slice(i, i + BATCH_SIZE);
-      try {
-        // 直接呼叫 Yahoo Finance 技術面分析（與 screenStocksWithAI 相同邏輯）
-        for (const raw of batch) {
-          const ticker = String(raw.ticker || "")
-            .trim()
-            .toUpperCase();
-          if (!ticker) continue;
-          const market = String(raw.market || "twse");
-          const yTicker = /\.(TW|TWO|HK|US)$/i.test(ticker)
-            ? ticker
-            : market === "tpex"
-              ? `${ticker}.TWO`
-              : `${ticker}.TW`;
+    const folderParts = await buildOrderNasFolderParts(orderDocId, {});
 
-          try {
-            const since = new Date(Date.now() - 130 * 24 * 60 * 60 * 1000);
-            let history = [];
-            try {
-              history = await yahooFinance.historical(
-                yTicker,
-                { period1: since, period2: new Date(), interval: "1d" },
-                { validateResult: false },
-              );
-            } catch (_) {
-              try {
-                const chartData = await yahooFinance.chart(
-                  yTicker,
-                  { period1: since, period2: new Date(), interval: "1d" },
-                  { validateResult: false },
-                );
-                history = (chartData?.quotes ?? [])
-                  .filter((q) => q.close != null && q.volume != null)
-                  .map((q) => ({ ...q, adjClose: q.adjclose ?? q.close }));
-              } catch (_) {
-                // 無法取得資料
-              }
-            }
-            history = history.filter(
-              (d) => d.close != null && d.volume != null,
-            );
-            if (!history || history.length < 60) continue;
+    let sid = "";
+    try {
+      sid = await synologyLogin(baseUrl, username, password);
 
-            const closes = history.map((d) => d.close);
-            const volumes = history.map((d) => d.volume || 0);
-            const sma = (arr, n) => {
-              const sl = arr.slice(-n);
-              return sl.reduce((a, v) => a + v, 0) / sl.length;
-            };
-
-            const ma5 = sma(closes, 5);
-            const ma10 = sma(closes, 10);
-            const ma20 = sma(closes, 20);
-            const ma60 = sma(closes, 60);
-            const maAligned = ma5 > ma10 && ma10 > ma20 && ma20 > ma60;
-
-            const recent20 = history.slice(-20);
-            const avgVol20 = volumes.slice(-20).reduce((a, v) => a + v, 0) / 20;
-            const lowDay = recent20.reduce(
-              (m, d) => (d.low < m.low ? d : m),
-              recent20[0],
-            );
-            const volumeSpike = avgVol20 > 0 && lowDay.volume > avgVol20 * 3;
-
-            // 預設條件：多頭排列 + 低點爆大量
-            const passes = DEFAULT_CONDITIONS.every((cond) => {
-              if (cond === "maAligned") return maAligned;
-              if (cond === "volumeSpike") return volumeSpike;
-              return true;
-            });
-
-            if (passes) {
-              const latestClose = closes[closes.length - 1];
-              passing.push({
-                ticker,
-                name: raw.name || "",
-                sector: raw.sector || "",
-                latestClose: +latestClose.toFixed(2),
-              });
-            }
-          } catch (e) {
-            // 個別股票失敗，跳過
-          }
-        }
-      } catch (e) {
-        console.error(`[dailyAutoStockPick] 批次 ${i} 失敗:`, e?.message);
-      }
-    }
-
-    if (!passing.length) {
-      console.log("[dailyAutoStockPick] 今日無符合條件股票");
-      return;
-    }
-
-    console.log(
-      `[dailyAutoStockPick] 符合條件 ${passing.length} 支，寫入 StockPicks`,
-    );
-
-    // 3. 寫入 StockPicks（批次避免重複：同一天同代號只寫一次）
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const existingSnap = await db
-      .collection("StockPicks")
-      .where("autoPickDate", "==", today)
-      .get();
-    const existingTickers = new Set(
-      existingSnap.docs.map((d) => d.data().ticker),
-    );
-
-    const toWrite = passing.filter((p) => !existingTickers.has(p.ticker));
-    if (!toWrite.length) {
-      console.log("[dailyAutoStockPick] 今日已全部寫入，跳過");
-      return;
-    }
-
-    const WRITE_CHUNK = 400;
-    for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
-      const chunk = toWrite.slice(i, i + WRITE_CHUNK);
-      const writeBatch = db.batch();
-      chunk.forEach((p) => {
-        const ref = db.collection("StockPicks").doc();
-        writeBatch.set(ref, {
-          ticker: p.ticker,
-          name: p.name,
-          sector: p.sector,
-          pickedPrice: p.latestClose,
-          note: "自動選股（下午2點排程）",
-          autoPickDate: today,
-          isAuto: true,
-          pickedAt: admin.firestore.FieldValue.serverTimestamp(),
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      // 用「修正後」的搜尋找真正的資料夾，若有自訂路徑則直接用
+      let correctPath = explicitCorrectPath;
+      let matchMeta = null;
+      if (!correctPath) {
+        matchMeta = await resolveExistingOrderFolderPath({
+          baseUrl,
+          sid,
+          basePath: pathCheck.normalized,
+          customerFolder: folderParts.customerFolder,
+          orderNumber: folderParts.orderNumber || orderNumber,
+          defaultDetailFolder: folderParts.detailFolder,
         });
-      });
-      await writeBatch.commit();
-    }
+        correctPath = matchMeta.matched
+          ? String(matchMeta.uploadFolder || "").trim()
+          : "";
+      }
 
-    console.log(`[dailyAutoStockPick] 完成，寫入 ${toWrite.length} 筆`);
+      if ((matchMeta && !matchMeta.matched) || !correctPath) {
+        return {
+          ok: false,
+          orderNumber,
+          orderDocId,
+          wrongPath,
+          message: "搜尋不到真正的資料夾，無法判斷正確路徑",
+          matchMeta,
+        };
+      }
+      if (!wrongPath) {
+        return {
+          ok: false,
+          orderNumber,
+          orderDocId,
+          correctPath,
+          message: "Firestore 沒有 nasOrderFolderPath，無法判斷錯誤路徑",
+        };
+      }
+      if (correctPath === wrongPath) {
+        return {
+          ok: true,
+          orderNumber,
+          orderDocId,
+          wrongPath,
+          correctPath,
+          message: "Firestore 路徑已正確，無需修復",
+        };
+      }
+
+      // 列出錯誤資料夾的所有檔案，並記錄 debug log
+      let entries = [];
+      logger.info("repairWrongOrderFolder: synologyListFolderEntries", {
+        baseUrl,
+        sid: sid ? sid.slice(0, 6) + "..." : "",
+        wrongPath,
+        correctPath,
+      });
+      try {
+        entries = await synologyListFolderEntries({
+          baseUrl,
+          sid,
+          folderPath: wrongPath,
+        });
+        logger.info("repairWrongOrderFolder: listFolderEntries result", {
+          wrongPath,
+          correctPath,
+          entryCount: entries.length,
+        });
+      } catch (e) {
+        logger.error("repairWrongOrderFolder: listFolderEntries error", {
+          wrongPath,
+          correctPath,
+          error: e?.message,
+        });
+        return {
+          ok: false,
+          orderNumber,
+          orderDocId,
+          wrongPath,
+          correctPath,
+          message: `讀取錯誤資料夾失敗：${e?.message || e}`,
+        };
+      }
+      const filePaths = entries
+        .filter((e) => !e?.isdir)
+        .map((e) => String(e?.path || `${wrongPath}/${e?.name || ""}`));
+      const subDirs = entries.filter((e) => e?.isdir);
+
+      if (dryRun) {
+        return {
+          ok: true,
+          dryRun: true,
+          orderNumber,
+          orderDocId,
+          wrongPath,
+          correctPath,
+          fileCount: filePaths.length,
+          files: filePaths,
+          subDirCount: subDirs.length,
+          message: "DRY RUN：未實際搬移。要執行請再呼叫一次並帶 dryRun=false",
+        };
+      }
+
+      // 實際搬移
+      let moved = 0;
+      if (filePaths.length > 0) {
+        await synologyMoveFiles({
+          baseUrl,
+          sid,
+          srcPaths: filePaths,
+          destFolderPath: correctPath,
+        });
+        moved = filePaths.length;
+      }
+
+      // 嘗試刪除錯誤資料夾（若還有子資料夾就不刪）
+      let folderDeleted = false;
+      if (subDirs.length === 0) {
+        try {
+          await synologyDeleteFile({
+            baseUrl,
+            sid,
+            filePath: wrongPath,
+          });
+          folderDeleted = true;
+        } catch (delErr) {
+          logger.warn("repairWrongOrderFolder: delete wrong folder failed", {
+            wrongPath,
+            error: delErr?.message,
+          });
+        }
+      }
+
+      // 更新 Firestore
+      // 更新 Firestore：只在 nasOrderFolderPath 仍是錯誤路徑時改寫，避免覆蓋掉已經是正確路徑的紀錄
+      const currentNasPath = String(orderData.nasOrderFolderPath || "").trim();
+      if (currentNasPath === wrongPath || !currentNasPath) {
+        await orderDoc.ref.update({ nasOrderFolderPath: correctPath });
+      }
+
+      // 同步更新 completionPhotos.nasPath
+      const photosSnap = await db
+        .collection("Orders")
+        .doc(orderDocId)
+        .collection("completionPhotos")
+        .get();
+      const oldPrefix = wrongPath.endsWith("/") ? wrongPath : `${wrongPath}/`;
+      const newPrefix = correctPath.endsWith("/")
+        ? correctPath
+        : `${correctPath}/`;
+      const batch = db.batch();
+      let updatedPhotos = 0;
+      for (const p of photosSnap.docs) {
+        const oldNas = String(p.data()?.nasPath || "").trim();
+        if (oldNas.startsWith(oldPrefix)) {
+          batch.update(p.ref, {
+            nasPath: newPrefix + oldNas.slice(oldPrefix.length),
+          });
+          updatedPhotos++;
+        }
+      }
+      if (updatedPhotos > 0) await batch.commit();
+
+      return {
+        ok: true,
+        dryRun: false,
+        orderNumber,
+        orderDocId,
+        wrongPath,
+        correctPath,
+        movedFiles: moved,
+        folderDeleted,
+        updatedPhotoDocs: updatedPhotos,
+        subDirsRemaining: subDirs.length,
+      };
+    } finally {
+      try {
+        await synologyLogout(baseUrl, sid);
+      } catch (_) {}
+    }
   },
 );
 
@@ -8477,6 +8656,470 @@ exports.testOrderFolderSearch = onCall(
       if (sid) {
         synologyLogout(baseUrl, sid).catch(() => {});
       }
+    }
+  },
+);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 薪資計算
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 計算指定月份（yyyyMM）所有在職員工的薪資，存入 payroll/{uid}_{yyyyMM}。
+ * 項目：底薪 + 獎金(1~5) + 加班費(勞基法) − 請假扣薪
+ * 勞基法加班費：前2小時 × 4/3，第3小時起 × 5/3（以月薪/240為時薪）
+ * 請假扣薪：事假/無薪假 = 全扣，病假/生理假 = 扣半，年假/婚假/喪假/產假/陪產假/公假 = 不扣
+ */
+async function runPayrollCalculation(yyyyMM) {
+  if (!yyyyMM || !/^\d{6}$/.test(String(yyyyMM))) {
+    throw new Error("yyyyMM 格式錯誤，請提供 6 位數字（例：202504）");
+  }
+  const yyyy = yyyyMM.slice(0, 4);
+  const mm = yyyyMM.slice(4, 6);
+  const monthPrefix = `${yyyy}-${mm}`;
+  const monthLabel = `${yyyy}年${parseInt(mm, 10)}月`;
+
+  const db = admin.firestore();
+
+  // 讀取差勤規則設定
+  const settingsDoc = await db
+    .collection("SystemSettings")
+    .doc("general")
+    .get();
+  const settingsData = settingsDoc.exists ? settingsDoc.data() : {};
+  const attRules = settingsData.attendanceRules || {};
+  const workStart = attRules.workStart || "08:30"; // "HH:MM"
+  const workEnd = attRules.workEnd || "17:30"; // "HH:MM"
+  const graceMins = Number(attRules.graceMins) || 0;
+  const deductUnit = attRules.deductUnit || "minute"; // "minute"|"30min"|"60min"
+  const deductEarlyLeave = attRules.deductEarlyLeave !== false;
+
+  // 年利率（百分比），預設 2%
+  const annualInterestRatePct = Number.isFinite(
+    Number(settingsData.loanInterestRate),
+  )
+    ? Number(settingsData.loanInterestRate)
+    : 2;
+  const annualInterestRate = annualInterestRatePct / 100;
+
+  // 將 "HH:MM" 轉成分鐘數
+  function toMins(hhmm) {
+    const [h, m] = String(hhmm).split(":").map(Number);
+    return h * 60 + (m || 0);
+  }
+  // 將 "HH:MM:SS" 或 "HH:MM" 轉成分鐘數
+  function timeStrToMins(s) {
+    const parts = String(s || "")
+      .split(":")
+      .map(Number);
+    return parts[0] * 60 + (parts[1] || 0);
+  }
+  // 依扣薪單位計算扣薪金額
+  function calcDeductionAmt(deductMins, hourlyRate) {
+    if (deductMins <= 0) return 0;
+    if (deductUnit === "30min") {
+      return Math.ceil(deductMins / 30) * 0.5 * hourlyRate;
+    } else if (deductUnit === "60min") {
+      return Math.ceil(deductMins / 60) * hourlyRate;
+    } else {
+      return (deductMins / 60) * hourlyRate;
+    }
+  }
+
+  const workStartMins = toMins(workStart);
+  const workEndMins = toMins(workEnd);
+
+  const staffSnap = await db.collection("staff").get();
+  const results = [];
+
+  for (const staffDoc of staffSnap.docs) {
+    const s = staffDoc.data();
+    const empNo = s.empNo || staffDoc.id;
+    const email = String(s.email || "").trim();
+    if (!email) continue;
+
+    // Try to find Firebase Auth uid by email; if not found, use empNo as identifier
+    let userUid = null;
+    try {
+      const userRecord = await admin.auth().getUserByEmail(email);
+      userUid = userRecord.uid;
+    } catch (_) {
+      logger.info(
+        `payroll: staff ${empNo} (${email}) has no Auth account, using empNo as key`,
+      );
+      userUid = null;
+    }
+
+    // Approved overtime records in this month
+    // Query by uid when available, otherwise no OT/leave records (no login = no requests)
+    let otRecords = [];
+    let leaveRecords = [];
+    if (userUid) {
+      const otSnap = await db
+        .collection("overtimeRequests")
+        .where("uid", "==", userUid)
+        .where("status", "==", "approved2")
+        .get();
+      otRecords = otSnap.docs
+        .map((d) => d.data())
+        .filter((r) => String(r.date || "").startsWith(monthPrefix));
+
+      const leaveSnap = await db
+        .collection("leaveRequests")
+        .where("uid", "==", userUid)
+        .where("status", "==", "approved2")
+        .get();
+      leaveRecords = leaveSnap.docs
+        .map((d) => d.data())
+        .filter((r) => String(r.startDate || "").startsWith(monthPrefix));
+    }
+
+    // Base hourly rate (for OT and leave deduction)
+    const base = Number(s.baseSalary) || 0;
+    const salType = s.salaryType || "月薪";
+
+    // 新進員工未滿月：按到職日比例計算底薪（月薪制才適用）
+    let effectiveBase = base;
+    if (salType === "月薪" && s.startDate) {
+      const startDateStr = String(s.startDate).slice(0, 10); // "YYYY-MM-DD"
+      const startYYYYMM = startDateStr.slice(0, 7).replace("-", ""); // "YYYYMM"
+      if (startYYYYMM === yyyyMM) {
+        // 到職日在當月內 → 按比例
+        const daysInMonth = new Date(Number(yyyy), Number(mm), 0).getDate();
+        const startDay = parseInt(startDateStr.slice(8, 10), 10);
+        const workedDays = daysInMonth - startDay + 1;
+        effectiveBase = Math.round((base * workedDays) / daysInMonth);
+      }
+    }
+
+    let baseHourlyRate;
+    if (salType === "月薪") {
+      baseHourlyRate = effectiveBase / 240; // 30 天 × 8 小時
+    } else if (salType === "時薪") {
+      baseHourlyRate = base;
+    } else {
+      // 日薪
+      baseHourlyRate = base / 8;
+    }
+
+    // OT pay (勞基法第24條)
+    let otPay = 0;
+    let otHours = 0;
+    const otDetail = [];
+    for (const ot of otRecords) {
+      const h = Number(ot.hours) || 0;
+      otHours += h;
+      let pay;
+      if (h <= 2) {
+        pay = h * baseHourlyRate * (4 / 3);
+      } else {
+        pay = 2 * baseHourlyRate * (4 / 3) + (h - 2) * baseHourlyRate * (5 / 3);
+      }
+      pay = Math.round(pay);
+      otPay += pay;
+      otDetail.push({ date: ot.date || "", hours: h, pay });
+    }
+
+    // Leave deduction
+    let leaveDeduction = 0;
+    const leaveDetail = [];
+    for (const lv of leaveRecords) {
+      const unit = lv.unit || "天";
+      const hrs =
+        unit === "小時" ? Number(lv.hours) || 0 : (Number(lv.days) || 0) * 8;
+      let deduction = 0;
+      if (
+        lv.type === "年假（特休）" ||
+        lv.type === "婚假" ||
+        lv.type === "喪假" ||
+        lv.type === "產假" ||
+        lv.type === "陪產假" ||
+        lv.type === "公假"
+      ) {
+        deduction = 0; // 帶薪假，不扣薪
+      } else if (lv.type === "病假" || lv.type === "生理假") {
+        deduction = Math.round(baseHourlyRate * hrs * 0.5); // 半薪
+      } else {
+        deduction = Math.round(baseHourlyRate * hrs); // 全扣（事假、無薪假等）
+      }
+      leaveDeduction += deduction;
+      leaveDetail.push({
+        type: lv.type,
+        unit,
+        days: lv.days != null ? lv.days : null,
+        hours: lv.hours != null ? lv.hours : null,
+        deduction,
+      });
+    }
+
+    // 伙食費：依打卡紀錄判斷每日餐費
+    // 上班時間涵蓋 11:00~14:00 → +100；涵蓋 17:30~18:30 → 再+100
+    let mealAllowance = 0;
+    const mealDetail = [];
+    let lateEarlyDeduction = 0;
+    const lateEarlyDetail = [];
+    if (userUid) {
+      const attSnap = await db
+        .collection("attendance")
+        .where("uid", "==", userUid)
+        .get();
+      const attRecords = attSnap.docs
+        .map((d) => d.data())
+        .filter(
+          (r) =>
+            String(r.date || "").startsWith(monthPrefix) &&
+            r.punchIn &&
+            r.punchOut,
+        );
+      for (const att of attRecords) {
+        // 補齊秒數，確保字串比較正確（"08:30" → "08:30:00"）
+        const inT =
+          String(att.punchIn).length <= 5
+            ? att.punchIn + ":00"
+            : String(att.punchIn);
+        const outT =
+          String(att.punchOut).length <= 5
+            ? att.punchOut + ":00"
+            : String(att.punchOut);
+        let dayMeal = 0;
+        if (inT < "14:00:00" && outT > "11:00:00") dayMeal += 100; // 午餐
+        if (inT < "18:30:00" && outT > "17:30:00") dayMeal += 100; // 晚餐
+        if (dayMeal > 0) {
+          mealAllowance += dayMeal;
+          mealDetail.push({
+            date: att.date,
+            punchIn: att.punchIn,
+            punchOut: att.punchOut,
+            meal: dayMeal,
+          });
+        }
+
+        // 遲到/早退扣薪
+        const inMins = timeStrToMins(att.punchIn);
+        const outMins = timeStrToMins(att.punchOut);
+        const lateMins = Math.max(0, inMins - (workStartMins + graceMins));
+        const earlyMins = deductEarlyLeave
+          ? Math.max(0, workEndMins - graceMins - outMins)
+          : 0;
+        const totalDeductMins = lateMins + earlyMins;
+        if (totalDeductMins > 0) {
+          const deduction = Math.round(
+            calcDeductionAmt(totalDeductMins, baseHourlyRate),
+          );
+          lateEarlyDeduction += deduction;
+          lateEarlyDetail.push({
+            date: att.date,
+            punchIn: att.punchIn,
+            punchOut: att.punchOut,
+            lateMins,
+            earlyMins,
+            deduction,
+          });
+        }
+      }
+    }
+
+    // Fixed monthly bonuses
+    const bonusItems = [s.bonus1, s.bonus2, s.bonus3, s.bonus4, s.bonus5].map(
+      (b) => Number(b) || 0,
+    );
+    const bonusTotal = bonusItems.reduce((acc, b) => acc + b, 0);
+
+    // Fixed monthly deductions (勞保、健保、眷屬健保)
+    const laborInsurance = Math.max(0, Number(s.laborInsurance) || 0);
+    const healthInsurance = Math.max(0, Number(s.healthInsurance) || 0);
+    const dependentHealth = Math.max(0, Number(s.dependentHealth) || 0);
+
+    // Foreign worker monthly deductions
+    const foreignRent = Math.max(0, Number(s.foreignRent) || 0);
+    const waterFee = Math.max(0, Number(s.waterFee) || 0);
+    const electricFee = Math.max(0, Number(s.electricFee) || 0);
+    const foreignMedical = Math.max(0, Number(s.foreignMedical) || 0);
+    const foreignService = Math.max(0, Number(s.foreignService) || 0);
+
+    // Use docKey/docId to read existing payroll for preserved lunchFee
+    const docKey = userUid || `empNo_${String(empNo)}`;
+    const docId = `${docKey}_${yyyyMM}`;
+
+    // 便當費：從現有薪資單讀取（若已設定），否則用員工預設
+    let lunchFee = Math.max(0, Number(s.lunchFee) || 0);
+    const existingPayrollSnap = await db.collection("payroll").doc(docId).get();
+    if (existingPayrollSnap.exists) {
+      const existing = existingPayrollSnap.data();
+      if (existing.lunchFee !== undefined && existing.lunchFee !== null) {
+        lunchFee = Math.max(0, Number(existing.lunchFee) || 0);
+      }
+    }
+
+    // 借款扣款（等額本金法）
+    // 若當月薪資單已存在且已處理過借款，重算時直接沿用舊金額，不重複扣款
+    let loanPrincipal = 0;
+    let loanInterest = 0;
+    const loanUpdates = []; // { loanId, newRemaining, newPaid, newStatus }
+    const alreadyProcessedLoan =
+      existingPayrollSnap.exists &&
+      existingPayrollSnap.data().loanPrincipal !== undefined;
+
+    if (alreadyProcessedLoan) {
+      // 重算：沿用已記錄的借款金額，不再異動貸款餘額
+      loanPrincipal = Number(existingPayrollSnap.data().loanPrincipal) || 0;
+      loanInterest = Number(existingPayrollSnap.data().loanInterest) || 0;
+    } else {
+      const loansSnap = await db
+        .collection("loans")
+        .where("empNo", "==", String(empNo))
+        .where("status", "==", "active")
+        .get();
+
+      for (const loanDoc of loansSnap.docs) {
+        const ln = loanDoc.data();
+        // Only process if startMonth <= yyyyMM
+        const loanStartNum = String(ln.startMonth || "").replace("-", "");
+        if (loanStartNum > yyyyMM) continue;
+
+        const monthlyPrincipal = Math.round(
+          (Number(ln.principal) || 0) / (Number(ln.installments) || 1),
+        );
+        const monthlyInterestAmt = Math.round(
+          (Number(ln.remainingBalance) || 0) * (annualInterestRate / 12),
+        );
+        loanPrincipal += monthlyPrincipal;
+        loanInterest += monthlyInterestAmt;
+
+        const newRemaining = Math.max(
+          0,
+          (Number(ln.remainingBalance) || 0) - monthlyPrincipal,
+        );
+        const newPaid = (Number(ln.paidInstallments) || 0) + 1;
+        const newStatus =
+          newPaid >= (Number(ln.installments) || 1) ? "paid" : "active";
+        loanUpdates.push({
+          loanId: loanDoc.id,
+          newRemaining,
+          newPaid,
+          newStatus,
+        });
+      }
+    }
+
+    const grossPay = Math.max(
+      0,
+      effectiveBase +
+        bonusTotal +
+        otPay +
+        mealAllowance -
+        leaveDeduction -
+        lateEarlyDeduction -
+        laborInsurance -
+        healthInsurance -
+        dependentHealth -
+        lunchFee -
+        foreignRent -
+        waterFee -
+        electricFee -
+        foreignMedical -
+        foreignService -
+        loanPrincipal -
+        loanInterest,
+    );
+
+    await db
+      .collection("payroll")
+      .doc(docId)
+      .set({
+        uid: userUid || null,
+        empNo,
+        name: s.name || "",
+        dept: s.dept || "",
+        yyyyMM,
+        monthLabel,
+        salaryType: salType,
+        baseSalary: effectiveBase,
+        baseSalaryFull: base,
+        bonus1: bonusItems[0],
+        bonus2: bonusItems[1],
+        bonus3: bonusItems[2],
+        bonus4: bonusItems[3],
+        bonus5: bonusItems[4],
+        bonusTotal,
+        otDetail,
+        otHours,
+        otPay,
+        mealAllowance,
+        mealDetail,
+        leaveDetail,
+        leaveDeduction,
+        lateEarlyDeduction,
+        lateEarlyDetail,
+        laborInsurance,
+        healthInsurance,
+        dependentHealth,
+        lunchFee,
+        foreignRent,
+        waterFee,
+        electricFee,
+        foreignMedical,
+        foreignService,
+        loanPrincipal,
+        loanInterest,
+        grossPay,
+        status: "draft",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    // Update loan records after payroll is written
+    for (const lu of loanUpdates) {
+      await db.collection("loans").doc(lu.loanId).update({
+        remainingBalance: lu.newRemaining,
+        paidInstallments: lu.newPaid,
+        status: lu.newStatus,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    results.push({ empNo, name: s.name || "", grossPay });
+    logger.info(`payroll: ${empNo} ${s.name} ${yyyyMM} grossPay=${grossPay}`);
+  }
+
+  return { count: results.length, results };
+}
+
+// ── 手動觸發（管理者 onCall） ────────────────────────────────────────────────────
+exports.calculatePayroll = onCall(async (req) => {
+  const authUid = req.auth && req.auth.uid;
+  if (!authUid) {
+    throw new functions.https.HttpsError("unauthenticated", "請先登入");
+  }
+  const role = await readUserRole(authUid);
+  if (role !== "admin" && role !== "管理者") {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "僅管理者可執行薪資計算",
+    );
+  }
+  const yyyyMM = String((req.data && req.data.yyyyMM) || "").trim();
+  try {
+    const result = await runPayrollCalculation(yyyyMM);
+    return { ok: true, ...result };
+  } catch (e) {
+    throw new functions.https.HttpsError("internal", e.message);
+  }
+});
+
+// ── 每月 1 日自動計算上個月薪資 ─────────────────────────────────────────────────
+exports.autoCalculatePayroll = onSchedule(
+  { schedule: "0 9 1 * *", timeZone: "Asia/Taipei" },
+  async (_event) => {
+    const now = new Date();
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const yyyy = String(prev.getFullYear());
+    const mm = String(prev.getMonth() + 1).padStart(2, "0");
+    try {
+      const result = await runPayrollCalculation(yyyy + mm);
+      logger.info("autoCalculatePayroll done", result);
+    } catch (e) {
+      logger.error("autoCalculatePayroll failed", { error: e.message });
     }
   },
 );

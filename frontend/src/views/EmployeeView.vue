@@ -2,6 +2,15 @@
   <section class="page-card">
     <div class="page-head sticky-page-head">
       <h1>員工專區 — 資料查詢</h1>
+      <a
+        href="/help.html"
+        target="_blank"
+        rel="noopener"
+        class="btn-aux"
+        style="text-decoration: none"
+        title="開啟員工使用說明"
+        >📖 使用說明</a
+      >
     </div>
 
     <div>
@@ -15,49 +24,76 @@
         <!-- date field is fixed to 安裝日 for Orders, no need for user input -->
         <span class="muted-text">日期欄位：{{ dateField }}</span>
 
-        <button class="btn-date" @click="searchDay(-1)">昨天</button>
+        <button class="btn-date" @click="searchDayRelative(-1)">前一天</button>
         <button class="btn-date" @click="searchDay(0)">今天</button>
-        <button class="btn-date" @click="searchDay(1)">明天</button>
+        <button class="btn-date" @click="searchDayRelative(1)">後一天</button>
       </div>
       <div class="field-row">
         <div class="field-item tight">
           <label>訂單號碼：</label>
-          <input v-model="orderNumber" placeholder="訂單號碼" />
-        </div>
-        <div class="field-item tight">
-          <label>日期：</label>
-          <input type="date" v-model="orderDate" />
+          <input v-model="orderNumber" placeholder="訂單號碼" @keyup.enter="searchOrderByNumberAndDate" />
         </div>
         <button class="btn-query" @click="searchOrderByNumberAndDate">
           查詢訂單
         </button>
+        <div class="field-item tight">
+          <label>日期：</label>
+          <input type="date" v-model="orderDate" @keyup.enter="searchSpecificDate" />
+        </div>
         <button class="btn-query" @click="searchSpecificDate">
           查指定安裝日
         </button>
       </div>
-      <div class="field-row">
-        <div class="field-item">
-          <label>關鍵字 (包含)：</label>
-          <input v-model="keyword" placeholder="例如 DT、MS、地址片段" />
-        </div>
-        <button class="btn-query" @click="searchByKeyword">關鍵字查詢</button>
-      </div>
       <div class="field-row keyword-group-row">
-        <div class="field-item tight">
+        <div
+          class="field-item tight"
+          style="display: flex; align-items: center; gap: 6px"
+        >
           <label>石材類型片段：</label>
-          <input v-model="colorKeyword" placeholder="如 dt" />
+          <input v-model="colorKeyword" placeholder="如 dt" @keyup.enter="searchByKeywords" />
+          <label
+            for="neolithFilter"
+            style="white-space: nowrap; margin-left: 6px; cursor: pointer"
+            >耐麗石</label
+          ><input
+            type="checkbox"
+            id="neolithFilter"
+            v-model="neolithFilter"
+            style="margin: 0; cursor: pointer"
+          />
         </div>
         <div class="field-item tight">
           <label>客戶名稱片段：</label>
-          <input v-model="customerKeyword" placeholder="如 王" />
+          <input v-model="customerKeyword" placeholder="如 王" @keyup.enter="searchByKeywords" />
         </div>
         <div class="field-item tight">
           <label>地址片段：</label>
-          <input v-model="addressKeyword" placeholder="如 新竹" />
+          <input v-model="addressKeyword" placeholder="如 新竹" @keyup.enter="searchByKeywords" />
         </div>
         <button class="btn-query" @click="searchByKeywords">
           多條件片段查詢
         </button>
+      </div>
+
+      <div class="field-row keyword-group-row">
+        <label for="dateRangeFilter" style="white-space: nowrap; cursor: pointer">
+          <input
+            type="checkbox"
+            id="dateRangeFilter"
+            v-model="dateRangeEnabled"
+            style="margin: 0 4px 0 0; cursor: pointer"
+          />
+          日期區間：
+        </label>
+        <div class="field-item tight">
+          <input type="date" v-model="dateRangeStart" :disabled="!dateRangeEnabled" @keyup.enter="searchByKeywords" />
+        </div>
+        <span style="white-space: nowrap; padding: 0 4px">～</span>
+        <div class="field-item tight">
+          <input type="date" v-model="dateRangeEnd" :disabled="!dateRangeEnabled" @keyup.enter="searchByKeywords" />
+        </div>
+        <button class="btn-date" @click="setThisMonth">本月</button>
+        <button class="btn-date" @click="setLastMonth">上個月</button>
       </div>
 
       <div
@@ -87,7 +123,7 @@
         </div>
         <div class="field-item tight">
           <label>值：</label>
-          <input v-model="c.value" placeholder="值" />
+          <input v-model="c.value" placeholder="值" @keyup.enter="search" />
         </div>
         <button class="btn-aux" @click="removeCondition(idx)">移除</button>
       </div>
@@ -125,14 +161,20 @@
                   'operator-col':
                     h === '裁切者' || h === '水刀者' || h === '驗收者',
                   'installer-col': h === '安１' || h === '安２' || h === '安３',
+                  'sortable-col': isSortable(h),
+                  'sorted-col': sortField === h,
                 }"
+                @click="toggleSort(h)"
               >
-                {{ h }}
+                {{ h
+                }}<span v-if="isSortable(h)" class="sort-indicator">{{
+                  sortIndicator(h) || " ⇅"
+                }}</span>
               </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="doc in results" :key="doc.id">
+            <tr v-for="doc in sortedResults" :key="doc.id">
               <td
                 v-for="(h, idx) in tableHeaders"
                 :key="h"
@@ -416,8 +458,7 @@ import {
   ROLES,
   subscribeAuthState,
   getUserByUid,
-  searchPendingOrdersByKeyword,
-  searchPendingOrdersByKeywords,
+  getAllPendingOrdersForSearch,
   listOrderCompletionPhotos,
   getOrderCompletionPhotoStatus,
   createCompletionPhotoShareAlbum,
@@ -462,7 +503,6 @@ const availableFields = ref([
   "裁切者",
   "水刀者",
   "驗收者",
-  "年份",
 ]);
 
 // Map short display header names to actual data field names
@@ -487,6 +527,10 @@ function buildTableHeaders() {
     if (idx >= 0) headers.splice(idx, 1);
   }
 
+  // Remove 車號 from original position so it can be placed right before 安１
+  const carIdx = headers.indexOf("車號");
+  if (carIdx >= 0) headers.splice(carIdx, 1);
+
   for (const field of operatorFields) {
     const fieldIndex = headers.indexOf(field);
     if (fieldIndex >= 0) {
@@ -495,12 +539,13 @@ function buildTableHeaders() {
     }
   }
 
-  // Insert after 公分數: installer short names, then operators, then 拆料單
+  // Insert after 公分數: 車號, installer short names, then operators, then 拆料單
   const cmIndex = headers.indexOf("公分數");
   if (cmIndex >= 0) {
     headers.splice(
       cmIndex + 1,
       0,
+      "車號",
       "安１",
       "安２",
       "安３",
@@ -508,7 +553,7 @@ function buildTableHeaders() {
       "拆料單",
     );
   } else {
-    headers.push("安１", "安２", "安３", ...movedFields, "拆料單");
+    headers.push("車號", "安１", "安２", "安３", ...movedFields, "拆料單");
   }
 
   const orderNoIndex = headers.indexOf("訂單號碼");
@@ -521,12 +566,103 @@ function buildTableHeaders() {
 }
 
 const tableHeaders = ref(buildTableHeaders());
+
+// 可排序欄位（顯示用 header 名稱）
+const SORTABLE_HEADERS = new Set([
+  "訂單號碼",
+  "銷售額",
+  "顏色",
+  "客戶名稱",
+  "安１",
+  "裁切者",
+  "水刀者",
+  "安裝地點",
+  "車號",
+  "公分數",
+  "完工照片",
+  "安裝日",
+]);
+const sortField = ref(""); // 顯示用 header 名稱
+const sortDir = ref("asc"); // 'asc' | 'desc'
+
+function isSortable(h) {
+  return SORTABLE_HEADERS.has(h);
+}
+
+function toggleSort(h) {
+  if (!isSortable(h)) return;
+  if (sortField.value === h) {
+    sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+  } else {
+    sortField.value = h;
+    sortDir.value = "asc";
+  }
+}
+
+function sortIndicator(h) {
+  if (sortField.value !== h) return "";
+  return sortDir.value === "asc" ? " ▲" : " ▼";
+}
+
+function getSortValue(doc, header) {
+  const field = headerToField(header);
+  const raw = doc[field];
+  if (header === "銷售額") {
+    return { num: parseAmount(raw) };
+  }
+  if (header === "公分數") {
+    return { num: parseAmount(raw) };
+  }
+  if (header === "完工照片") {
+    // 已上傳=1 未上傳=0；升冪：未上傳在前
+    return { num: hasCompletionPhotos(doc) ? 1 : 0 };
+  }
+  if (header === "安裝日") {
+    // 安裝日 stored as "YYYY/M/D" — convert to timestamp for correct ordering
+    const ymd = normalizeDateToYmd(raw);
+    return { num: ymd ? new Date(ymd).getTime() : 0 };
+  }
+  // 訂單號碼若為純數字則以數字排序，否則字串
+  if (header === "訂單號碼") {
+    const s = raw === null || raw === undefined ? "" : String(raw).trim();
+    if (s !== "" && /^-?\d+(\.\d+)?$/.test(s)) {
+      return { num: Number(s) };
+    }
+    return { str: s };
+  }
+  const s = raw === null || raw === undefined ? "" : String(raw).trim();
+  return { str: s };
+}
+
+const sortedResults = computed(() => {
+  const arr = results.value.slice();
+  if (!sortField.value) return arr;
+  const dir = sortDir.value === "desc" ? -1 : 1;
+  arr.sort((a, b) => {
+    const va = getSortValue(a, sortField.value);
+    const vb = getSortValue(b, sortField.value);
+    if ("num" in va && "num" in vb) {
+      return (va.num - vb.num) * dir;
+    }
+    const sa = va.str ?? "";
+    const sb = vb.str ?? "";
+    // 空值永遠排最後（不論升降冪）
+    if (sa === "" && sb !== "") return 1;
+    if (sa !== "" && sb === "") return -1;
+    return sa.localeCompare(sb, "zh-Hant") * dir;
+  });
+  return arr;
+});
+
 const orderNumber = ref("");
 const orderDate = ref("");
-const keyword = ref("");
 const colorKeyword = ref("");
 const customerKeyword = ref("");
 const addressKeyword = ref("");
+const neolithFilter = ref(false);
+const dateRangeEnabled = ref(false);
+const dateRangeStart = ref("");
+const dateRangeEnd = ref("");
 
 function toOrderViewShape(doc) {
   const raw = doc?.raw || {};
@@ -929,26 +1065,88 @@ function isSupportedCompletionMedia(file) {
 }
 
 const MAX_UPLOAD_BYTES = 120 * 1024 * 1024; // 120 MB，與 Functions 上限一致
+// 影片實務上限：iPhone 原始 .mov 在行動網路上傳容易因背景化／弱網中斷。
+// 50 MB 大約對應 540p ~1 分鐘，與 LINE 壓縮後品質相近，足以記錄完工。
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+// 影片大於此值即提醒使用者保持頁面在前景，避免上傳途中被 iOS 背景化中斷。
+const VIDEO_KEEP_FOREGROUND_BYTES = 20 * 1024 * 1024;
+const COMPRESS_MAX_DIMENSION = 2048;
+const COMPRESS_QUALITY = 0.82;
+const COMPRESS_SKIP_BELOW = 600 * 1024; // 600 KB 以下不壓縮
+
+async function compressImageFile(file) {
+  const type = String(file?.type || "").toLowerCase();
+  if (!type.startsWith("image/") || type === "image/gif") return file;
+  if (file.size <= COMPRESS_SKIP_BELOW) return file;
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const { width, height } = bitmap;
+    let sw = width;
+    let sh = height;
+    if (sw > COMPRESS_MAX_DIMENSION || sh > COMPRESS_MAX_DIMENSION) {
+      const ratio = Math.min(
+        COMPRESS_MAX_DIMENSION / sw,
+        COMPRESS_MAX_DIMENSION / sh,
+      );
+      sw = Math.round(sw * ratio);
+      sh = Math.round(sh * ratio);
+    }
+    const canvas = new OffscreenCanvas(sw, sh);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, sw, sh);
+    bitmap.close();
+    const blob = await canvas.convertToBlob({
+      type: "image/jpeg",
+      quality: COMPRESS_QUALITY,
+    });
+    const name = file.name.replace(/\.[^.]+$/, ".jpg");
+    return new File([blob], name, { type: "image/jpeg" });
+  } catch (_e) {
+    return file;
+  }
+}
+
+async function compressFiles(files) {
+  return Promise.all(files.map((f) => compressImageFile(f)));
+}
 
 function splitSelectedMediaFiles(fileList = []) {
   const files = Array.from(fileList || []);
   const accepted = [];
   const rejected = [];
   const tooLarge = [];
+  const videoOversized = [];
+  const videoLarge = [];
 
   for (const file of files) {
+    const type = String(file?.type || "").toLowerCase();
+    const isVideo = type.startsWith("video/");
+    const sizeMb = (Number(file?.size || 0) / 1024 / 1024).toFixed(0);
+    const label = `${file?.name || "(未命名)"} (${sizeMb} MB)`;
+
     if (!isSupportedCompletionMedia(file)) {
       rejected.push(file?.name || "(未命名檔案)");
-    } else if (file.size > MAX_UPLOAD_BYTES) {
-      tooLarge.push(
-        `${file?.name || "(未命名)"} (${(file.size / 1024 / 1024).toFixed(0)} MB)`,
-      );
-    } else {
-      accepted.push(file);
+      continue;
     }
+
+    if (isVideo && file.size > MAX_VIDEO_BYTES) {
+      videoOversized.push(label);
+      continue;
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      tooLarge.push(label);
+      continue;
+    }
+
+    if (isVideo && file.size > VIDEO_KEEP_FOREGROUND_BYTES) {
+      videoLarge.push(label);
+    }
+    accepted.push(file);
   }
 
-  return { accepted, rejected, tooLarge };
+  return { accepted, rejected, tooLarge, videoOversized, videoLarge };
 }
 
 function isVideoFile(photo) {
@@ -985,7 +1183,13 @@ function inferShareMediaType(photo, blobType = "") {
 function buildUploadDebugContext(action, extra = {}) {
   const nav = typeof navigator !== "undefined" ? navigator : null;
   const loc = typeof window !== "undefined" ? window.location : null;
+  const doc = typeof document !== "undefined" ? document : null;
   const now = new Date();
+
+  // navigator.connection (Network Information API) — Chrome/Android only,
+  // missing on iOS Safari but harmless when undefined.
+  const conn =
+    nav?.connection || nav?.mozConnection || nav?.webkitConnection || null;
 
   return {
     action,
@@ -994,6 +1198,20 @@ function buildUploadDebugContext(action, extra = {}) {
     platform: nav?.platform || "",
     language: nav?.language || "",
     online: Boolean(nav?.onLine),
+    visibilityState: doc?.visibilityState || "",
+    pageHidden: Boolean(doc?.hidden),
+    connectionType: conn?.type || "",
+    effectiveType: conn?.effectiveType || "",
+    downlinkMbps:
+      typeof conn?.downlink === "number" ? Number(conn.downlink) : null,
+    rttMs: typeof conn?.rtt === "number" ? Number(conn.rtt) : null,
+    saveData: Boolean(conn?.saveData),
+    deviceMemoryGb:
+      typeof nav?.deviceMemory === "number" ? Number(nav.deviceMemory) : null,
+    hardwareConcurrency:
+      typeof nav?.hardwareConcurrency === "number"
+        ? Number(nav.hardwareConcurrency)
+        : null,
     timezone:
       Intl.DateTimeFormat?.().resolvedOptions?.().timeZone || "Asia/Taipei",
     occurredAtClient: now.toISOString(),
@@ -1414,18 +1632,30 @@ async function loadNasLegacyPhotos() {
 }
 
 function onNewPhotoFilesSelected(event) {
-  const { accepted, rejected, tooLarge } = splitSelectedMediaFiles(
-    event?.target?.files,
-  );
+  const { accepted, rejected, tooLarge, videoOversized, videoLarge } =
+    splitSelectedMediaFiles(event?.target?.files);
   newPhotoFiles.value = accepted;
 
   const msgs = [];
+  if (videoOversized.length)
+    msgs.push(
+      `以下影片超過 50 MB 上限，已略過：\n${videoOversized.join("\n")}\n\n` +
+        `行動網路上傳大型影片很容易因切換 App、鎖屏被中斷。\n` +
+        `請改用以下任一方式：\n` +
+        `① 改錄較短影片（建議 30 秒內）\n` +
+        `② 用 LINE 傳給自己後下載 LINE 壓縮版（約 4–5 MB）再上傳\n` +
+        `③ 連 Wi-Fi 後請改用電腦上傳原檔`,
+    );
   if (tooLarge.length)
     msgs.push(
-      `以下檔案超過 120 MB 上限，已略過：\n${tooLarge.join("\n")}\n\n請先壓縮影片後再上傳。`,
+      `以下檔案超過 120 MB 上限，已略過：\n${tooLarge.join("\n")}\n\n請先壓縮後再上傳。`,
     );
   if (rejected.length)
     msgs.push(`以下檔案不是圖片或影片，已略過：\n${rejected.join("\n")}`);
+  if (videoLarge.length)
+    msgs.push(
+      `以下影片較大（>20 MB），上傳期間請保持頁面在前景、不要切換 App 或鎖屏，否則上傳會中斷：\n${videoLarge.join("\n")}`,
+    );
   if (msgs.length) alert(msgs.join("\n\n"));
 }
 
@@ -1438,15 +1668,19 @@ async function uploadPhotosForActiveOrder() {
 
   photoSaving.value = true;
   photoUploadProgress.value = 0;
-  photoUploadProgressText.value = "準備上傳…";
+  photoUploadProgressText.value = "壓縮圖片中…";
   try {
+    const compressed = await compressFiles(newPhotoFiles.value);
+    photoUploadProgressText.value = "準備上傳…";
     const result = await uploadOrderCompletionPhotos(
       activePhotoOrder.value.id,
       activePhotoOrder.value.orderNumber,
-      newPhotoFiles.value,
+      compressed,
       (progress) => {
         photoUploadProgress.value = progress?.overallProgress || 0;
-        if (progress?.retryAttempt) {
+        if (progress?.waitingVisible) {
+          photoUploadProgressText.value = `⚠ 請保持頁面在前景，正在等待恢復後重試 (${progress?.fileIndex || 0}/${progress?.totalFiles || 0}：${progress?.fileName || ""})`;
+        } else if (progress?.retryAttempt) {
           photoUploadProgressText.value = `網路不穩，第 ${progress.retryAttempt} 次重試 (${progress?.fileIndex || 0}/${progress?.totalFiles || 0}：${progress?.fileName || ""})`;
         } else if (progress?.skipped) {
           photoUploadProgressText.value = `⚠ 跳過 (${progress?.fileIndex || 0}/${progress?.totalFiles || 0}：${progress?.fileName || ""})`;
@@ -1481,6 +1715,15 @@ async function uploadPhotosForActiveOrder() {
           orderDocId: String(activePhotoOrder.value?.id || ""),
           orderNumber: String(activePhotoOrder.value?.orderNumber || ""),
           fileName: failedFiles.map((f) => f.name).join(","),
+          totalFiles: compressed.length,
+          failedCount: failedFiles.length,
+          failedFiles: failedFiles.map((f) => ({
+            name: String(f?.name || ""),
+            size: Number(f?.size || 0),
+            contentType: String(f?.contentType || ""),
+            attempts: Number(f?.attempts || 0),
+            errorMessage: String(f?.errorMessage || ""),
+          })),
         }),
       );
       alert(
@@ -1515,6 +1758,37 @@ function onReplacePhotoSelected(photoId, event) {
     return;
   }
 
+  const type = String(nextFile.type || "").toLowerCase();
+  const isVideo = type.startsWith("video/");
+  const sizeMb = (Number(nextFile.size || 0) / 1024 / 1024).toFixed(0);
+
+  if (isVideo && nextFile.size > MAX_VIDEO_BYTES) {
+    alert(
+      `影片 ${nextFile.name}（${sizeMb} MB）超過 50 MB 上限。\n\n` +
+        `行動網路上傳大型影片很容易因切換 App、鎖屏被中斷。\n` +
+        `請改用以下任一方式：\n` +
+        `① 改錄較短影片（建議 30 秒內）\n` +
+        `② 用 LINE 傳給自己後下載 LINE 壓縮版（約 4–5 MB）再上傳\n` +
+        `③ 連 Wi-Fi 後請改用電腦上傳原檔`,
+    );
+    if (event?.target) event.target.value = "";
+    return;
+  }
+
+  if (!isVideo && nextFile.size > MAX_UPLOAD_BYTES) {
+    alert(
+      `檔案 ${nextFile.name}（${sizeMb} MB）超過 120 MB 上限，請先壓縮後再上傳。`,
+    );
+    if (event?.target) event.target.value = "";
+    return;
+  }
+
+  if (isVideo && nextFile.size > VIDEO_KEEP_FOREGROUND_BYTES) {
+    alert(
+      `影片 ${nextFile.name}（${sizeMb} MB）較大，上傳期間請保持頁面在前景、不要切換 App 或鎖屏，否則上傳會中斷。`,
+    );
+  }
+
   replacePhotoFiles.value = {
     ...replacePhotoFiles.value,
     [photoId]: nextFile,
@@ -1531,13 +1805,15 @@ async function replacePhotoForActiveOrder(photo) {
 
   photoSaving.value = true;
   photoUploadProgress.value = 0;
-  photoUploadProgressText.value = "更新照片中…";
+  photoUploadProgressText.value = "壓縮圖片中…";
   try {
+    const compressed = await compressImageFile(nextFile);
+    photoUploadProgressText.value = "更新照片中…";
     await replaceOrderCompletionPhoto(
       activePhotoOrder.value.id,
       photo.id,
       photo.storagePath,
-      nextFile,
+      compressed,
       (progress) => {
         photoUploadProgress.value = progress || 0;
         photoUploadProgressText.value = `更新中：${photo.fileName || "照片"}`;
@@ -1625,21 +1901,47 @@ function getDayRangeForOffset(offsetDays = 0) {
   const now = new Date();
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   d.setDate(d.getDate() + offsetDays);
-  const start = new Date(d);
-  start.setHours(0, 0, 0, 0);
+  return getDayRangeFromDate(d);
+}
+
+function getDayRangeFromDate(d) {
+  const start = new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { start, end };
 }
 
+// Track current query date for relative navigation
+let _currentQueryDate = new Date();
+
+function searchDayRelative(offset) {
+  const d = new Date(_currentQueryDate);
+  d.setDate(d.getDate() + offset);
+  _currentQueryDate = d;
+  return searchDayByDate(d);
+}
+
 async function searchDay(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  _currentQueryDate = d;
+  return searchDayByDate(d);
+}
+
+async function searchDayByDate(d) {
   // dateField is pre-set to 安裝日, so no prompt needed
   updateTableHeaders();
 
   // handle string-format 安裝日 in Orders
   if (dateField.value === "安裝日") {
-    const d = new Date();
-    d.setDate(d.getDate() + offset);
     const str = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
     loading.value = true;
     const t0 = Date.now();
@@ -1655,7 +1957,7 @@ async function searchDay(offset) {
     loading.value = false;
     return;
   }
-  const { start, end } = getDayRangeForOffset(offset);
+  const { start, end } = getDayRangeFromDate(d);
   loading.value = true;
   const t1 = Date.now();
   try {
@@ -1750,15 +2052,17 @@ async function searchOrderByNumberAndDate() {
     }
 
     // Range query on PendingOrders may silently fail (index issue);
-    // always also try keyword search for the numeric prefix to ensure 未派車 orders are found.
-    const pendingFromKeyword = await searchPendingOrdersByKeyword(
-      numericPrefix,
-    ).catch((e) => {
-      console.warn("[查訂單] keyword search failed:", e);
+    // always also try client-side search for the numeric prefix to ensure 未派車 orders are found.
+    const allPending = await loadAllPendingCache().catch((e) => {
+      console.warn("[查訂單] pending cache load failed:", e);
       return [];
     });
+    const pendingFromKeyword = searchPendingByKeyword(
+      allPending,
+      numericPrefix,
+    );
     console.log(
-      "[查訂單] keyword search results:",
+      "[查訂單] pending search results:",
       pendingFromKeyword.length,
       pendingFromKeyword.map((r) => r.orderNo || r["訂單號碼"]),
     );
@@ -1802,44 +2106,6 @@ async function searchOrderByNumberAndDate() {
   loading.value = false;
 }
 
-// 將使用者輸入的關鍵字送到客戶端搜尋
-async function searchByKeyword() {
-  if (!keyword.value) {
-    alert("請輸入關鍵字");
-    return;
-  }
-  updateTableHeaders();
-  loading.value = true;
-  const t0 = Date.now();
-  try {
-    const kw = keyword.value.trim().toLowerCase();
-    const allOrders = await loadAllOrdersCache();
-    const matchedIds = [];
-    for (const doc of allOrders) {
-      const text = [
-        doc["顏色"],
-        doc["客戶名稱"],
-        doc["安裝地點"],
-        doc["訂單號碼"],
-      ]
-        .map((v) => String(v || "").toLowerCase())
-        .join(" ");
-      if (text.includes(kw)) matchedIds.push(doc.id);
-    }
-    if (matchedIds.length > 0) {
-      results.value = await getOrdersByIds(matchedIds.slice(0, 200));
-    } else {
-      const pending = await searchPendingOrdersByKeyword(keyword.value);
-      results.value = normalizeRowsForTable(pending);
-    }
-  } catch (e) {
-    console.error("關鍵字查詢失敗：", e);
-    results.value = [];
-  }
-  queryElapsed.value = Date.now() - t0;
-  loading.value = false;
-}
-
 // Cache for client-side search
 let _allOrdersCache = null;
 let _allOrdersCacheTime = 0;
@@ -1855,18 +2121,170 @@ async function loadAllOrdersCache() {
   return _allOrdersCache;
 }
 
+// Cache for PendingOrders client-side search
+let _allPendingCache = null;
+let _allPendingCacheTime = 0;
+
+async function loadAllPendingCache() {
+  const now = Date.now();
+  if (_allPendingCache && now - _allPendingCacheTime < CACHE_TTL) {
+    return _allPendingCache;
+  }
+  _allPendingCache = await getAllPendingOrdersForSearch();
+  _allPendingCacheTime = Date.now();
+  return _allPendingCache;
+}
+
+function searchPendingByKeyword(allPending, kw) {
+  const q = String(kw || "")
+    .toLowerCase()
+    .trim();
+  if (!q) return [];
+  return allPending.filter((doc) => {
+    const text = [
+      doc.orderNo,
+      doc.customerName,
+      doc.customerPhone,
+      doc.installAddress,
+      doc.color,
+    ]
+      .map((v) => String(v || "").toLowerCase())
+      .join(" ");
+    return text.includes(q);
+  });
+}
+
+function searchPendingByKeywords(allPending, keywords) {
+  const list = keywords
+    .map((k) =>
+      String(k || "")
+        .toLowerCase()
+        .trim(),
+    )
+    .filter(Boolean);
+  if (!list.length) return [];
+  return allPending.filter((doc) => {
+    const text = [
+      doc.orderNo,
+      doc.customerName,
+      doc.customerPhone,
+      doc.installAddress,
+      doc.color,
+    ]
+      .map((v) => String(v || "").toLowerCase())
+      .join(" ");
+    return list.every((kw) => text.includes(kw));
+  });
+}
+
+function toYmd(year, month, day) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function setThisMonth() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1; // 1-based
+  // 本月：上個月 26 日 ~ 本月 25 日
+  const prevYear = month === 1 ? year - 1 : year;
+  const prevMonth = month === 1 ? 12 : month - 1;
+  dateRangeStart.value = toYmd(prevYear, prevMonth, 26);
+  dateRangeEnd.value = toYmd(year, month, 25);
+  dateRangeEnabled.value = true;
+}
+
+function setLastMonth() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1; // 1-based
+  // 上個月：上上個月 26 日 ~ 上個月 25 日
+  const prevYear = month === 1 ? year - 1 : year;
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prev2Year = prevMonth === 1 ? prevYear - 1 : prevYear;
+  const prev2Month = prevMonth === 1 ? 12 : prevMonth - 1;
+  dateRangeStart.value = toYmd(prev2Year, prev2Month, 26);
+  dateRangeEnd.value = toYmd(prevYear, prevMonth, 25);
+  dateRangeEnabled.value = true;
+}
+
 async function searchByKeywords() {
   const kwColor = colorKeyword.value.trim().toLowerCase();
   const kwCustomer = customerKeyword.value.trim().toLowerCase();
   const kwAddress = addressKeyword.value.trim().toLowerCase();
-  if (!kwColor && !kwCustomer && !kwAddress) {
+  const useNeolith = neolithFilter.value;
+  const useDateRange =
+    dateRangeEnabled.value && (dateRangeStart.value || dateRangeEnd.value);
+  if (!kwColor && !kwCustomer && !kwAddress && !useNeolith && !useDateRange) {
     alert("請輸入至少一個條件");
     return;
   }
   loading.value = true;
   const t0 = Date.now();
   try {
-    // Phase 1: local search on lightweight index
+    // --- Date range path: query Firestore directly by date strings ---
+    // 安裝日 is stored as "YYYY/M/D" (no zero-padding), so we generate each
+    // individual date string in the range and use Firestore `in` batches.
+    if (useDateRange) {
+      const startDate = dateRangeStart.value
+        ? new Date(dateRangeStart.value)
+        : new Date("2000-01-01");
+      const endDate = dateRangeEnd.value
+        ? new Date(dateRangeEnd.value)
+        : new Date();
+      const dayDiff = Math.round((endDate - startDate) / 86400000) + 1;
+      if (dayDiff > 366) {
+        alert("日期區間不可超過一年");
+        loading.value = false;
+        return;
+      }
+      // Generate "YYYY/M/D" strings matching the actual 安裝日 field format
+      const dateStrings = [];
+      for (
+        let d = new Date(startDate);
+        d <= endDate;
+        d.setDate(d.getDate() + 1)
+      ) {
+        dateStrings.push(
+          `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`,
+        );
+      }
+      // Firestore `in` allows max 30 values per query
+      const BATCH = 30;
+      const seen = new Set();
+      const allDocs = [];
+      for (let i = 0; i < dateStrings.length; i += BATCH) {
+        const batch = dateStrings.slice(i, i + BATCH);
+        const docs = await queryCollection(COLLECTION_NAME, [
+          { field: "安裝日", op: "in", value: batch },
+        ]);
+        for (const doc of docs) {
+          if (!seen.has(doc.id)) {
+            seen.add(doc.id);
+            allDocs.push(doc);
+          }
+        }
+      }
+      // Apply keyword filters client-side on the returned full docs
+      results.value = allDocs.filter((doc) => {
+        const color = String(doc["顏色"] || "").toLowerCase();
+        const customer = String(doc["客戶名稱"] || "").toLowerCase();
+        const address = String(doc["安裝地點"] || "").toLowerCase();
+        const orderNo = String(doc["訂單號碼"] || "").toLowerCase();
+        if (kwColor && !color.includes(kwColor) && !orderNo.includes(kwColor))
+          return false;
+        if (useNeolith && !/^\d/.test(String(doc["顏色"] || "").trim()))
+          return false;
+        if (kwCustomer && !customer.includes(kwCustomer)) return false;
+        if (kwAddress && !address.includes(kwAddress)) return false;
+        return true;
+      });
+      updateTableHeaders();
+      queryElapsed.value = Date.now() - t0;
+      loading.value = false;
+      return;
+    }
+
+    // --- No date range: lightweight index + Phase 2 fetch ---
     const allOrders = await loadAllOrdersCache();
     const matchedIds = [];
     for (const doc of allOrders) {
@@ -1876,18 +2294,18 @@ async function searchByKeywords() {
       const orderNo = String(doc["訂單號碼"] || "").toLowerCase();
       if (kwColor && !color.includes(kwColor) && !orderNo.includes(kwColor))
         continue;
+      if (useNeolith && !/^\d/.test(String(doc["顏色"] || "").trim())) continue;
       if (kwCustomer && !customer.includes(kwCustomer)) continue;
       if (kwAddress && !address.includes(kwAddress)) continue;
       matchedIds.push(doc.id);
     }
     if (matchedIds.length > 0) {
-      // Phase 2: fetch full docs for matched IDs only
       const fullDocs = await getOrdersByIds(matchedIds.slice(0, 200));
       results.value = fullDocs;
     } else {
-      // fallback to PendingOrders
       const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
-      const pending = await searchPendingOrdersByKeywords(keywords);
+      const allPending = await loadAllPendingCache();
+      const pending = searchPendingByKeywords(allPending, keywords);
       results.value = normalizeRowsForTable(pending);
     }
     updateTableHeaders();
@@ -1895,7 +2313,8 @@ async function searchByKeywords() {
     console.error("多條件查詢失敗：", e);
     try {
       const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
-      const pending = await searchPendingOrdersByKeywords(keywords);
+      const allPending = await loadAllPendingCache();
+      const pending = searchPendingByKeywords(allPending, keywords);
       results.value = normalizeRowsForTable(pending);
       updateTableHeaders();
     } catch (fallbackErr) {
@@ -1961,6 +2380,8 @@ onMounted(() => {
       console.warn("非員工帳號存取員工頁面");
     }
   });
+  // 預設查詢今天的安裝
+  searchDay(0);
 });
 
 watch(results, () => {
@@ -2035,6 +2456,25 @@ watch(results, () => {
   width: auto !important;
   min-width: max-content !important;
   max-width: none !important;
+}
+
+.orders-table th.sortable-col {
+  cursor: pointer;
+  user-select: none;
+}
+.orders-table th.sortable-col:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+.orders-table th.sorted-col {
+  color: #1976d2;
+}
+.orders-table th .sort-indicator {
+  font-size: 0.75em;
+  margin-left: 2px;
+  opacity: 0.6;
+}
+.orders-table th.sorted-col .sort-indicator {
+  opacity: 1;
 }
 
 .btn-photo-manage {

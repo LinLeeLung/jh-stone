@@ -36,10 +36,45 @@
         >
         <RouterLink
           class="nav-link"
-          v-if="userDoc && userDoc.role === 'admin'"
-          to="/stock"
+          v-if="
+            userDoc &&
+            (userDoc.role === '員工' ||
+              userDoc.role === 'admin' ||
+              userDoc.role === '管理者')
+          "
+          to="/attendance"
           @click="closeNav"
-          >選股工具</RouterLink
+          >{{ t('nav_attendance') }}</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
+            userDoc &&
+            (userDoc.role === '員工' ||
+              userDoc.role === 'admin' ||
+              userDoc.role === '管理者')
+          "
+          to="/leave"
+          @click="closeNav"
+          >{{ t('nav_leave') }}</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
+            userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
+          "
+          to="/payroll"
+          @click="closeNav"
+          >{{ t('nav_payroll') }}</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
+            userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
+          "
+          to="/staff"
+          @click="closeNav"
+          >員工資料</RouterLink
         >
         <RouterLink
           class="nav-link"
@@ -51,7 +86,7 @@
           "
           to="/employee"
           @click="closeNav"
-          >員工查詢</RouterLink
+          >{{ t('nav_employee') }}</RouterLink
         >
         <RouterLink
           class="nav-link"
@@ -63,15 +98,67 @@
           "
           to="/inventory"
           @click="closeNav"
-          >庫存查詢</RouterLink
+          >{{ t('nav_inventory') }}</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
+            userDoc &&
+            (userDoc.role === '員工' ||
+              userDoc.role === 'admin' ||
+              userDoc.role === '管理者')
+          "
+          to="/drawing/straight"
+          @click="closeNav"
+          >{{ t('nav_drawing') }}</RouterLink
+        >
+        <a
+          class="nav-link"
+          v-if="
+            userDoc &&
+            (userDoc.role === '員工' ||
+              userDoc.role === 'admin' ||
+              userDoc.role === '管理者')
+          "
+          href="https://junchengstone.synology.me/draw/tools.php"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="closeNav"
+          >{{ t('nav_tools') }}</a
         >
       </div>
       <div v-if="user" class="top-nav-user">
-        <img :src="user.photoURL" alt="user avatar" class="user-avatar" />
-        <span class="nav-user-name">{{ user.displayName }}</span>
+        <span v-if="userDoc && userDoc.role" class="nav-user-role">{{
+          userDoc.role
+        }}</span>
+        <img
+          v-if="user.photoURL && !avatarFailed"
+          :src="user.photoURL"
+          alt="user avatar"
+          class="user-avatar"
+          @error="avatarFailed = true"
+        />
+        <div v-else class="user-avatar user-avatar-initial">
+          {{
+            (userDoc?.displayName || user.displayName)?.[0]?.toUpperCase() ||
+            "?"
+          }}
+        </div>
+        <span class="nav-user-name">{{
+          userDoc?.displayName || user.displayName
+        }}</span>
 
         <button class="btn-aux" @click="handleLogout">登出</button>
         <span class="nav-version">版本：{{ appVersion }}</span>
+        <button
+          class="btn-lang"
+          @click="toggleLang"
+          :title="
+            lang === 'zh' ? 'Switch to Vietnamese' : 'Chuyển sang tiếng Trung'
+          "
+        >
+          {{ lang === "zh" ? "🇻🇳 VI" : "🇹🇼 ZH" }}
+        </button>
       </div>
     </nav>
 
@@ -84,10 +171,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
 import { logout, subscribeAuthState, getUserByUid } from "./firebase";
+import { lang, setLang, t } from "./locale";
+function toggleLang() {
+  setLang(lang.value === "zh" ? "vi" : "zh");
+}
 const user = ref(null);
 const userDoc = ref(null);
 const navOpen = ref(false);
 const navRef = ref(null);
+const avatarFailed = ref(false);
 const appVersion =
   typeof __APP_VERSION__ === "string" && __APP_VERSION__.trim()
     ? __APP_VERSION__
@@ -96,6 +188,7 @@ const appVersion =
 onMounted(() => {
   subscribeAuthState(async (currentUser) => {
     user.value = currentUser;
+    avatarFailed.value = false;
     if (currentUser) {
       userDoc.value = await getUserByUid(currentUser.uid);
     } else {
@@ -136,6 +229,16 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.nav-user-role {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff;
+  background: #6b7280;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
 .nav-user-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -150,5 +253,18 @@ onUnmounted(() => {
   overflow: visible;
   text-overflow: clip;
   max-width: none;
+}
+.btn-lang {
+  background: #e5e7eb;
+  border: none;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.btn-lang:hover {
+  background: #d1d5db;
 }
 </style>

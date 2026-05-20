@@ -1679,6 +1679,90 @@ onMounted(async () => {
     });
 
     await loadMasterData();
+
+    // 支援由其他系統（例如 GAS 拆料記錄頁）以 ?color=XXX 直接開啟並選定顏色
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const colorParam = String(params.get("color") || "").trim();
+      if (colorParam) {
+        const stripSep = (s) =>
+          String(s || "")
+            .toUpperCase()
+            .replace(/[\s\-_]/g, "");
+        const target = stripSep(colorParam);
+        const extractCode = (full) => {
+          const m = String(full || "")
+            .trim()
+            .match(/^[A-Za-z0-9\-_.]+/);
+          return m ? m[0] : "";
+        };
+
+        const tryMatch = () => {
+          const list = colorCatalog.value || [];
+          if (!list.length) return false;
+          let match = list.find(
+            (row) => stripSep(extractCode(row.color)) === target,
+          );
+          if (!match) {
+            match = list.find((row) => stripSep(row.color).startsWith(target));
+          }
+          if (!match) {
+            match = list.find((row) => stripSep(row.color).includes(target));
+          }
+          if (match) {
+            console.log("[inventory] color URL matched", {
+              colorParam,
+              brand: match.brand,
+              color: match.color,
+              key: `${match.sheetId}|${match.gid}`,
+              catalogSize: list.length,
+            });
+            selectedBrand.value = match.brand;
+            selectedColorKey.value = `${match.sheetId}|${match.gid}`;
+            errorMessage.value = "";
+            return true;
+          }
+          return false;
+        };
+
+        // 立即試一次
+        let matched = tryMatch();
+
+        // 不管成功與否，都掛 watcher 監聽 catalog 變化（Firestore 後到時也會重試）
+        const stop = watch(
+          () => colorCatalog.value,
+          () => {
+            if (tryMatch()) {
+              matched = true;
+              stop();
+            }
+          },
+          { deep: false },
+        );
+
+        // 安全網：8 秒後若還沒成功，顯示錯誤並輸出 debug
+        setTimeout(() => {
+          if (matched) return;
+          try {
+            stop();
+          } catch (_) {
+            /* noop */
+          }
+          const list = colorCatalog.value || [];
+          console.warn("[inventory] color URL no match", {
+            colorParam,
+            target,
+            catalogSize: list.length,
+            sample: list.slice(0, 5).map((r) => r.color),
+          });
+          errorMessage.value = list.length
+            ? `找不到顏色「${colorParam}」對應的庫存資料`
+            : `主檔載入失敗，找不到顏色「${colorParam}」`;
+        }, 8000);
+      }
+    } catch (e) {
+      console.warn("解析 URL color 參數失敗:", e);
+    }
   } catch (error) {
     console.error("讀取主資料失敗:", error);
     errorMessage.value = "品牌/顏色主檔讀取失敗";

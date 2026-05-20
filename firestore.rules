@@ -62,8 +62,8 @@ service cloud.firestore {
           && !('customerApproved' in request.resource.data)
           && !('companyId' in request.resource.data)
         ) || isAdmin();
-      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow update: if isAdmin()
+      allow read: if signedIn() && (request.auth.uid == userId || isAdminOrManager());
+      allow update: if isAdminOrManager()
                     && (!('role' in request.resource.data) ||
                         request.resource.data.role in ['admin','管理者','員工','客戶','遊客'])
                     || (
@@ -74,7 +74,7 @@ service cloud.firestore {
                       && request.resource.data.customerApproved == resource.data.customerApproved
                       && request.resource.data.companyId == resource.data.companyId
                     );
-      allow delete: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if signedIn() && (request.auth.uid == userId || isAdminOrManager());
     }
 
     // Orders documents may include internal fields; keep direct read staff-only.
@@ -95,9 +95,10 @@ service cloud.firestore {
       }
     }
 
-    // System settings (e.g. NAS path): only admin or manager can read/write
+    // System settings (e.g. NAS path): staff can read (needed for punchLocation geofencing); only admin/manager can write
     match /SystemSettings/{docId} {
-      allow read, write: if isAdminOrManager();
+      allow read: if isStaff();
+      allow write: if isAdminOrManager();
     }
 
     // Client-side upload diagnostics for intermittent device/network issues.
@@ -106,6 +107,14 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid;
       allow read: if isAdminOrManager();
       allow update, delete: if false;
+    }
+
+    // Server-side audit when 完工照片 fallback creates a NEW NAS folder
+    // because PDF/folder-name search couldn't locate the order folder.
+    // Written exclusively by Cloud Functions (admin SDK bypasses rules).
+    match /CompletionPhotoFolderCreations/{docId} {
+      allow read: if isAdminOrManager();
+      allow create, update, delete: if false;
     }
 
     // Inventory color master used by 庫存查詢 UI.
@@ -119,32 +128,74 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Stocks watchlist: admin can write; all signed-in staff can read
-    match /Stocks/{docId} {
-      allow read: if isStaff();
-      allow write: if isAdmin();
-    }
-
-    // Stock picks log (recorded from AI screening results)
-    match /StockPicks/{docId} {
-      allow read: if isStaff();
-      allow create: if isAdmin()
-        && request.resource.data.ticker is string
-        && request.resource.data.ticker.size() > 0;
-      allow delete: if isAdmin();
-      allow update: if false;
-    }
-
-    // TWSE/TPEX daily stock list (written by Cloud Function scheduler)
-    match /TwseStockList/{docId} {
-      allow read: if isStaff();
-      allow write: if false;
-    }
 
     // Batch search progress (written by Cloud Function, read by staff)
     match /_system/{docId} {
       allow read: if isStaff();
       allow write: if false;
+    }
+
+    // Employee basic data: admin/manager can read and write
+    match /staff/{empNo} {
+      allow read, write: if isAdminOrManager();
+    }
+
+    // Attendance (打卡): staff can create/read their own record; admin/manager can read all
+    match /attendance/{docId} {
+      allow create: if isStaff()
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if isStaff()
+        && resource.data.uid == request.auth.uid;
+      // resource == null when the doc doesn't exist yet; allow the read so getDoc returns "not found"
+      allow read: if isStaff()
+        && (resource == null || resource.data.uid == request.auth.uid || isAdminOrManager());
+      allow delete: if isAdminOrManager();
+    }
+
+    // Leave requests: staff submit own; admin/manager review all
+    match /leaveRequests/{docId} {
+      allow create: if isStaff()
+        && request.resource.data.uid == request.auth.uid;
+      // All staff can read so that 主管 and HR can load the pending queue
+      allow read: if isStaff();
+      // Department-scoped filtering is enforced in app logic
+      allow update: if isStaff();
+      allow delete: if isStaff()
+        && resource.data.uid == request.auth.uid
+        && resource.data.status == 'pending';
+    }
+
+    // Overtime requests: same rules as leave requests
+    match /overtimeRequests/{docId} {
+      allow create: if isStaff()
+        && request.resource.data.uid == request.auth.uid;
+      allow read: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isStaff()
+        && resource.data.uid == request.auth.uid
+        && resource.data.status == 'pending';
+    }
+
+    // Leave quota: all staff can read; only admin/manager can write
+    match /leaveQuota/{uid} {
+      allow read: if isStaff();
+      allow write: if isAdminOrManager();
+    }
+
+    // Payroll records: employee reads own; admin/manager reads all; write by admin only
+    match /payroll/{docId} {
+      allow read: if isStaff() && (
+        isAdminOrManager() ||
+        resource.data.uid == request.auth.uid
+      );
+      allow write: if isAdminOrManager();
+    }
+
+    // Loans: admin/manager full access; staff read own
+    match /loans/{docId} {
+      allow read: if isAdminOrManager()
+                  || (isStaff() && resource.data.empNo != null);
+      allow create, update, delete: if isAdminOrManager();
     }
 
     // Deny everything else by default - lock down the DB

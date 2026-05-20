@@ -225,6 +225,17 @@ select {
   border-radius: 50%;
 }
 
+.user-avatar-initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #1f4bb8;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 .app-main {
   width: 100%;
   max-width: 1920px;
