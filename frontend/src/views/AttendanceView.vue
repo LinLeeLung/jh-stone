@@ -1353,9 +1353,29 @@ tr.no-rec td {
 }
 .btn-cancel:hover { background: #999; }
 
-/* ── 手機響應式：隱藏側邊請假面板 ── */
+/* ── 手機響應式：側邊請假面板改為上下排列 ── */
 @media (max-width: 640px) {
-  .leave-side-panel { display: none; }
+  .punch-row {
+    flex-direction: column;
+  }
+  .leave-side-panel {
+    width: 100%;
+    min-height: unset;
+    padding: 8px 12px;
+  }
+  .side-panel-title {
+    display: inline;
+    margin-right: 8px;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .side-panel-item {
+    display: inline-flex;
+    margin-right: 10px;
+    border-bottom: none;
+    padding: 0;
+  }
+  .side-name::after { content: "\00a0"; }
 }
 
 /* ── 列印樣式 ── */
