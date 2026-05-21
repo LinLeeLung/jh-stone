@@ -311,6 +311,28 @@
         <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">尚未設定補班日</div>
       </div>
 
+      <!-- 便當費試算表 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">便當費試算表</h3>
+          <p class="section-desc">
+            Google 試算表「發布到網路」的 CSV 網址。薪資頁可一鍵載入當月便當費。<br />
+            取得方式：試算表 → 檔案 → 共用 → 發布到網路 → 選取便當工作表 → CSV 格式 → 發布 → 複製連結。
+          </p>
+        </div>
+        <div class="field-row">
+          <div class="field-item" style="flex:1">
+            <label for="lunch-sheet-url">CSV 發布網址：</label>
+            <input
+              id="lunch-sheet-url"
+              v-model="form.lunchSheetCsvUrl"
+              placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv&gid=..."
+              style="width:100%"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- 儲存工具列 -->
       <div class="save-bar">
         <button class="btn-query" :disabled="saving" @click="save">
@@ -890,6 +912,7 @@ const masterMessage = ref("");
 const form = ref({
   nasStoragePath: "",
   nasOrderPath: "",
+  lunchSheetCsvUrl: "",
   priceRedactBox: {
     xPct: 0.2,
     yPct: 0.04,
@@ -1328,6 +1351,7 @@ async function loadSettings() {
     const data = await getSystemSettings();
     form.value.nasStoragePath = data.nasStoragePath || "";
     form.value.nasOrderPath = data.nasOrderPath || "";
+    form.value.lunchSheetCsvUrl = data.lunchSheetCsvUrl || "";
     const box = data.priceRedactBox || {};
     form.value.priceRedactBox = {
       xPct: Number.isFinite(Number(box.xPct)) ? Number(box.xPct) : 0.2,

@@ -114,6 +114,7 @@
             >姓名
             <input v-model="queryName" placeholder="篩選姓名" />
           </label>
+          <button class="btn-add-punch" @click="openNewRecord">＋ 補打卡</button>
         </div>
       </div>
 
@@ -127,11 +128,15 @@
             <th>上班</th>
             <th>下班</th>
             <th>工時</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in filteredRecords" :key="r.id">
-            <td>{{ r.name }}</td>
+            <td>
+              {{ r.name }}
+              <span v-if="r.manualCorrected" class="badge-corrected" :title="'補打/修改 by ' + (r.correctedBy || '管理者')">補打</span>
+            </td>
             <td>{{ r.email }}</td>
             <td>
               {{ r.punchIn || "—" }}
@@ -159,6 +164,9 @@
                   ? calcHours(r.punchIn, r.punchOut) + " h"
                   : "—"
               }}
+            </td>
+            <td>
+              <button class="btn-edit-sm" @click="openEdit(r)">修改</button>
             </td>
           </tr>
         </tbody>
@@ -259,6 +267,67 @@
         </div>
       </div>
     </div>
+
+    <!-- ── 修改打卡 modal ─────────────────────────────────── -->
+    <div v-if="editModal.show" class="modal-overlay" @click.self="editModal.show = false">
+      <div class="modal-box">
+        <h3>修改打卡記錄</h3>
+        <div class="modal-info">{{ editModal.name }}&emsp;{{ editModal.date }}</div>
+        <div class="form-row">
+          <label>上班時間（必填）</label>
+          <input type="time" v-model="editModal.punchIn" step="1" />
+        </div>
+        <div class="form-row">
+          <label>下班時間（留空 = 清除誤打卡）</label>
+          <div class="time-row">
+            <input type="time" v-model="editModal.punchOut" step="1" />
+            <button class="btn-clear-time" @click="editModal.punchOut = ''">清除</button>
+          </div>
+        </div>
+        <div v-if="editModal.err" class="modal-err">{{ editModal.err }}</div>
+        <div class="modal-btns">
+          <button class="btn-save" :disabled="editModal.saving" @click="saveEdit">
+            {{ editModal.saving ? "儲存中…" : "儲存" }}
+          </button>
+          <button class="btn-cancel" @click="editModal.show = false">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 補打卡 modal ───────────────────────────────────── -->
+    <div v-if="newRecModal.show" class="modal-overlay" @click.self="newRecModal.show = false">
+      <div class="modal-box">
+        <h3>補打卡（手動新增）</h3>
+        <div class="form-row">
+          <label>員工</label>
+          <select v-model="newRecModal.uid">
+            <option value="">請選擇員工</option>
+            <option v-for="u in allUsersCache" :key="u.id" :value="u.id">
+              {{ u.displayName || u.email }}
+            </option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>日期</label>
+          <input type="date" v-model="newRecModal.date" />
+        </div>
+        <div class="form-row">
+          <label>上班時間（必填）</label>
+          <input type="time" v-model="newRecModal.punchIn" step="1" />
+        </div>
+        <div class="form-row">
+          <label>下班時間（選填）</label>
+          <input type="time" v-model="newRecModal.punchOut" step="1" />
+        </div>
+        <div v-if="newRecModal.err" class="modal-err">{{ newRecModal.err }}</div>
+        <div class="modal-btns">
+          <button class="btn-save" :disabled="newRecModal.saving" @click="saveNewRecord">
+            {{ newRecModal.saving ? "儲存中…" : "儲存" }}
+          </button>
+          <button class="btn-cancel" @click="newRecModal.show = false">取消</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -304,6 +373,12 @@ const loadingRecords = ref(false);
 const allRecords = ref([]);
 const queryDate = ref(todayStr());
 const queryName = ref("");
+const allUsersCache = ref([]);
+
+// ── 修改打卡 modal ──────────────────────────────────────────
+const editModal = ref({ show: false, id: "", uid: "", name: "", date: "", punchIn: "", punchOut: "", saving: false, err: "" });
+// ── 補打卡 modal ────────────────────────────────────────────
+const newRecModal = ref({ show: false, uid: "", date: "", punchIn: "", punchOut: "", saving: false, err: "" });
 
 // ── 日期工具 ──────────────────────────────────────────────
 function todayStr() {
@@ -528,6 +603,9 @@ async function fetchRecords() {
     const nameMap = Object.fromEntries(
       allUsers.filter((u) => u.displayName).map((u) => [u.id, u.displayName]),
     );
+    allUsersCache.value = allUsers
+      .filter((u) => u.displayName)
+      .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || "", "zh-Hant"));
     allRecords.value = snaps.docs.map((d) => {
       const r = { id: d.id, ...d.data() };
       if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid];
@@ -550,6 +628,90 @@ const filteredRecords = computed(() => {
     (r) => r.name?.includes(kw) || r.email?.includes(kw),
   );
 });
+
+function toHMS(t) {
+  if (!t) return null;
+  return t.length === 5 ? t + ":00" : t;
+}
+
+function openEdit(r) {
+  editModal.value = {
+    show: true,
+    id: r.id,
+    uid: r.uid,
+    name: r.name,
+    date: r.date,
+    punchIn: (r.punchIn || "").slice(0, 5),
+    punchOut: (r.punchOut || "").slice(0, 5),
+    saving: false,
+    err: "",
+  };
+}
+
+async function saveEdit() {
+  const m = editModal.value;
+  if (!m.punchIn) { m.err = "請填上班時間"; return; }
+  m.saving = true; m.err = "";
+  try {
+    const upd = {
+      punchIn: toHMS(m.punchIn),
+      punchOut: toHMS(m.punchOut) ?? null,
+      manualCorrected: true,
+      correctedBy: userDoc?.name || currentUser?.displayName || currentUser?.email || "admin",
+      correctedAt: new Date().toISOString(),
+    };
+    // 清除下班打卡時，同時清掉舊的 GPS 距離欄位，避免殘留標籤
+    if (!m.punchOut) {
+      upd.punchOut = null;
+      upd.gpsDistOut = null;
+      upd.gpsLatOut = null;
+      upd.gpsLngOut = null;
+      upd.gpsAccuracyOut = null;
+      upd.locationVerifiedOut = null;
+    }
+    await updateDoc(doc(db, "attendance", m.id), upd);
+    editModal.value.show = false;
+    await fetchRecords();
+  } catch (e) {
+    m.err = "儲存失敗：" + e.message;
+  } finally {
+    m.saving = false;
+  }
+}
+
+function openNewRecord() {
+  if (!allUsersCache.value.length) fetchRecords();
+  newRecModal.value = { show: true, uid: "", date: queryDate.value, punchIn: "", punchOut: "", saving: false, err: "" };
+}
+
+async function saveNewRecord() {
+  const m = newRecModal.value;
+  if (!m.uid) { m.err = "請選擇員工"; return; }
+  if (!m.punchIn) { m.err = "請填上班時間"; return; }
+  m.saving = true; m.err = "";
+  try {
+    const employee = allUsersCache.value.find((u) => u.id === m.uid);
+    const id = `${m.date}_${m.uid}`;
+    await setDoc(doc(db, "attendance", id), {
+      uid: m.uid,
+      name: employee?.displayName || m.uid,
+      email: employee?.email || "",
+      date: m.date,
+      punchIn: toHMS(m.punchIn),
+      punchOut: toHMS(m.punchOut) ?? null,
+      manualCorrected: true,
+      correctedBy: userDoc?.name || currentUser?.displayName || currentUser?.email || "admin",
+      correctedAt: new Date().toISOString(),
+    });
+    newRecModal.value.show = false;
+    queryDate.value = m.date;
+    await fetchRecords();
+  } catch (e) {
+    m.err = "儲存失敗：" + e.message;
+  } finally {
+    m.saving = false;
+  }
+}
 
 // ── 個人出勤記錄 ──────────────────────────────────────────────
 const isLoggedIn = ref(false);
@@ -937,6 +1099,135 @@ tr.no-rec td {
   border-top: 1px solid #ccc;
   padding-top: 10px;
 }
+
+/* ── 補打/修改按鈕 ── */
+.btn-add-punch {
+  padding: 6px 14px;
+  background: #27ae60;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  align-self: flex-end;
+}
+.btn-add-punch:hover { background: #1e8449; }
+.btn-edit-sm {
+  padding: 3px 10px;
+  font-size: 0.8rem;
+  background: #2980b9;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-edit-sm:hover { background: #1a6090; }
+.badge-corrected {
+  background: #8e44ad;
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+  cursor: default;
+}
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 28px 28px 22px;
+  width: 340px;
+  max-width: 95vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+.modal-box h3 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+.modal-info {
+  font-size: 0.9rem;
+  color: #555;
+  margin-bottom: 16px;
+}
+.form-row {
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-row label {
+  font-size: 0.85rem;
+  color: #444;
+}
+.form-row input[type="time"],
+.form-row input[type="date"],
+.form-row select {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font-size: 0.95rem;
+  width: 100%;
+}
+.time-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.time-row input { flex: 1; }
+.btn-clear-time {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  background: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-clear-time:hover { background: #c0392b; }
+.modal-err {
+  color: #c0392b;
+  font-size: 0.88rem;
+  margin-bottom: 10px;
+}
+.modal-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.btn-save {
+  padding: 7px 20px;
+  background: #2c5e9e;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.btn-save:disabled { opacity: 0.6; cursor: default; }
+.btn-save:not(:disabled):hover { background: #1e4a7e; }
+.btn-cancel {
+  padding: 7px 16px;
+  background: #bbb;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.btn-cancel:hover { background: #999; }
 
 /* ── 列印樣式 ── */
 @media print {

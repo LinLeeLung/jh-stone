@@ -49,7 +49,20 @@ onUnmounted(() => {
 function handleLogin() {
   signInWithGoogle().catch((err) => {
     console.error("Google sign-in failed:", err);
-    alert("登入失敗，請檢查瀏覽器設定。");
+    const code = String(err?.code || "").toLowerCase();
+    if (code === "auth/unauthorized-domain") {
+      alert("登入失敗：目前網址未加入 Firebase Auth 授權網域。請在 Firebase Console > Authentication > Settings > Authorized domains 新增目前主機。\n目前主機：" + window.location.hostname);
+      return;
+    }
+    if (code === "auth/popup-blocked") {
+      alert("登入失敗：瀏覽器封鎖了登入彈出視窗，請允許此網站開啟彈出視窗後再試。");
+      return;
+    }
+    if (code === "auth/popup-closed-by-user") {
+      alert("登入已取消：登入視窗被關閉。");
+      return;
+    }
+    alert("登入失敗：" + (err?.message || "未知錯誤"));
   });
 }
 

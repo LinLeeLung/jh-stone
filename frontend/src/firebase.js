@@ -1068,6 +1068,7 @@ export async function getSystemSettings() {
             : { date: h.date || "", name: h.name || "" },
         )
       : [],
+    lunchSheetCsvUrl: data.lunchSheetCsvUrl || "",
   };
 }
 
@@ -1137,6 +1138,7 @@ export async function saveSystemSettings(payload = {}) {
             )
             .map((h) => ({ date: h.date, name: String(h.name || "") }))
         : [],
+      lunchSheetCsvUrl: String(payload.lunchSheetCsvUrl || "").trim(),
     },
     { merge: true },
   );

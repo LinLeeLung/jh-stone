@@ -28,6 +28,20 @@
           class="search-input"
         />
         <label class="checkbox-label">
+          敏感資料
+          <select v-model="sensitiveView" class="sensitive-select">
+            <option value="hidden">先隱藏</option>
+            <option value="all">全部顯示</option>
+            <option
+              v-for="s in sensitiveOptions"
+              :key="`sv-${s.empNo}`"
+              :value="String(s.empNo)"
+            >
+              {{ s.empNo }} {{ s.name }}
+            </option>
+          </select>
+        </label>
+        <label class="checkbox-label">
           <input type="checkbox" v-model="onlyActive" />
           只顯示在職
         </label>
@@ -78,7 +92,7 @@
               <td>{{ s.title }}</td>
               <td>{{ s.startDate }}</td>
               <td>{{ s.salaryType }}</td>
-              <td>{{ s.baseSalary?.toLocaleString() }}</td>
+              <td>{{ maskSensitive(s, s.baseSalary?.toLocaleString() || "—") }}</td>
               <td>
                 <span
                   :class="[
@@ -488,6 +502,7 @@ const isAdmin = ref(false);
 const staffList = ref([]);
 const search = ref("");
 const onlyActive = ref(true);
+const sensitiveView = ref("hidden");
 const saving = ref(false);
 const errMsg = ref("");
 
@@ -536,6 +551,27 @@ const filtered = computed(() => {
   });
   return list;
 });
+
+const sensitiveOptions = computed(() =>
+  staffList.value
+    .filter((s) => String(s.status || "") !== "離職")
+    .map((s) => ({
+      empNo: String(s.empNo ?? ""),
+      name: String(s.name ?? ""),
+    }))
+    .filter((s) => s.empNo),
+);
+
+function isSensitiveVisible(s) {
+  if (!s) return false;
+  if (sensitiveView.value === "all") return true;
+  if (sensitiveView.value === "hidden") return false;
+  return String(s.empNo ?? "") === String(sensitiveView.value);
+}
+
+function maskSensitive(s, value) {
+  return isSensitiveVisible(s) ? value : "＊＊＊";
+}
 
 // ── 初始化 ────────────────────────────────────────────────
 onMounted(async () => {
@@ -797,6 +833,14 @@ async function save() {
   font-size: 14px;
   cursor: pointer;
   user-select: none;
+}
+.sensitive-select {
+  height: 30px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0 8px;
+  font-size: 13px;
+  background: #fff;
 }
 .staff-count {
   font-size: 13px;

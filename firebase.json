@@ -10,6 +10,7 @@
     "rules": "storage.rules"
   },
   "hosting": {
+    "site": "jh-stone",
     "public": "frontend/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [

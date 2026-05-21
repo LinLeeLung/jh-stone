@@ -10,6 +10,17 @@ firebase-debug.*.log*
 # Firebase cache
 .firebase/
 
+# Service account credentials (never commit)
+functions/sa.json
+functions/sa.json.json
+functions/*.key.json
+
+# Temp build/deploy output files
+build-error.txt
+build-output.txt
+deploy-error.txt
+deploy-output.txt
+
 # Firebase config
 
 # Uncomment this if you'd like others to create their own Firebase project.

@@ -140,12 +140,12 @@ service cloud.firestore {
       allow read, write: if isAdminOrManager();
     }
 
-    // Attendance (打卡): staff can create/read their own record; admin/manager can read all
+    // Attendance (打卡): staff can create/read their own record; admin/manager can read/write all
     match /attendance/{docId} {
-      allow create: if isStaff()
-        && request.resource.data.uid == request.auth.uid;
-      allow update: if isStaff()
-        && resource.data.uid == request.auth.uid;
+      allow create: if isAdminOrManager()
+        || (isStaff() && request.resource.data.uid == request.auth.uid);
+      allow update: if isAdminOrManager()
+        || (isStaff() && resource.data.uid == request.auth.uid);
       // resource == null when the doc doesn't exist yet; allow the read so getDoc returns "not found"
       allow read: if isStaff()
         && (resource == null || resource.data.uid == request.auth.uid || isAdminOrManager());

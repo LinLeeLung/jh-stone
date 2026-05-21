@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { exec } from "node:child_process";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 
@@ -23,6 +24,14 @@ const appVersion = `v${pkg.version} (${buildTime} 台灣時間)`;
 export default defineConfig({
   plugins: [
     vue(),
+    {
+      name: "open-chrome",
+      configureServer(server) {
+        server.httpServer?.once("listening", () => {
+          exec('"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" http://localhost:5173');
+        });
+      },
+    },
     {
       name: "emit-version-json",
       generateBundle() {

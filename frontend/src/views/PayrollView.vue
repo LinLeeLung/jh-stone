@@ -11,6 +11,20 @@
         月份：
         <input type="month" v-model="selectedMonth" @change="loadAll" />
       </label>
+      <label class="reveal-label">
+        敏感資料：
+        <select v-model="sensitiveView" class="reveal-select">
+          <option value="hidden">先隱藏</option>
+          <option value="all">全部顯示</option>
+          <option
+            v-for="opt in sensitiveOptions"
+            :key="`pv-${opt.empNo}`"
+            :value="String(opt.empNo)"
+          >
+            {{ opt.empNo }} {{ opt.name }}
+          </option>
+        </select>
+      </label>
       <button
         v-if="isManager"
         class="btn-calc"
@@ -27,6 +41,20 @@
       >
         清除重複
       </button>
+      <button
+        v-if="isManager"
+        class="btn-lunch-import"
+        :disabled="importingLunch"
+        @click="importLunchFromSheets"
+        title="從 Google 試算表載入當月便當費"
+      >
+        {{ importingLunch ? "載入中…" : "載入便當費" }}
+      </button>
+      <span v-if="isManager" class="btn-remit-group">
+        <button class="btn-remit" @click="printRemittance('first')">5日</button>
+        <button class="btn-remit" @click="printRemittance('second')">10日</button>
+        <span class="btn-remit-label">匯款明細</span>
+      </span>
       <span v-if="calcMsg" :class="['calc-msg', calcMsgIsErr ? 'err' : 'ok']">{{
         calcMsg
       }}</span>
@@ -55,6 +83,7 @@
             <th>5日發薪</th>
             <th>10日發薪</th>
             <th>實領合計</th>
+            <th>申報所得</th>
             <th>明細</th>
           </tr>
         </thead>
@@ -63,30 +92,30 @@
             <td>{{ r.empNo }}</td>
             <td>{{ r.name }}</td>
             <td>{{ r.dept || "—" }}</td>
-            <td class="num">{{ r.baseSalary?.toLocaleString() }}</td>
+            <td class="num">{{ maskSensitive(r, r.baseSalary?.toLocaleString() || "—") }}</td>
             <td class="num">
-              {{ r.bonusTotal > 0 ? "+" + r.bonusTotal.toLocaleString() : "—" }}
+              {{ maskSensitive(r, r.bonusTotal > 0 ? "+" + r.bonusTotal.toLocaleString() : "—") }}
             </td>
             <td class="num ot">
-              {{ r.otPay > 0 ? "+" + r.otPay.toLocaleString() : "—" }}
+              {{ maskSensitive(r, r.otPay > 0 ? "+" + r.otPay.toLocaleString() : "—") }}
             </td>
             <td class="num meal">
-              {{
+              {{ maskSensitive(r,
                 r.mealAllowance > 0
                   ? "+" + r.mealAllowance.toLocaleString()
-                  : "—"
-              }}
+                  : "—",
+              ) }}
             </td>
             <td class="num deduct">
-              {{
+              {{ maskSensitive(r,
                 r.leaveDeduction > 0
                   ? "−" + r.leaveDeduction.toLocaleString()
-                  : "—"
-              }}
+                  : "—",
+              ) }}
             </td>
             <td class="num deduct">
               <input
-                v-if="isManager"
+                v-if="isManager && isSensitiveVisible(r)"
                 type="number"
                 class="lunch-input"
                 :value="r.lunchFee || 0"
@@ -94,18 +123,24 @@
                 @change="saveLunchFee(r, $event.target.value)"
               />
               <span v-else>{{
-                (r.lunchFee || 0) > 0
+                maskSensitive(r, (r.lunchFee || 0) > 0
                   ? "−" + (r.lunchFee || 0).toLocaleString()
-                  : "—"
+                  : "—")
               }}</span>
             </td>
-            <td class="num gross">{{ r.firstPayment?.toLocaleString() ?? '—' }}</td>
+            <td class="num gross">{{ maskSensitive(r, r.firstPayment?.toLocaleString() ?? '—') }}</td>
             <td class="num" :class="(r.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'">
-              {{ r.secondPayment?.toLocaleString() ?? '—' }}
+              {{ maskSensitive(r, r.secondPayment?.toLocaleString() ?? '—') }}
             </td>
-            <td class="num gross">{{ r.grossPay?.toLocaleString() }}</td>
+            <td class="num gross">{{ maskSensitive(r, r.grossPay?.toLocaleString() || '—') }}</td>
+            <td class="num gross">{{ maskSensitive(r, calcReportedIncome(r).toLocaleString()) }}</td>
             <td>
-              <button class="btn-sm btn-detail" @click="openDetail(r)">
+              <button
+                class="btn-sm btn-detail"
+                :disabled="!isSensitiveVisible(r)"
+                :title="isSensitiveVisible(r) ? '' : '請先在上方選單選擇個人或全部顯示'"
+                @click="openDetail(r)"
+              >
                 {{ t("payroll_detail") }}
               </button>
             </td>
@@ -114,9 +149,10 @@
         <tfoot>
           <tr>
             <td colspan="9" class="total-label">合計</td>
-            <td class="num gross">{{ totalFirst.toLocaleString() }}</td>
-            <td class="num gross">{{ totalSecond.toLocaleString() }}</td>
-            <td class="num gross">{{ totalGross.toLocaleString() }}</td>
+            <td class="num gross">{{ maskTotal(totalFirst) }}</td>
+            <td class="num gross">{{ maskTotal(totalSecond) }}</td>
+            <td class="num gross">{{ maskTotal(totalGross) }}</td>
+            <td class="num gross">{{ maskTotal(totalReported) }}</td>
             <td></td>
           </tr>
         </tfoot>
@@ -370,18 +406,6 @@
                 −{{ detailRecord.absentDeduction.toLocaleString() }}
               </td>
             </tr>
-            <template v-if="detailRecord.absentDetail && detailRecord.absentDetail.length">
-              <tr
-                v-for="(d, i) in detailRecord.absentDetail"
-                :key="'abs' + i"
-                class="sub"
-              >
-                <th>{{ d }} 曠職</th>
-                <td class="num deduct">
-                  −{{ Math.round(detailRecord.absentDeduction / detailRecord.absentDays).toLocaleString() }}
-                </td>
-              </tr>
-            </template>
             <tr v-if="(detailRecord.laborInsurance || 0) > 0">
               <th>勞保費</th>
               <td class="num deduct">
@@ -452,6 +476,12 @@
               <th>實領薪資</th>
               <td class="num gross">
                 {{ detailRecord.grossPay?.toLocaleString() }}
+              </td>
+            </tr>
+            <tr class="sep">
+              <th>申報所得（投保薪資-曠職/遲到早退）</th>
+              <td class="num">
+                {{ calcReportedIncome(detailRecord).toLocaleString() }}
               </td>
             </tr>
             <tr class="sep">
@@ -545,16 +575,79 @@ const loanForm = ref({
 });
 
 const staffList = ref([]);
+const staffBankMap = ref(new Map());
+const sensitiveView = ref("hidden");
+const lunchSheetUrl = ref("");
+const importingLunch = ref(false);
+
+const sensitiveOptions = computed(() => {
+  const activeEmpNos = new Set(
+    staffList.value
+      .filter((s) => String(s.status || "") !== "離職")
+      .map((s) => String(s.empNo ?? "")),
+  );
+  return allRecords.value
+    .map((r) => ({
+      empNo: String(r.empNo ?? ""),
+      name: String(r.name ?? ""),
+    }))
+    .filter((r) => r.empNo && activeEmpNos.has(r.empNo))
+    .sort((a, b) => {
+      const aNum = Number(a.empNo);
+      const bNum = Number(b.empNo);
+      if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+      return a.empNo.localeCompare(b.empNo, "zh-Hant", { numeric: true });
+    });
+});
+
+const visibleSensitiveRecords = computed(() =>
+  allRecords.value.filter((r) => isSensitiveVisible(r)),
+);
 
 const totalGross = computed(() =>
-  allRecords.value.reduce((sum, r) => sum + (r.grossPay || 0), 0),
+  visibleSensitiveRecords.value.reduce((sum, r) => sum + (r.grossPay || 0), 0),
 );
 const totalFirst = computed(() =>
-  allRecords.value.reduce((sum, r) => sum + (r.firstPayment || 0), 0),
+  visibleSensitiveRecords.value.reduce((sum, r) => sum + (r.firstPayment || 0), 0),
 );
 const totalSecond = computed(() =>
-  allRecords.value.reduce((sum, r) => sum + (r.secondPayment || 0), 0),
+  visibleSensitiveRecords.value.reduce((sum, r) => sum + (r.secondPayment || 0), 0),
 );
+const totalReported = computed(() =>
+  visibleSensitiveRecords.value.reduce((sum, r) => sum + calcReportedIncome(r), 0),
+);
+
+function isSensitiveVisible(r) {
+  if (!r) return false;
+  if (sensitiveView.value === "all") return true;
+  if (sensitiveView.value === "hidden") return false;
+  return String(r.empNo ?? "") === String(sensitiveView.value);
+}
+
+function maskSensitive(r, value) {
+  return isSensitiveVisible(r) ? value : "＊＊＊";
+}
+
+function maskTotal(value) {
+  return sensitiveView.value === "hidden" ? "＊＊＊" : value.toLocaleString();
+}
+
+function calcReportedIncome(r) {
+  if (!r) return 0;
+  if (r.laborInsuranceSalaryBase != null) {
+    return Math.max(
+      0,
+      (Number(r.laborInsuranceSalaryBase) || 0) -
+        (Number(r.absentDeduction) || 0) -
+        (Number(r.lateEarlyDeduction) || 0),
+    );
+  }
+  if (r.reportedIncome != null) return Math.max(0, Number(r.reportedIncome) || 0);
+  return Math.max(
+    0,
+    (Number(r.firstPayment) || 0) - (Number(r.otPayOfficial) || 0),
+  );
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────
 onMounted(async () => {
@@ -566,11 +659,137 @@ onMounted(async () => {
   await loadPayroll();
   if (isManager.value) {
     await Promise.all([loadStaff(), loadLoans(), loadLoanRate()]);
+    try {
+      const cfg = await getSystemSettings();
+      lunchSheetUrl.value = cfg.lunchSheetCsvUrl || "";
+    } catch (_) {}
   }
 });
 
 async function loadAll() {
   await loadPayroll();
+}
+
+// ── 便當費匯入 ──────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const row = [];
+    let inQuote = false;
+    let cell = "";
+    for (const ch of line) {
+      if (ch === '"') {
+        inQuote = !inQuote;
+      } else if (ch === "," && !inQuote) {
+        row.push(cell.trim());
+        cell = "";
+      } else {
+        cell += ch;
+      }
+    }
+    row.push(cell.trim());
+    rows.push(row);
+  }
+  return rows;
+}
+
+async function importLunchFromSheets() {
+  if (!lunchSheetUrl.value) {
+    calcMsg.value = "請先至「系統設定」儲存便當費試算表 CSV 網址";
+    calcMsgIsErr.value = true;
+    setTimeout(() => { calcMsg.value = ""; }, 5000);
+    return;
+  }
+  if (!allRecords.value.length) {
+    calcMsg.value = "尚無薪資資料，請先計算薪資";
+    calcMsgIsErr.value = true;
+    setTimeout(() => { calcMsg.value = ""; }, 5000);
+    return;
+  }
+  importingLunch.value = true;
+  calcMsg.value = "";
+  try {
+    const resp = await fetch(lunchSheetUrl.value);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    // 去掉 BOM，正規化各種空白
+    const raw = (await resp.text()).replace(/^\uFEFF/, "");
+    const rows = parseCSV(raw);
+
+    // 找表頭列（含「月份」的那行，放寬比對）
+    const normalize = (s) => s.replace(/\s/g, "");
+    let headerRowIdx = -1;
+    let monthColIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const idx = rows[i].findIndex((c) => normalize(c).includes("月份"));
+      if (idx >= 0) {
+        headerRowIdx = i;
+        monthColIdx = idx;
+        break;
+      }
+    }
+    if (headerRowIdx < 0) {
+      // 顯示診斷資訊
+      const preview = rows
+        .slice(0, 6)
+        .map((r, i) => `第${i + 1}列: [${r.slice(0, 8).join(" | ")}]`)
+        .join("\n");
+      alert(`找不到含「月份」的表頭列。CSV 前6列內容：\n\n${preview}`);
+      throw new Error("找不到含「月份」的表頭列（詳見彈出視窗）");
+    }
+
+    const headerRow = rows[headerRowIdx];
+    const empNames = headerRow.slice(monthColIdx + 1);
+
+    // 找員工編號列（H欄含「員工編號」）
+    let empNoRow = null;
+    for (let i = headerRowIdx + 1; i < rows.length; i++) {
+      if (normalize(rows[i][monthColIdx] || "").includes("員工編號")) {
+        empNoRow = rows[i];
+        break;
+      }
+    }
+
+    // 找當月資料列（H欄數字 = 當月月份）
+    const currentMonth = Number(selectedMonth.value.split("-")[1]);
+    const dataRow = rows.find(
+      (r, i) => i > headerRowIdx && Number(r[monthColIdx]) === currentMonth,
+    );
+    if (!dataRow) throw new Error(`找不到第 ${currentMonth} 月的資料列`);
+
+    // 建立對照表：員工編號 → 金額（主要）、姓名 → 金額（備用）
+    const empNoMap = {};
+    const nameMap = {};
+    for (let i = 0; i < empNames.length; i++) {
+      const amount = Number(dataRow[monthColIdx + 1 + i]) || 0;
+      if (amount <= 0) continue;
+      const name = (empNames[i] || "").trim();
+      const empNo = empNoRow ? String(Number(empNoRow[monthColIdx + 1 + i]) || "") : "";
+      if (empNo) empNoMap[empNo] = amount;
+      if (name) nameMap[name] = amount;
+    }
+
+    // 更新薪資記錄（優先用員工編號比對，再試姓名）
+    let updated = 0;
+    for (const record of allRecords.value) {
+      const empNoKey = String(record.empNo ?? "").trim();
+      const amount = empNoMap[empNoKey] ?? nameMap[(record.name || "").trim()];
+      if (amount !== undefined) {
+        await updatePayrollLunchFee(record.id, amount);
+        record.lunchFee = amount;
+        updated++;
+      }
+    }
+    calcMsg.value = `已載入 ${currentMonth} 月便當費，更新 ${updated} 人`;
+    calcMsgIsErr.value = false;
+    setTimeout(() => { calcMsg.value = ""; }, 5000);
+  } catch (e) {
+    calcMsg.value = "載入失敗：" + e.message;
+    calcMsgIsErr.value = true;
+    setTimeout(() => { calcMsg.value = ""; }, 15000);
+  } finally {
+    importingLunch.value = false;
+  }
 }
 
 // ── Payroll ────────────────────────────────────────────────────────────────
@@ -597,9 +816,15 @@ async function loadPayroll() {
         if (existingIsOld && !newIsOld) byEmpNo[key] = r;
       }
     }
-    allRecords.value = Object.values(byEmpNo).sort((a, b) =>
-      String(a.empNo ?? "").localeCompare(String(b.empNo ?? "")),
-    );
+    allRecords.value = Object.values(byEmpNo).sort((a, b) => {
+      const aEmpNo = String(a.empNo ?? "").trim();
+      const bEmpNo = String(b.empNo ?? "").trim();
+      const aNum = Number(aEmpNo);
+      const bNum = Number(bEmpNo);
+      const bothNumeric = Number.isFinite(aNum) && Number.isFinite(bNum);
+      if (bothNumeric) return aNum - bNum;
+      return aEmpNo.localeCompare(bEmpNo, "zh-Hant", { numeric: true });
+    });
   } finally {
     loading.value = false;
   }
@@ -689,12 +914,16 @@ async function loadLoans() {
 
 async function loadStaff() {
   const snap = await getDocs(collection(db, "staff"));
-  staffList.value = snap.docs
-    .map((d) => ({
-      empNo: d.data().empNo || d.id,
-      name: d.data().name || "",
-      status: d.data().status || "",
-    }))
+  const all = snap.docs.map((d) => ({
+    empNo: String(d.data().empNo || d.id),
+    name: d.data().name || "",
+    status: d.data().status || "",
+    idNo: d.data().idNo || "",
+    bankName: d.data().bankName || "",
+    bankAccount: d.data().bankAccount || "",
+  }));
+  staffBankMap.value = new Map(all.map((s) => [s.empNo, s]));
+  staffList.value = all
     .filter((s) => s.name && s.status !== "離職")
     .sort((a, b) => String(a.empNo).localeCompare(String(b.empNo)));
 }
@@ -746,6 +975,109 @@ function n(v) {
   return (Number(v) || 0).toLocaleString();
 }
 
+function buildAttendanceRows(r, mode) {
+  const byDate = new Map();
+  const add = (date, text) => {
+    const d = String(date || "").trim();
+    if (!d || !text) return;
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(text);
+  };
+
+  const otRows = mode === "first" ? (r.otDetailOfficial || []) : (r.otDetail || []);
+  for (const ot of otRows) {
+    add(ot.date, `加班 ${ot.hours || 0}h`);
+  }
+  for (const me of r.mealDetail || []) {
+    add(me.date, `打卡 ${me.punchIn || "--:--"}~${me.punchOut || "--:--"}`);
+  }
+  for (const le of r.lateEarlyDetail || []) {
+    const parts = [];
+    if ((le.lateMins || 0) > 0) parts.push(`遲到${le.lateMins}分`);
+    if ((le.earlyMins || 0) > 0) parts.push(`早退${le.earlyMins}分`);
+    add(le.date, parts.join("/"));
+  }
+  for (const d of r.absentDetail || []) {
+    add(d, "曠職");
+  }
+
+  const dates = Array.from(byDate.keys()).sort((a, b) => a.localeCompare(b));
+  if (!dates.length) {
+    return '<tr><th>—</th><td>本期無出勤明細</td></tr>';
+  }
+  return dates
+    .map((date) => {
+      const text = byDate.get(date).filter(Boolean).join("、");
+      return `<tr><th>${date}</th><td>${text}</td></tr>`;
+    })
+    .join("");
+}
+
+function printRemittance(mode) {
+  const sorted = [...allRecords.value].sort((a, b) => {
+    const aNum = Number(a.empNo);
+    const bNum = Number(b.empNo);
+    if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+    return String(a.empNo).localeCompare(String(b.empNo), 'zh-Hant', { numeric: true });
+  });
+
+  const label = mode === 'first' ? '5日' : '10日';
+  const title = `${selectedMonth.value} ${label}匯款明細`;
+
+  const rows = sorted.map((r, i) => {
+    const seq = String(i + 1).padStart(6, '0');
+    const s = staffBankMap.value.get(String(r.empNo)) || {};
+    const bankName = s.bankName || '—';
+    const bankAccount = s.bankAccount || '—';
+    const idNo = s.idNo || '';
+    const amount = mode === 'first' ? (r.firstPayment || 0) : (r.secondPayment || 0);
+    return `<tr>
+      <td>${seq}</td>
+      <td>${r.empNo || ''}</td>
+      <td>${r.name || ''}${idNo ? '<br><span class="sub">' + idNo + '</span>' : ''}</td>
+      <td>${bankName}</td>
+      <td>${bankAccount}</td>
+      <td class="num">${Number(amount).toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+
+  const total = sorted.reduce((sum, r) =>
+    sum + Number(mode === 'first' ? (r.firstPayment || 0) : (r.secondPayment || 0)), 0);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${title}</title>
+<style>
+body { font-family: 'Arial', sans-serif; font-size: 12px; margin: 20px; }
+h2 { text-align: center; margin-bottom: 12px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #999; padding: 5px 8px; text-align: left; vertical-align: middle; }
+th { background: #f0f0f0; white-space: nowrap; }
+.num { text-align: right; white-space: nowrap; }
+.sub { font-size: 11px; color: #555; }
+.total-row td { font-weight: bold; border-top: 2px solid #333; }
+@media print { body { margin: 10px; } }
+</style></head><body>
+<h2>${title}</h2>
+<table>
+<thead><tr>
+  <th>序號</th><th>員工編號</th><th>員工姓名<br>身分證字號</th>
+  <th>收款銀行</th><th>收款帳號</th><th>金額</th>
+</tr></thead>
+<tbody>${rows}</tbody>
+<tfoot><tr class="total-row">
+  <td colspan="5" class="num">合計</td>
+  <td class="num">${Number(total).toLocaleString()}</td>
+</tr></tfoot>
+</table>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=960,height=820');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.onload = () => { win.print(); win.onafterprint = () => win.close(); };
+}
+
 function printSlip(r, mode) {
   const title =
     mode === 'first'
@@ -794,6 +1126,7 @@ function printSlip(r, mode) {
       ${deductRow('借款本金', r.loanPrincipal)}
       ${deductRow('借款利息', r.loanInterest)}
       <tr class="total-row"><th>5日實發</th><td class="gross">${n(r.firstPayment)}</td></tr>
+      <tr><th>申報所得（投保薪資-曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
     `;
   } else {
     const bonuses = [r.bonus1, r.bonus2, r.bonus3, r.bonus4, r.bonus5]
@@ -842,7 +1175,7 @@ function printSlip(r, mode) {
       ${r.mealAllowance > 0 ? `<tr><th>伙食費合計</th><td class="meal">+${n(r.mealAllowance)}</td></tr>${mealRows}` : ''}
       ${r.leaveDeduction > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ''}
       ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ''}
-      ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>${(r.absentDetail || []).map(d => `<tr class="sub"><th>${d} 曠職</th><td class="deduct">−${n(Math.round(r.absentDeduction / r.absentDays))}</td></tr>`).join('')}` : ''}
+      ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
       ${deductRow('勞保費', r.laborInsurance)}
       ${deductRow('健保費', r.healthInsurance)}
       ${deductRow('眷屬健保費', r.dependentHealth)}
@@ -855,10 +1188,13 @@ function printSlip(r, mode) {
       ${deductRow('借款本金', r.loanPrincipal)}
       ${deductRow('借款利息', r.loanInterest)}
       <tr class="total-row"><th>實領薪資</th><td class="gross">${n(r.grossPay)}</td></tr>
+      <tr class="sep"><th>申報所得（投保薪資-曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
       <tr class="sep"><th>5日發薪（投保薪資＋申報加班費）</th><td class="gross">${n(r.firstPayment)}</td></tr>
       <tr><th>10日發薪（補差額）</th><td class="${(r.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'}">${n(r.secondPayment)}</td></tr>
     `;
   }
+
+  const attendanceRows = buildAttendanceRows(r, mode);
 
   const html = `<!DOCTYPE html><html lang="zh-Hant"><head>
     <meta charset="UTF-8"><title>${title}</title>
@@ -866,10 +1202,16 @@ function printSlip(r, mode) {
       body { font-family: 'Noto Sans TC', Arial, sans-serif; font-size: 13px; margin: 24px; color: #222; }
       h2 { font-size: 1.1rem; margin-bottom: 4px; }
       p.sub { color: #555; margin: 2px 0 14px; font-size: 12px; }
-      table { width: auto; min-width: 320px; border-collapse: collapse; margin-top: 8px; }
+      .slip-layout { display: grid; grid-template-columns: 420px 1fr; gap: 22px; align-items: start; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
       th, td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
       th { text-align: left; white-space: nowrap; padding-right: 2rem; font-weight: 500; color: #444; }
       td { text-align: right; min-width: 80px; }
+      .att-wrap { border: 1px solid #d9d9d9; border-radius: 8px; padding: 10px 12px; }
+      .att-title { font-weight: 700; margin: 0 0 6px; color: #1f2937; }
+      .att-table th, .att-table td { font-size: 12px; padding: 4px 6px; border-bottom: 1px dashed #ddd; }
+      .att-table th { width: 118px; padding-right: 8px; }
+      .att-table td { text-align: left; min-width: 0; }
       tr.sep th, tr.sep td { border-top: 2px solid #aaa; }
       tr.sub th, tr.sub td { font-size: 11px; color: #888; padding-left: 18px; }
       tr.total-row th, tr.total-row td { border-top: 2px solid #555; font-weight: 700; font-size: 1.05em; }
@@ -877,15 +1219,24 @@ function printSlip(r, mode) {
       .gross { color: #1a237e; font-weight: 700; }
       .ot { color: #2e7d32; }
       .meal { color: #e65100; }
-      @media print { @page { margin: 1.5cm; } }
+      @media print {
+        @page { margin: 1.2cm; }
+        .slip-layout { grid-template-columns: 53% 47%; gap: 14px; }
+      }
     </style>
   </head><body>
     <h2>${title}</h2>
     <p class="sub">列印時間：${new Date().toLocaleString('zh-TW')}</p>
-    <table><tbody>${bodyRows}</tbody></table>
+    <div class="slip-layout">
+      <table><tbody>${bodyRows}</tbody></table>
+      <section class="att-wrap">
+        <p class="att-title">出勤記錄</p>
+        <table class="att-table"><tbody>${attendanceRows}</tbody></table>
+      </section>
+    </div>
   </body></html>`;
 
-  const win = window.open('', '_blank', 'width=480,height=820');
+  const win = window.open('', '_blank', 'width=960,height=820');
   win.document.write(html);
   win.document.close();
   win.focus();
@@ -903,6 +1254,7 @@ function bonusList(r) {
 }
 
 function openDetail(r) {
+  if (!isSensitiveVisible(r)) return;
   detailRecord.value = r;
 }
 
@@ -942,6 +1294,18 @@ function mealTotals(r) {
   padding: 0.35rem 0.6rem;
   font-size: 0.95rem;
 }
+.reveal-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.92rem;
+}
+.reveal-select {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.9rem;
+}
 .btn-calc {
   background: #4a6fa5;
   color: #fff;
@@ -967,6 +1331,53 @@ function mealTotals(r) {
 }
 .btn-cleanup:hover {
   background: #96281b;
+}
+.btn-lunch-import {
+  background: #2e7d32;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  margin-left: 6px;
+}
+.btn-lunch-import:hover:not(:disabled) {
+  background: #1b5e20;
+}
+.btn-lunch-import:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-remit-group {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  border: 1px solid #1565c0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.btn-remit {
+  background: #1565c0;
+  color: #fff;
+  border: none;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.btn-remit + .btn-remit {
+  border-left: 1px solid #0d47a1;
+}
+.btn-remit:hover {
+  background: #0d47a1;
+}
+.btn-remit-label {
+  background: #e3f2fd;
+  color: #1565c0;
+  font-size: 0.85rem;
+  padding: 0 0.6rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .calc-msg {
   font-size: 0.9rem;
@@ -1036,6 +1447,10 @@ function mealTotals(r) {
   cursor: pointer;
   font-size: 0.82rem;
   color: #1a237e;
+}
+.btn-detail:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .lunch-input {
   width: 70px;

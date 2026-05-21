@@ -63,6 +63,9 @@
         <strong>範例</strong>：5 月 15 日到職，月薪 40,000<br>
         40,000 × 17 ÷ 31 ≈ <strong>21,935 元</strong>
       </div>
+      <h4>日薪制底薪</h4>
+      <p>適用條件：薪資類型為日薪制。</p>
+      <p><code>當月底薪 = 日薪 × 當月實際出勤天數（有 punchIn 與 punchOut）</code></p>
     </section>
 
     <!-- 四、觸發方式 -->

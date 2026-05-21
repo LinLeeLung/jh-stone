@@ -8780,6 +8780,7 @@ async function runPayrollCalculation(yyyyMM) {
 
     // 新進員工未滿月：按到職日比例計算底薪（月薪制才適用）
     let effectiveBase = base;
+    let attendanceDays = 0;
     if (salType === "月薪" && s.startDate) {
       const startDateStr = String(s.startDate).slice(0, 10); // "YYYY-MM-DD"
       const startYYYYMM = startDateStr.slice(0, 7).replace("-", ""); // "YYYYMM"
@@ -8902,6 +8903,13 @@ async function runPayrollCalculation(yyyyMM) {
             r.punchIn &&
             r.punchOut,
         );
+      attendanceDays = new Set(
+        attRecords.map((r) => String(r.date || "").slice(0, 10)),
+      ).size;
+      if (salType === "日薪") {
+        // 日薪制：底薪依當月實際出勤天數計算
+        effectiveBase = Math.round(base * attendanceDays);
+      }
       for (const att of attRecords) {
         // 補齊秒數，確保字串比較正確（"08:30" → "08:30:00"）
         const inT =
@@ -9113,7 +9121,6 @@ async function runPayrollCalculation(yyyyMM) {
         loanPrincipal -
         loanInterest,
     );
-
     // 分兩次發薪：5日依投保薪資為底薪、扣固定項目後先發；10日補實際差額
     const laborInsuranceSalaryBase = Math.max(
       0,
@@ -9135,6 +9142,11 @@ async function runPayrollCalculation(yyyyMM) {
         loanPrincipal -
         loanInterest -
         absentDeduction,
+    );
+    // 申報所得 = 投保薪資 - 曠職扣款 - 遲到/早退扣款
+    const reportedIncome = Math.max(
+      0,
+      laborInsuranceSalaryBase - absentDeduction - lateEarlyDeduction,
     );
     const secondPayment = grossPay - firstPayment;
 
@@ -9167,6 +9179,7 @@ async function runPayrollCalculation(yyyyMM) {
         mealDetail,
         leaveDetail,
         leaveDeduction,
+        attendanceDays,
         lateEarlyDeduction,
         lateEarlyDetail,
         absentDeduction,
@@ -9187,6 +9200,7 @@ async function runPayrollCalculation(yyyyMM) {
         firstPayment,
         secondPayment,
         grossPay,
+        reportedIncome,
         status: "draft",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
