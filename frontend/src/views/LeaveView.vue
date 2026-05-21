@@ -780,6 +780,9 @@ import {
   getDownloadURL,
 } from "firebase/storage";
 import { t, tLeaveType } from "../locale";
+import { useRoute } from "vue-router";
+
+const route = useRoute();
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const DOC_REQUIRED = ["病假", "喪假", "公假"];
@@ -1170,6 +1173,15 @@ onMounted(async () => {
   // Load my quota
   const quotaSnap = await getDoc(doc(db, "leaveQuota", currentUser.value.uid));
   if (quotaSnap.exists()) myQuota.value = quotaSnap.data();
+
+  // 從 query 自動切到審核分頁（從打卡頁的待審 banner 連結進來）
+  if (route.query.tab === "approve" && isApprover.value) {
+    try {
+      switchApprove();
+    } catch (_) {
+      tab.value = "approve";
+    }
+  }
 });
 
 // ── Submit leave ───────────────────────────────────────────────────────────

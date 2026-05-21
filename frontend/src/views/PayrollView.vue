@@ -55,6 +55,14 @@
         <button class="btn-remit" @click="printRemittance('second')">10日</button>
         <span class="btn-remit-label">匯款明細</span>
       </span>
+      <button
+        v-if="isManager"
+        class="btn-annual"
+        @click="openAnnualReport"
+        title="年度薪資彙整（報稅扣繳憑單彙整用）"
+      >
+        年度報表
+      </button>
       <span v-if="calcMsg" :class="['calc-msg', calcMsgIsErr ? 'err' : 'ok']">{{
         calcMsg
       }}</span>
@@ -508,6 +516,192 @@
         </div>
       </div>
     </div>
+
+    <!-- 年度報表 modal -->
+    <div
+      v-if="showAnnualReport"
+      class="modal-overlay"
+      @click.self="closeAnnualReport"
+    >
+      <div class="modal-box modal-box-wide">
+        <h3>年度薪資彙整報告（報稅扣繳憑單彙整用）</h3>
+
+        <div class="annual-form">
+          <label class="af-item">
+            年度：
+            <input
+              type="number"
+              v-model="annualYear"
+              min="2000"
+              max="2100"
+              class="annual-year-input"
+            />
+          </label>
+          <label class="af-item">
+            員工：
+            <select v-model="annualEmpNo" class="annual-emp-select">
+              <option value="">全部員工（不含離職）</option>
+              <option
+                v-for="s in staffList"
+                :key="`annual-${s.empNo}`"
+                :value="s.empNo"
+              >
+                {{ s.empNo }} {{ s.name }}
+              </option>
+            </select>
+          </label>
+          <button
+            class="btn-query"
+            :disabled="annualLoading"
+            @click="loadAnnualReport"
+          >
+            {{ annualLoading ? "查詢中…" : "查詢" }}
+          </button>
+        </div>
+
+        <fieldset class="annual-cols">
+          <legend>欄位選擇</legend>
+          <label
+            v-for="c in annualColumnDefs"
+            :key="`acol-${c.key}`"
+            class="annual-col-item"
+          >
+            <input
+              type="checkbox"
+              v-model="annualColumns[c.key]"
+              :disabled="c.required"
+            />
+            {{ c.label }}<span v-if="c.required" class="req-tag">（必選）</span>
+          </label>
+        </fieldset>
+
+        <div v-if="annualResult" class="annual-result">
+          <p class="annual-summary">
+            {{ annualResult.year }} 年度 —
+            <template v-if="annualResult.mode === 'single'">
+              {{ annualResult.staff.empNo }} {{ annualResult.staff.name }}（{{
+                annualResult.rows.filter((r) => r.exists).length
+              }} 個月有資料）
+            </template>
+            <template v-else>
+              全公司 {{ annualResult.rows.length }} 人
+            </template>
+          </p>
+          <div class="annual-table-wrap">
+            <table class="annual-table">
+              <thead>
+                <tr v-if="annualResult.mode === 'single'">
+                  <th>月份</th>
+                  <th
+                    v-for="c in annualResult.columns"
+                    :key="`hs-${c.key}`"
+                    class="num"
+                  >
+                    {{ c.label }}
+                  </th>
+                </tr>
+                <tr v-else>
+                  <th>工號</th>
+                  <th>姓名</th>
+                  <th>部門</th>
+                  <th
+                    v-for="c in annualResult.columns"
+                    :key="`ha-${c.key}`"
+                    class="num"
+                  >
+                    {{ c.label }}
+                  </th>
+                  <th class="num">月數</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-if="annualResult.mode === 'single'">
+                  <tr
+                    v-for="row in annualResult.rows"
+                    :key="`as-${row.month}`"
+                    :class="row.exists ? '' : 'annual-empty'"
+                  >
+                    <th>{{ row.monthLabel }}</th>
+                    <td
+                      v-for="c in annualResult.columns"
+                      :key="`as-${row.month}-${c.key}`"
+                      class="num"
+                    >
+                      {{ (row.values[c.key] || 0).toLocaleString() }}
+                    </td>
+                  </tr>
+                </template>
+                <template v-else>
+                  <tr
+                    v-for="row in annualResult.rows"
+                    :key="`aa-${row.empNo}`"
+                  >
+                    <th>{{ row.empNo }}</th>
+                    <td>{{ row.name }}</td>
+                    <td>{{ row.dept || "—" }}</td>
+                    <td
+                      v-for="c in annualResult.columns"
+                      :key="`aa-${row.empNo}-${c.key}`"
+                      class="num"
+                    >
+                      {{ (row.values[c.key] || 0).toLocaleString() }}
+                    </td>
+                    <td class="num">{{ row.monthCount }}</td>
+                  </tr>
+                </template>
+              </tbody>
+              <tfoot>
+                <tr
+                  v-if="annualResult.mode === 'single'"
+                  class="annual-total"
+                >
+                  <th>年度合計</th>
+                  <td
+                    v-for="c in annualResult.columns"
+                    :key="`ts-${c.key}`"
+                    class="num"
+                  >
+                    {{ (annualResult.totals[c.key] || 0).toLocaleString() }}
+                  </td>
+                </tr>
+                <tr v-else class="annual-total">
+                  <th colspan="3">全公司合計</th>
+                  <td
+                    v-for="c in annualResult.columns"
+                    :key="`ta-${c.key}`"
+                    class="num"
+                  >
+                    {{ (annualResult.totals[c.key] || 0).toLocaleString() }}
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+        <div v-else-if="!annualLoading" class="annual-hint">
+          請選擇年度與員工後按「查詢」。
+        </div>
+
+        <div class="modal-actions">
+          <button
+            v-if="annualResult"
+            class="btn-sm btn-print"
+            @click="printAnnualReport"
+          >
+            列印 PDF
+          </button>
+          <button
+            v-if="annualResult"
+            class="btn-sm"
+            @click="exportAnnualCSV"
+          >
+            匯出 CSV
+          </button>
+          <button class="btn-sm" @click="closeAnnualReport">關閉</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -647,6 +841,341 @@ function calcReportedIncome(r) {
     0,
     (Number(r.firstPayment) || 0) - (Number(r.otPayOfficial) || 0),
   );
+}
+
+// ── 年度報表 (報稅彙整用) ──────────────────────────────────────────────────
+const annualColumnDefs = [
+  { key: "reportedIncome", label: "申報所得", required: true },
+  { key: "laborInsuranceSalaryBase", label: "投保薪資" },
+  { key: "otPayOfficial", label: "加班費(申報)" },
+  { key: "otPay", label: "加班費(實際)" },
+  { key: "bonusTotal", label: "獎金" },
+  { key: "mealAllowance", label: "伙食津貼" },
+  { key: "laborInsurance", label: "勞保自付" },
+  { key: "healthInsurance", label: "健保自付" },
+  { key: "dependentHealth", label: "眷屬健保" },
+  { key: "lunchFee", label: "便當費" },
+  { key: "loanPrincipal", label: "借款本金" },
+  { key: "loanInterest", label: "借款利息" },
+  { key: "leaveDeduction", label: "請假扣薪" },
+  { key: "absentDeduction", label: "曠職扣薪" },
+  { key: "lateEarlyDeduction", label: "遲到/早退扣薪" },
+  { key: "grossPay", label: "實領合計" },
+  { key: "firstPayment", label: "5日發薪" },
+  { key: "secondPayment", label: "10日發薪" },
+];
+const DEFAULT_ANNUAL_CHECKED = new Set([
+  "reportedIncome",
+  "otPayOfficial",
+  "laborInsurance",
+  "healthInsurance",
+  "dependentHealth",
+]);
+
+const showAnnualReport = ref(false);
+const annualYear = ref(String(new Date().getFullYear()));
+const annualEmpNo = ref("");
+const annualColumns = ref(
+  Object.fromEntries(
+    annualColumnDefs.map((c) => [
+      c.key,
+      DEFAULT_ANNUAL_CHECKED.has(c.key) || !!c.required,
+    ]),
+  ),
+);
+const annualLoading = ref(false);
+const annualResult = ref(null);
+
+function openAnnualReport() {
+  showAnnualReport.value = true;
+  annualResult.value = null;
+}
+function closeAnnualReport() {
+  showAnnualReport.value = false;
+}
+
+function getAnnualFieldValue(r, key) {
+  if (!r) return 0;
+  if (key === "reportedIncome") return calcReportedIncome(r);
+  return Number(r[key]) || 0;
+}
+
+async function loadAnnualReport() {
+  const year = String(annualYear.value || "").trim();
+  if (!/^\d{4}$/.test(year)) {
+    alert("請輸入正確的年份（4位數）");
+    return;
+  }
+  const selectedCols = annualColumnDefs.filter((c) => annualColumns.value[c.key]);
+  if (!selectedCols.length) {
+    alert("請至少選擇一個欄位");
+    return;
+  }
+  annualLoading.value = true;
+  annualResult.value = null;
+  try {
+    const start = year + "01";
+    const end = year + "12";
+    const snap = await getDocs(
+      query(
+        collection(db, "payroll"),
+        where("yyyyMM", ">=", start),
+        where("yyyyMM", "<=", end),
+      ),
+    );
+    const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    // 去重：同一 (empNo, yyyyMM) 優先保留新格式 (uid-based) 文件
+    const dedup = new Map();
+    for (const r of raw) {
+      const key = `${String(r.empNo ?? "")}|${r.yyyyMM}`;
+      const existing = dedup.get(key);
+      if (!existing) {
+        dedup.set(key, r);
+      } else {
+        const existingIsOld =
+          existing.id.startsWith("empNo_") || /^\d+_/.test(existing.id);
+        const newIsOld = r.id.startsWith("empNo_") || /^\d+_/.test(r.id);
+        if (existingIsOld && !newIsOld) dedup.set(key, r);
+      }
+    }
+
+    // 排除離職員工 (staffList 已過濾 status === '離職')
+    const activeSet = new Set(staffList.value.map((s) => String(s.empNo)));
+    const targetEmpNo = String(annualEmpNo.value || "").trim();
+
+    const records = Array.from(dedup.values()).filter((r) => {
+      const en = String(r.empNo ?? "");
+      if (!activeSet.has(en)) return false;
+      if (targetEmpNo && en !== targetEmpNo) return false;
+      return true;
+    });
+
+    if (targetEmpNo) {
+      const staff =
+        staffList.value.find((s) => String(s.empNo) === targetEmpNo) || {
+          empNo: targetEmpNo,
+          name: "",
+        };
+      const rows = [];
+      const totals = Object.fromEntries(selectedCols.map((c) => [c.key, 0]));
+      for (let m = 1; m <= 12; m++) {
+        const mm = String(m).padStart(2, "0");
+        const rec = records.find((r) => r.yyyyMM === year + mm);
+        const values = {};
+        for (const c of selectedCols) {
+          const v = getAnnualFieldValue(rec, c.key);
+          values[c.key] = v;
+          totals[c.key] += v;
+        }
+        rows.push({
+          month: m,
+          monthLabel: `${year}/${mm}`,
+          exists: !!rec,
+          values,
+        });
+      }
+      annualResult.value = {
+        mode: "single",
+        year,
+        columns: selectedCols,
+        staff,
+        rows,
+        totals,
+      };
+    } else {
+      const byEmp = new Map();
+      for (const r of records) {
+        const en = String(r.empNo ?? "");
+        if (!byEmp.has(en)) byEmp.set(en, []);
+        byEmp.get(en).push(r);
+      }
+      const empNos = Array.from(byEmp.keys()).sort((a, b) => {
+        const an = Number(a);
+        const bn = Number(b);
+        if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+        return a.localeCompare(b, "zh-Hant", { numeric: true });
+      });
+      const rows = [];
+      const totals = Object.fromEntries(selectedCols.map((c) => [c.key, 0]));
+      for (const en of empNos) {
+        const recs = byEmp.get(en);
+        const staff = staffList.value.find((s) => String(s.empNo) === en);
+        const sample = recs[0] || {};
+        const values = {};
+        for (const c of selectedCols) {
+          const sum = recs.reduce(
+            (s, r) => s + getAnnualFieldValue(r, c.key),
+            0,
+          );
+          values[c.key] = sum;
+          totals[c.key] += sum;
+        }
+        rows.push({
+          empNo: en,
+          name: staff?.name || sample.name || "",
+          dept: sample.dept || "",
+          monthCount: recs.length,
+          values,
+        });
+      }
+      annualResult.value = {
+        mode: "all",
+        year,
+        columns: selectedCols,
+        rows,
+        totals,
+      };
+    }
+  } catch (e) {
+    alert("查詢失敗：" + (e.message || e.code));
+  } finally {
+    annualLoading.value = false;
+  }
+}
+
+function printAnnualReport() {
+  if (!annualResult.value) return;
+  const R = annualResult.value;
+  const cols = R.columns;
+  const fmt = (v) => (Number(v) || 0).toLocaleString();
+
+  let head;
+  let bodyRows;
+  let footer;
+  if (R.mode === "single") {
+    head = `<tr><th>月份</th>${cols
+      .map((c) => `<th class="num">${c.label}</th>`)
+      .join("")}</tr>`;
+    bodyRows = R.rows
+      .map(
+        (row) =>
+          `<tr class="${row.exists ? "" : "empty"}"><th>${row.monthLabel}</th>${cols
+            .map((c) => `<td class="num">${fmt(row.values[c.key])}</td>`)
+            .join("")}</tr>`,
+      )
+      .join("");
+    footer = `<tr class="total-row"><th>年度合計</th>${cols
+      .map((c) => `<td class="num">${fmt(R.totals[c.key])}</td>`)
+      .join("")}</tr>`;
+  } else {
+    head = `<tr><th>工號</th><th>姓名</th><th>部門</th>${cols
+      .map((c) => `<th class="num">${c.label}</th>`)
+      .join("")}<th class="num">月數</th></tr>`;
+    bodyRows = R.rows
+      .map(
+        (row) =>
+          `<tr><th>${row.empNo}</th><td>${row.name}</td><td>${row.dept || "—"}</td>${cols
+            .map((c) => `<td class="num">${fmt(row.values[c.key])}</td>`)
+            .join("")}<td class="num">${row.monthCount}</td></tr>`,
+      )
+      .join("");
+    footer = `<tr class="total-row"><th colspan="3">全公司合計</th>${cols
+      .map((c) => `<td class="num">${fmt(R.totals[c.key])}</td>`)
+      .join("")}<td></td></tr>`;
+  }
+
+  const title =
+    R.mode === "single"
+      ? `${R.year} 年度薪資彙整（${R.staff.empNo} ${R.staff.name}）`
+      : `${R.year} 年度薪資彙整（全公司，扣繳憑單彙整用）`;
+
+  const html = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${title}</title>
+<style>
+body { font-family: 'Noto Sans TC', Arial, sans-serif; font-size: 12px; margin: 16px; color: #222; }
+h2 { font-size: 1.1rem; margin: 0 0 4px; }
+p.sub { color: #666; margin: 2px 0 12px; font-size: 11px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #999; padding: 4px 6px; text-align: left; vertical-align: middle; font-size: 11px; }
+th { background: #f0f0f0; white-space: nowrap; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.empty td { color: #bbb; }
+tr.total-row th, tr.total-row td { font-weight: bold; background: #fff7d6; }
+@media print { @page { size: A4 landscape; margin: 1cm; } }
+</style></head><body>
+<h2>${title}</h2>
+<p class="sub">列印時間：${new Date().toLocaleString("zh-TW")}　欄位：${cols
+    .map((c) => c.label)
+    .join("、")}</p>
+<table><thead>${head}</thead><tbody>${bodyRows}</tbody><tfoot>${footer}</tfoot></table>
+</body></html>`;
+
+  const win = window.open("", "_blank", "width=1200,height=820");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+    win.onafterprint = () => win.close();
+  };
+}
+
+function csvCell(v) {
+  const s = String(v ?? "");
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function exportAnnualCSV() {
+  if (!annualResult.value) return;
+  const R = annualResult.value;
+  const cols = R.columns;
+  const lines = [];
+  if (R.mode === "single") {
+    lines.push(["月份", ...cols.map((c) => c.label)].map(csvCell).join(","));
+    for (const row of R.rows) {
+      lines.push(
+        [row.monthLabel, ...cols.map((c) => row.values[c.key] || 0)]
+          .map(csvCell)
+          .join(","),
+      );
+    }
+    lines.push(
+      ["年度合計", ...cols.map((c) => R.totals[c.key] || 0)]
+        .map(csvCell)
+        .join(","),
+    );
+  } else {
+    lines.push(
+      ["工號", "姓名", "部門", ...cols.map((c) => c.label), "月數"]
+        .map(csvCell)
+        .join(","),
+    );
+    for (const row of R.rows) {
+      lines.push(
+        [
+          row.empNo,
+          row.name,
+          row.dept || "",
+          ...cols.map((c) => row.values[c.key] || 0),
+          row.monthCount,
+        ]
+          .map(csvCell)
+          .join(","),
+      );
+    }
+    lines.push(
+      ["", "", "全公司合計", ...cols.map((c) => R.totals[c.key] || 0), ""]
+        .map(csvCell)
+        .join(","),
+    );
+  }
+  const bom = "\uFEFF";
+  const blob = new Blob([bom + lines.join("\r\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const tag =
+    R.mode === "single"
+      ? `${R.staff.empNo}_${R.staff.name}`
+      : "全公司";
+  a.download = `${R.year}年度薪資彙整_${tag}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -1670,5 +2199,124 @@ function mealTotals(r) {
   background: #fff;
   cursor: pointer;
   font-size: 0.85rem;
+}
+
+/* 年度報表 */
+.btn-annual {
+  background: #6a1b9a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  margin-left: 6px;
+}
+.btn-annual:hover {
+  background: #4a148c;
+}
+.modal-box-wide {
+  max-width: 95vw;
+  width: 1100px;
+  max-height: 90vh;
+  overflow: auto;
+}
+.annual-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+.af-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.88rem;
+  color: #444;
+}
+.annual-year-input {
+  width: 90px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+}
+.annual-emp-select {
+  min-width: 200px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+}
+.annual-cols {
+  border: 1px solid #dde;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem 0.6rem;
+  margin-bottom: 0.8rem;
+}
+.annual-cols legend {
+  font-size: 0.85rem;
+  color: #555;
+  padding: 0 0.4rem;
+}
+.annual-col-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  margin: 0.15rem 0.9rem 0.15rem 0;
+  cursor: pointer;
+}
+.annual-col-item .req-tag {
+  color: #c62828;
+  font-size: 0.75rem;
+}
+.annual-hint {
+  color: #888;
+  padding: 1rem 0;
+  font-size: 0.9rem;
+}
+.annual-summary {
+  font-size: 0.95rem;
+  color: #333;
+  margin: 0.4rem 0;
+}
+.annual-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #dde;
+  border-radius: 6px;
+}
+.annual-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.annual-table th,
+.annual-table td {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #e6e6ef;
+  text-align: left;
+  white-space: nowrap;
+}
+.annual-table thead th {
+  background: #f0f4ff;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+.annual-table td.num,
+.annual-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.annual-table tr.annual-empty td {
+  color: #c0c0c8;
+  background: #fafafa;
+}
+.annual-table tr.annual-total th,
+.annual-table tr.annual-total td {
+  background: #fff7d6;
+  font-weight: 700;
 }
 </style>

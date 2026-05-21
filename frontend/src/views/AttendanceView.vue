@@ -2,6 +2,22 @@
   <section class="attendance-page">
     <h1>{{ t("attendance_title") }}</h1>
 
+    <!-- ── 待審提醒（主管 / HR / 管理者） ───────────────────── -->
+    <router-link
+      v-if="isApprover && pendingTotal > 0"
+      :to="{ path: '/leave', query: { tab: 'approve' } }"
+      class="pending-banner"
+    >
+      <span class="pb-icon">📢</span>
+      <span class="pb-text">
+        您有 <b>{{ pendingTotal }}</b> 件待審資料
+        <span class="pb-detail">
+          （請假 {{ pendingLeaveCount }} · 加班 {{ pendingOTCount }}）
+        </span>
+      </span>
+      <span class="pb-link">前往審核 →</span>
+    </router-link>
+
     <!-- ── 員工打卡區 ─────────────────────────────────────── -->
     <div class="punch-row">
       <!-- 今日請假 -->
@@ -369,6 +385,24 @@ import {
   getDocs,
 } from "firebase/firestore";
 
+// ── 待審狀態 ()(主管/HR/管理者) ──────────────────────────
+const myStaffRole = ref("");
+const myDept = ref("");
+const pendingLeaveCount = ref(0);
+const pendingOTCount = ref(0);
+const isApprover = computed(
+  () =>
+    isAdminOrManager.value ||
+    myStaffRole.value === "主管" ||
+    myStaffRole.value === "HR",
+);
+const isDeptHead = computed(
+  () => myStaffRole.value === "主管" && !isAdminOrManager.value,
+);
+const pendingTotal = computed(
+  () => pendingLeaveCount.value + pendingOTCount.value,
+);
+
 // ── 時鐘 ──────────────────────────────────────────────────
 const clockStr = ref("");
 let clockTimer = null;
@@ -513,6 +547,10 @@ onMounted(async () => {
     fetchRecords();
     fetchLaborReport();
   }
+
+  // 讀取 staff role/dept 與待審計數
+  await loadApproverInfo();
+  if (isApprover.value) await loadPendingCounts();
 });
 
 onUnmounted(() => clearInterval(clockTimer));
@@ -530,6 +568,79 @@ async function loadTodayRec() {
     punchErr.value = "讀取失敗：" + e.message;
   } finally {
     loaded.value = true;
+  }
+}
+
+// ── 載入審核身分（staffRole / dept） ─────────────────────────
+async function loadApproverInfo() {
+  if (!currentUser) return;
+  try {
+    if (userDoc) {
+      if (userDoc.staffRole) myStaffRole.value = userDoc.staffRole;
+      if (userDoc.dept) myDept.value = userDoc.dept;
+    }
+    if (!myStaffRole.value || !myDept.value) {
+      const snap = await getDocs(
+        query(
+          collection(db, "staff"),
+          where("email", "==", currentUser.email),
+        ),
+      );
+      if (!snap.empty) {
+        const s = snap.docs[0].data();
+        if (!myStaffRole.value) myStaffRole.value = s.staffRole || "";
+        if (!myDept.value) myDept.value = s.dept || "";
+      }
+    }
+  } catch (_) {
+    /* 非管理者讀 staff 可能被拒，忽略 */
+  }
+}
+
+// ── 計算待審件數 ──────────────────────────────────────────
+async function loadPendingCounts() {
+  try {
+    const [lp, la, op, oa] = await Promise.all([
+      getDocs(
+        query(
+          collection(db, "leaveRequests"),
+          where("status", "==", "pending"),
+        ),
+      ),
+      getDocs(
+        query(
+          collection(db, "leaveRequests"),
+          where("status", "==", "approved1"),
+        ),
+      ),
+      getDocs(
+        query(
+          collection(db, "overtimeRequests"),
+          where("status", "==", "pending"),
+        ),
+      ),
+      getDocs(
+        query(
+          collection(db, "overtimeRequests"),
+          where("status", "==", "approved1"),
+        ),
+      ),
+    ]);
+    let leave1 = lp.docs.map((d) => d.data());
+    let leave2 = la.docs.map((d) => d.data());
+    let ot1 = op.docs.map((d) => d.data());
+    let ot2 = oa.docs.map((d) => d.data());
+    if (isDeptHead.value && myDept.value) {
+      // 部門主管只看同部門 stage1，stage2 由 HR 處理
+      leave1 = leave1.filter((r) => r.dept === myDept.value);
+      ot1 = ot1.filter((r) => r.dept === myDept.value);
+      leave2 = [];
+      ot2 = [];
+    }
+    pendingLeaveCount.value = leave1.length + leave2.length;
+    pendingOTCount.value = ot1.length + ot2.length;
+  } catch (e) {
+    console.error("loadPendingCounts:", e);
   }
 }
 
@@ -1411,6 +1522,53 @@ tr.no-rec td {
   }
   .labor-table {
     font-size: 10pt;
+  }
+}
+
+/* 待審提醒 banner */
+.pending-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(90deg, #fff8e1 0%, #ffecb3 100%);
+  border: 1px solid #ffb300;
+  border-left: 5px solid #f57c00;
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin: 0.4rem 0 1rem;
+  color: #5d4037;
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: background 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.pending-banner:hover {
+  background: linear-gradient(90deg, #fff3c4 0%, #ffd54f 100%);
+}
+.pending-banner .pb-icon {
+  font-size: 1.3rem;
+}
+.pending-banner .pb-text {
+  flex: 1;
+}
+.pending-banner .pb-text b {
+  color: #d84315;
+  font-size: 1.1rem;
+  padding: 0 0.15rem;
+}
+.pending-banner .pb-detail {
+  color: #6d4c41;
+  font-size: 0.85rem;
+  margin-left: 0.4rem;
+}
+.pending-banner .pb-link {
+  color: #1565c0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@media print {
+  .pending-banner {
+    display: none !important;
   }
 }
 </style>
