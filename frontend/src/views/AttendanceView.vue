@@ -3,7 +3,18 @@
     <h1>{{ t("attendance_title") }}</h1>
 
     <!-- ── 員工打卡區 ─────────────────────────────────────── -->
-    <div class="punch-card">
+    <div class="punch-row">
+      <!-- 今日請假 -->
+      <div class="leave-side-panel">
+        <div class="side-panel-title">今日請假</div>
+        <div v-if="!todayLeaveList.length" class="side-panel-empty">無</div>
+        <div v-for="r in todayLeaveList" :key="r.name + r.type" class="side-panel-item">
+          <span class="side-name">{{ r.name }}</span>
+          <span class="side-type">{{ r.type }}</span>
+        </div>
+      </div>
+
+      <div class="punch-card">
       <div class="punch-date">{{ todayLabel }}</div>
       <div class="punch-time-now">{{ clockStr }}</div>
 
@@ -42,6 +53,17 @@
         <div v-if="geoBlocked" class="err-hint">
           {{ t("geo_hint_chrome") }}<br />
           {{ t("geo_hint_safari") }}
+        </div>
+      </div>
+      </div>
+
+      <!-- 明日請假 -->
+      <div class="leave-side-panel">
+        <div class="side-panel-title">明日請假</div>
+        <div v-if="!tomorrowLeaveList.length" class="side-panel-empty">無</div>
+        <div v-for="r in tomorrowLeaveList" :key="r.name + r.type" class="side-panel-item">
+          <span class="side-name">{{ r.name }}</span>
+          <span class="side-type">{{ r.type }}</span>
         </div>
       </div>
     </div>
@@ -380,6 +402,55 @@ const editModal = ref({ show: false, id: "", uid: "", name: "", date: "", punchI
 // ── 補打卡 modal ────────────────────────────────────────────
 const newRecModal = ref({ show: false, uid: "", date: "", punchIn: "", punchOut: "", saving: false, err: "" });
 
+// ── 今明日請假名單 ─────────────────────────────────
+const todayLeaveList = ref([]);
+const tomorrowLeaveList = ref([]);
+
+async function fetchDayLeaves() {
+  try {
+    const today = todayStr();
+    const tmr = new Date();
+    tmr.setDate(tmr.getDate() + 1);
+    const tomorrow = tmr.toLocaleDateString("sv-SE");
+    const snap = await getDocs(
+      query(
+        collection(db, "leaveRequests"),
+        where("endDate", ">=", today),
+      ),
+    );
+    const recs = snap.docs
+      .map((d) => ({ ...d.data() }))
+      .filter(
+        (r) =>
+          (r.status === "approved1" || r.status === "approved2") &&
+          r.startDate <= tomorrow,
+      );
+
+    function groupByName(list) {
+      const map = new Map();
+      list.forEach((r) => {
+        if (map.has(r.name)) {
+          const existing = map.get(r.name);
+          if (!existing.types.includes(r.type)) existing.types.push(r.type);
+        } else {
+          map.set(r.name, { name: r.name, types: [r.type] });
+        }
+      });
+      return [...map.values()]
+        .map((v) => ({ name: v.name, type: v.types.join("/") }))
+        .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+    }
+    todayLeaveList.value = groupByName(
+      recs.filter((r) => r.startDate <= today && r.endDate >= today),
+    );
+    tomorrowLeaveList.value = groupByName(
+      recs.filter((r) => r.startDate <= tomorrow && r.endDate >= tomorrow),
+    );
+  } catch (e) {
+    console.error("fetchDayLeaves:", e);
+  }
+}
+
 // ── 日期工具 ──────────────────────────────────────────────
 function todayStr() {
   return new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD
@@ -418,6 +489,7 @@ onMounted(async () => {
   clockTimer = setInterval(updateClock, 1000);
 
   await authReadyPromise;
+  fetchDayLeaves();
   currentUser = auth.currentUser;
   if (!currentUser) {
     loaded.value = true;
@@ -856,8 +928,60 @@ h1 {
   border-radius: 12px;
   padding: 28px 24px;
   text-align: center;
-  margin-bottom: 28px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.punch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.punch-row .punch-card {
+  flex: 1;
+  min-width: 0;
+}
+.leave-side-panel {
+  width: 145px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 12px 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  min-height: 80px;
+}
+.side-panel-title {
+  font-size: .8rem;
+  font-weight: 700;
+  color: #1565c0;
+  text-align: center;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e0e8f8;
+  padding-bottom: 4px;
+}
+.side-panel-empty {
+  text-align: center;
+  color: #aaa;
+  font-size: .82rem;
+  margin-top: 8px;
+}
+.side-panel-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.side-panel-item:last-child { border-bottom: none; }
+.side-name { font-size: .82rem; font-weight: 500; color: #333; }
+.side-type {
+  font-size: .72rem;
+  color: #fff;
+  background: #e57373;
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 .punch-date {
   font-size: 1rem;
@@ -1228,6 +1352,11 @@ tr.no-rec td {
   font-size: 0.9rem;
 }
 .btn-cancel:hover { background: #999; }
+
+/* ── 手機響應式：隱藏側邊請假面板 ── */
+@media (max-width: 640px) {
+  .leave-side-panel { display: none; }
+}
 
 /* ── 列印樣式 ── */
 @media print {

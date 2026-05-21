@@ -336,6 +336,12 @@
         >
           加班審核
         </button>
+        <button
+          :class="['tab-btn-sm', { active: approveSubTab === 'approved' }]"
+          @click="switchApproved"
+        >
+          已批准記錄
+        </button>
       </div>
 
       <p v-if="loadingPending" class="loading">載入中…</p>
@@ -538,6 +544,65 @@
                 <td colspan="8" class="empty">無待審加班</td>
               </tr>
             </template>
+          </tbody>
+        </table>
+      </template>
+
+      <!-- ── 已批准記錄 ── -->
+      <template v-if="approveSubTab === 'approved'">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap">
+          <label style="font-weight:500">月份：</label>
+          <input type="month" v-model="approvedMonth"
+            style="padding:4px 8px; border:1px solid #ccc; border-radius:5px" />
+          <button class="btn-sm btn-ok" @click="loadMyApproved">查詢</button>
+          <span v-if="loadingApproved" class="muted-text" style="font-size:.85rem">載入中…</span>
+        </div>
+
+        <h4>已批准假單（{{ approvedLeaveByMe.length }} 筆）</h4>
+        <table class="rec-table">
+          <thead>
+            <tr>
+              <th>員工</th><th>假別</th><th>日期</th><th>天數/時數</th>
+              <th>狀態</th><th>我的角色</th><th>批准時間</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in approvedLeaveByMe" :key="r.id">
+              <td>{{ r.name }}</td>
+              <td>{{ r.type }}</td>
+              <td>{{ r.startDate }}{{ r.startDate !== r.endDate ? ' ~ ' + r.endDate : '' }}</td>
+              <td>{{ r.unit === '小時' ? (r.hours + ' 小時') : (r.days + ' 天') }}</td>
+              <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
+              <td>{{ r.reviewer1Uid === currentUser.uid ? '第一關（主管）' : '第二關（HR）' }}</td>
+              <td>{{ fmtTs(r.reviewer1Uid === currentUser.uid ? r.reviewedAt1 : r.reviewedAt2) }}</td>
+            </tr>
+            <tr v-if="!approvedLeaveByMe.length">
+              <td colspan="7" class="empty">{{ loadingApproved ? '載入中…' : '本月尚無已批准假單' }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 style="margin-top:24px">已批准加班（{{ approvedOTByMe.length }} 筆）</h4>
+        <table class="rec-table">
+          <thead>
+            <tr>
+              <th>員工</th><th>加班日</th><th>時間</th><th>時數</th>
+              <th>狀態</th><th>我的角色</th><th>批准時間</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in approvedOTByMe" :key="r.id">
+              <td>{{ r.name }}</td>
+              <td>{{ r.date }}</td>
+              <td>{{ r.startTime }} – {{ r.endTime }}</td>
+              <td>{{ r.hours }} 時</td>
+              <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
+              <td>{{ r.reviewer1Uid === currentUser.uid ? '第一關（主管）' : '第二關（HR）' }}</td>
+              <td>{{ fmtTs(r.reviewer1Uid === currentUser.uid ? r.reviewedAt1 : r.reviewedAt2) }}</td>
+            </tr>
+            <tr v-if="!approvedOTByMe.length">
+              <td colspan="7" class="empty">{{ loadingApproved ? '載入中…' : '本月尚無已批准加班' }}</td>
+            </tr>
           </tbody>
         </table>
       </template>
@@ -900,6 +965,13 @@ const pendingLeave1 = ref([]);
 const pendingLeave2 = ref([]);
 const pendingOT1 = ref([]);
 const pendingOT2 = ref([]);
+const approvedLeaveByMe = ref([]);
+const approvedOTByMe = ref([]);
+const loadingApproved = ref(false);
+const _nowA = new Date();
+const approvedMonth = ref(
+  `${_nowA.getFullYear()}-${String(_nowA.getMonth() + 1).padStart(2, "0")}`,
+);
 
 // ── Reject dialog ──────────────────────────────────────────────────────────
 const rejectDialog = reactive({
@@ -944,6 +1016,13 @@ function statusLabel(s) {
     }[s] || s
   );
 }
+function fmtTs(ts) {
+  if (!ts) return "—";
+  try {
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch { return "—"; }
+}
 function statusClass(s) {
   return (
     {
@@ -969,6 +1048,44 @@ function switchMine() {
 function switchApprove() {
   tab.value = "approve";
   loadPending();
+}
+function switchApproved() {
+  approveSubTab.value = "approved";
+  loadMyApproved();
+}
+async function loadMyApproved() {
+  if (!currentUser.value) return;
+  const uid = currentUser.value.uid;
+  loadingApproved.value = true;
+  try {
+    const [la, lb, oa, ob] = await Promise.all([
+      getDocs(query(collection(db, "leaveRequests"), where("reviewer1Uid", "==", uid))),
+      getDocs(query(collection(db, "leaveRequests"), where("reviewer2Uid", "==", uid))),
+      getDocs(query(collection(db, "overtimeRequests"), where("reviewer1Uid", "==", uid))),
+      getDocs(query(collection(db, "overtimeRequests"), where("reviewer2Uid", "==", uid))),
+    ]);
+    const leaveMap = {};
+    for (const d of [...la.docs, ...lb.docs]) leaveMap[d.id] = { id: d.id, ...d.data() };
+    const otMap = {};
+    for (const d of [...oa.docs, ...ob.docs]) otMap[d.id] = { id: d.id, ...d.data() };
+
+    const [y, m] = approvedMonth.value.split("-").map(Number);
+    const inMonth = (date) => {
+      if (!date) return true;
+      const [ry, rm] = date.split("-").map(Number);
+      return ry === y && rm === m;
+    };
+    approvedLeaveByMe.value = Object.values(leaveMap)
+      .filter((r) => inMonth(r.startDate))
+      .sort((a, b) => (a.startDate > b.startDate ? -1 : 1));
+    approvedOTByMe.value = Object.values(otMap)
+      .filter((r) => inMonth(r.date))
+      .sort((a, b) => (a.date > b.date ? -1 : 1));
+  } catch (e) {
+    console.error(e);
+  } finally {
+    loadingApproved.value = false;
+  }
 }
 function switchQuota() {
   tab.value = "quota";
