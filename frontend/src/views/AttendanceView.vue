@@ -137,6 +137,7 @@
             <input v-model="queryName" placeholder="篩選姓名" />
           </label>
           <button class="btn-add-punch" @click="openNewRecord">＋ 補打卡</button>
+          <span class="punch-count-badge">打卡人數：{{ allRecords.length }} 人</span>
         </div>
       </div>
 
@@ -1236,6 +1237,17 @@ tr.no-rec td {
   align-self: flex-end;
 }
 .btn-add-punch:hover { background: #1e8449; }
+.punch-count-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: 20px;
+  background: #eaf4fb;
+  color: #1a6fa0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: 1px solid #b3d8ef;
+}
 .btn-edit-sm {
   padding: 3px 10px;
   font-size: 0.8rem;

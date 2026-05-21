@@ -88,7 +88,7 @@
             >
               <td>{{ s.empNo }}</td>
               <td>{{ s.name }}</td>
-              <td>{{ s.dept }}</td>
+              <td>{{ deptLabel(s.dept) }}</td>
               <td>{{ s.title }}</td>
               <td>{{ s.startDate }}</td>
               <td>{{ s.salaryType }}</td>
@@ -212,7 +212,7 @@
             >部門
             <input v-model="form.dept" list="dept-list" />
             <datalist id="dept-list">
-              <option v-for="d in depts" :key="d" :value="d" />
+              <option v-for="d in depts" :key="d" :value="d">{{ deptLabel(d) }}</option>
             </datalist>
           </label>
           <label
@@ -382,6 +382,7 @@ import {
   updateDoc,
   orderBy,
   query,
+  where,
   writeBatch,
 } from "firebase/firestore";
 
@@ -506,7 +507,9 @@ const sensitiveView = ref("hidden");
 const saving = ref(false);
 const errMsg = ref("");
 
-const depts = ["安裝部", "業務部", "管理部", "倉儲部"];
+const deptMap = { "1": "辦公室", "2": "安裝", "3": "廠內", "4": "外勞" };
+const depts = ["1", "2", "3", "4"];
+function deptLabel(v) { return deptMap[String(v)] ? `${v} ${deptMap[String(v)]}` : (v || "—"); }
 
 // ── 筛選 + 排序 ────────────────────────────────────────────
 const sortKey = ref("empNo");
@@ -807,12 +810,34 @@ async function save() {
       const { id: _id, ...data } = form.value;
       await updateDoc(ref, data);
     }
+    // 同步 staffRole / dept / empNo 到對應 Users 文件（依 email 查詢）
+    await syncStaffToUser(form.value);
     await fetchStaff();
     closeDialog();
   } catch (e) {
     errMsg.value = e.message;
   } finally {
     saving.value = false;
+  }
+}
+
+async function syncStaffToUser(s) {
+  if (!s || !s.email) return;
+  try {
+    const snaps = await getDocs(
+      query(collection(db, "Users"), where("email", "==", s.email)),
+    );
+    if (snaps.empty) return;
+    const payload = {
+      staffRole: s.staffRole || "",
+      dept: s.dept || "",
+      empNo: s.empNo || "",
+    };
+    for (const d of snaps.docs) {
+      await updateDoc(doc(db, "Users", d.id), payload);
+    }
+  } catch (e) {
+    console.warn("syncStaffToUser failed for", s.email, e.message);
   }
 }
 </script>

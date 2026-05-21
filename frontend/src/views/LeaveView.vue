@@ -322,58 +322,58 @@
 
     <!-- ─── 審核作業 ────────────────────────────────── -->
     <div v-if="tab === 'approve' && isApprover" class="tab-content">
-      <h3>審核作業</h3>
+      <h3>{{ t("approve_title") }}</h3>
       <div class="approve-tabs">
         <button
           :class="['tab-btn-sm', { active: approveSubTab === 'leave' }]"
           @click="approveSubTab = 'leave'"
         >
-          假單審核
+          {{ t("approve_leave") }}
         </button>
         <button
           :class="['tab-btn-sm', { active: approveSubTab === 'ot' }]"
           @click="approveSubTab = 'ot'"
         >
-          加班審核
+          {{ t("approve_ot") }}
         </button>
         <button
           :class="['tab-btn-sm', { active: approveSubTab === 'approved' }]"
           @click="switchApproved"
         >
-          已批准記錄
+          {{ t("approved_records") }}
         </button>
       </div>
 
-      <p v-if="loadingPending" class="loading">載入中…</p>
+      <p v-if="loadingPending" class="loading">{{ t("loading") }}</p>
       <template v-else>
         <!-- Stage 1 -->
-        <h4>待審（主管－第一關）</h4>
+        <h4>{{ t("pending_stage1") }}</h4>
         <table class="rec-table">
           <thead>
             <tr>
-              <th>員工</th>
+              <th>{{ t("col_employee") }}</th>
               <template v-if="approveSubTab === 'leave'">
-                <th>部門</th>
-                <th>假別</th>
-                <th>日期</th>
-                <th>天數</th>
+                <th>{{ t("col_dept") }}</th>
+                <th>{{ t("col_leave_type") }}</th>
+                <th>{{ t("col_date") }}</th>
+                <th>{{ t("col_days") }}</th>
               </template>
               <template v-else>
-                <th>部門</th>
-                <th>加班日</th>
-                <th>時間</th>
-                <th>時數</th>
+                <th>{{ t("col_dept") }}</th>
+                <th>{{ t("col_ot_date") }}</th>
+                <th>{{ t("col_time") }}</th>
+                <th>{{ t("col_hours") }}</th>
               </template>
-              <th>原因</th>
-              <th>附件</th>
-              <th>操作</th>
+              <th>{{ t("leave_reason") }}</th>
+              <th>{{ t("col_attach") }}</th>
+              <th>{{ t("col_actions") }}</th>
             </tr>
           </thead>
           <tbody>
             <template v-if="approveSubTab === 'leave'">
               <tr v-for="r in pendingLeave1" :key="r.id">
                 <td>{{ r.name }}</td>
-                <td>{{ r.dept || "—" }}</td>
+                <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.type }}</td>
                 <td>
                   {{
@@ -398,82 +398,82 @@
                     :href="r.docUrl"
                     target="_blank"
                     class="doc-view-link"
-                    >📄 看附件</a
+                    >{{ t("view_attach") }}</a
                   >
                   <span v-else class="doc-none">—</span>
                 </td>
                 <td class="action-cell">
                   <button class="btn-sm btn-ok" @click="approveLeave(r, 1)">
-                    核准
+                    {{ t("btn_approve") }}
                   </button>
                   <button
                     class="btn-sm btn-danger"
                     @click="openReject(r, 'leave', 1)"
                   >
-                    拒絕
+                    {{ t("btn_reject") }}
                   </button>
                 </td>
               </tr>
               <tr v-if="!pendingLeave1.length">
-                <td colspan="9" class="empty">無待審假單</td>
+                <td colspan="9" class="empty">{{ t("empty_leave") }}</td>
               </tr>
             </template>
             <template v-else>
               <tr v-for="r in pendingOT1" :key="r.id">
                 <td>{{ r.name }}</td>
-                <td>{{ r.dept || "—" }}</td>
+                <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.date }}</td>
                 <td>{{ r.startTime }} – {{ r.endTime }}</td>
                 <td>{{ r.hours }} 時</td>
                 <td>{{ r.reason || "—" }}</td>
                 <td class="action-cell">
                   <button class="btn-sm btn-ok" @click="approveOT(r, 1)">
-                    核准
+                    {{ t("btn_approve") }}
                   </button>
                   <button
                     class="btn-sm btn-danger"
                     @click="openReject(r, 'ot', 1)"
                   >
-                    拒絕
+                    {{ t("btn_reject") }}
                   </button>
                 </td>
               </tr>
               <tr v-if="!pendingOT1.length">
-                <td colspan="8" class="empty">無待審加班</td>
+                <td colspan="8" class="empty">{{ t("empty_ot") }}</td>
               </tr>
             </template>
           </tbody>
         </table>
 
         <!-- Stage 2 -->
-        <h4 style="margin-top: 24px">待審（HR－第二關）</h4>
+        <h4 style="margin-top: 24px">{{ t("pending_stage2") }}</h4>
         <table class="rec-table">
           <thead>
             <tr>
-              <th>員工</th>
+              <th>{{ t("col_employee") }}</th>
               <template v-if="approveSubTab === 'leave'">
-                <th>部門</th>
-                <th>假別</th>
-                <th>日期</th>
-                <th>天數</th>
+                <th>{{ t("col_dept") }}</th>
+                <th>{{ t("col_leave_type") }}</th>
+                <th>{{ t("col_date") }}</th>
+                <th>{{ t("col_days") }}</th>
               </template>
               <template v-else>
-                <th>部門</th>
-                <th>加班日</th>
-                <th>時間</th>
-                <th>時數</th>
+                <th>{{ t("col_dept") }}</th>
+                <th>{{ t("col_ot_date") }}</th>
+                <th>{{ t("col_time") }}</th>
+                <th>{{ t("col_hours") }}</th>
               </template>
-              <th>原因</th>
-              <th>附件</th>
-              <th>第一關審核人</th>
-              <th>操作</th>
+              <th>{{ t("leave_reason") }}</th>
+              <th>{{ t("col_attach") }}</th>
+              <th>{{ t("col_reviewer1") }}</th>
+              <th>{{ t("col_actions") }}</th>
             </tr>
           </thead>
           <tbody>
             <template v-if="approveSubTab === 'leave'">
               <tr v-for="r in pendingLeave2" :key="r.id">
                 <td>{{ r.name }}</td>
-                <td>{{ r.dept || "—" }}</td>
+                <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.type }}</td>
                 <td>
                   {{
@@ -498,31 +498,31 @@
                     :href="r.docUrl"
                     target="_blank"
                     class="doc-view-link"
-                    >📄 看附件</a
+                    >{{ t("view_attach") }}</a
                   >
                   <span v-else class="doc-none">—</span>
                 </td>
                 <td>{{ r.reviewer1Name || "—" }}</td>
                 <td class="action-cell">
                   <button class="btn-sm btn-ok" @click="approveLeave(r, 2)">
-                    核准
+                    {{ t("btn_approve") }}
                   </button>
                   <button
                     class="btn-sm btn-danger"
                     @click="openReject(r, 'leave', 2)"
                   >
-                    拒絕
+                    {{ t("btn_reject") }}
                   </button>
                 </td>
               </tr>
               <tr v-if="!pendingLeave2.length">
-                <td colspan="9" class="empty">無待審假單</td>
+                <td colspan="9" class="empty">{{ t("empty_leave") }}</td>
               </tr>
             </template>
             <template v-else>
               <tr v-for="r in pendingOT2" :key="r.id">
                 <td>{{ r.name }}</td>
-                <td>{{ r.dept || "—" }}</td>
+                <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.date }}</td>
                 <td>{{ r.startTime }} – {{ r.endTime }}</td>
                 <td>{{ r.hours }} 時</td>
@@ -530,40 +530,40 @@
                 <td>{{ r.reviewer1Name || "—" }}</td>
                 <td class="action-cell">
                   <button class="btn-sm btn-ok" @click="approveOT(r, 2)">
-                    核准
+                    {{ t("btn_approve") }}
                   </button>
                   <button
                     class="btn-sm btn-danger"
                     @click="openReject(r, 'ot', 2)"
                   >
-                    拒絕
+                    {{ t("btn_reject") }}
                   </button>
                 </td>
               </tr>
               <tr v-if="!pendingOT2.length">
-                <td colspan="8" class="empty">無待審加班</td>
+                <td colspan="8" class="empty">{{ t("empty_ot") }}</td>
               </tr>
             </template>
           </tbody>
         </table>
       </template>
 
-      <!-- ── 已批准記錄 ── -->
+      <!-- 已批准記錄 -->
       <template v-if="approveSubTab === 'approved'">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap">
-          <label style="font-weight:500">月份：</label>
+          <label style="font-weight:500">{{ t("month_label") }}</label>
           <input type="month" v-model="approvedMonth"
             style="padding:4px 8px; border:1px solid #ccc; border-radius:5px" />
-          <button class="btn-sm btn-ok" @click="loadMyApproved">查詢</button>
-          <span v-if="loadingApproved" class="muted-text" style="font-size:.85rem">載入中…</span>
+          <button class="btn-sm btn-ok" @click="loadMyApproved">{{ t("btn_query") }}</button>
+          <span v-if="loadingApproved" class="muted-text" style="font-size:.85rem">{{ t("loading") }}</span>
         </div>
 
-        <h4>已批准假單（{{ approvedLeaveByMe.length }} 筆）</h4>
+        <h4>{{ t("approved_leave_count")(approvedLeaveByMe.length) }}</h4>
         <table class="rec-table">
           <thead>
             <tr>
-              <th>員工</th><th>假別</th><th>日期</th><th>天數/時數</th>
-              <th>狀態</th><th>我的角色</th><th>批准時間</th>
+              <th>{{ t("col_employee") }}</th><th>{{ t("col_leave_type") }}</th><th>{{ t("col_date") }}</th><th>{{ t("col_days") }}/{{ t("col_hours") }}</th>
+              <th>{{ t("col_status") }}</th><th>{{ t("col_my_role") }}</th><th>{{ t("col_approved_at") }}</th>
             </tr>
           </thead>
           <tbody>
@@ -571,23 +571,23 @@
               <td>{{ r.name }}</td>
               <td>{{ r.type }}</td>
               <td>{{ r.startDate }}{{ r.startDate !== r.endDate ? ' ~ ' + r.endDate : '' }}</td>
-              <td>{{ r.unit === '小時' ? (r.hours + ' 小時') : (r.days + ' 天') }}</td>
+              <td>{{ r.unit === '小時' ? (r.hours + ' ' + t("hr_unit")) : (r.days + ' ' + t("leave_unit_day")) }}</td>
               <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
-              <td>{{ r.reviewer1Uid === currentUser.uid ? '第一關（主管）' : '第二關（HR）' }}</td>
+              <td>{{ r.reviewer1Uid === currentUser.uid ? t("role_stage1") : t("role_stage2") }}</td>
               <td>{{ fmtTs(r.reviewer1Uid === currentUser.uid ? r.reviewedAt1 : r.reviewedAt2) }}</td>
             </tr>
             <tr v-if="!approvedLeaveByMe.length">
-              <td colspan="7" class="empty">{{ loadingApproved ? '載入中…' : '本月尚無已批准假單' }}</td>
+              <td colspan="7" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_leave") }}</td>
             </tr>
           </tbody>
         </table>
 
-        <h4 style="margin-top:24px">已批准加班（{{ approvedOTByMe.length }} 筆）</h4>
+        <h4 style="margin-top:24px">{{ t("approved_ot_count")(approvedOTByMe.length) }}</h4>
         <table class="rec-table">
           <thead>
             <tr>
-              <th>員工</th><th>加班日</th><th>時間</th><th>時數</th>
-              <th>狀態</th><th>我的角色</th><th>批准時間</th>
+              <th>{{ t("col_employee") }}</th><th>{{ t("col_ot_date") }}</th><th>{{ t("col_time") }}</th><th>{{ t("col_hours") }}</th>
+              <th>{{ t("col_status") }}</th><th>{{ t("col_my_role") }}</th><th>{{ t("col_approved_at") }}</th>
             </tr>
           </thead>
           <tbody>
@@ -595,13 +595,13 @@
               <td>{{ r.name }}</td>
               <td>{{ r.date }}</td>
               <td>{{ r.startTime }} – {{ r.endTime }}</td>
-              <td>{{ r.hours }} 時</td>
+              <td>{{ r.hours }} {{ t("hr_unit") }}</td>
               <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
-              <td>{{ r.reviewer1Uid === currentUser.uid ? '第一關（主管）' : '第二關（HR）' }}</td>
+              <td>{{ r.reviewer1Uid === currentUser.uid ? t("role_stage1") : t("role_stage2") }}</td>
               <td>{{ fmtTs(r.reviewer1Uid === currentUser.uid ? r.reviewedAt1 : r.reviewedAt2) }}</td>
             </tr>
             <tr v-if="!approvedOTByMe.length">
-              <td colspan="7" class="empty">{{ loadingApproved ? '載入中…' : '本月尚無已批准加班' }}</td>
+              <td colspan="7" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_ot") }}</td>
             </tr>
           </tbody>
         </table>
@@ -705,7 +705,7 @@
         <tbody>
           <tr v-for="r in otReportList" :key="r.id">
             <td>{{ r.name }}</td>
-            <td>{{ r.dept || "—" }}</td>
+            <td>{{ deptLabel(r.dept) }}</td>
             <td>{{ r.date }}</td>
             <td>{{ r.startTime }} – {{ r.endTime }}</td>
             <td>{{ r.hours }} h</td>
@@ -820,6 +820,8 @@ const myEmpNo = ref("");
 const myName = ref("");
 const myDept = ref("");
 const myStaffRole = ref(""); // 員工 / 主管 / HR
+const deptMap = { "1": "辦公室", "2": "安裝", "3": "廠內", "4": "外勞" };
+function deptLabel(v) { return deptMap[String(v)] || v || "—"; }
 const myQuota = ref(null);
 
 const isManager = computed(
@@ -1135,12 +1137,15 @@ onMounted(async () => {
 
   const userSnap = await getDoc(doc(db, "Users", currentUser.value.uid));
   if (userSnap.exists()) {
-    userRole.value = userSnap.data().role;
-    myName.value =
-      userSnap.data().displayName || currentUser.value.displayName || "";
+    const u = userSnap.data();
+    userRole.value = u.role;
+    myName.value = u.displayName || currentUser.value.displayName || "";
+    if (u.staffRole) myStaffRole.value = u.staffRole;
+    if (u.dept) myDept.value = u.dept;
+    if (u.empNo) myEmpNo.value = u.empNo;
   }
 
-  // Find empNo / dept / staffRole by matching email in staff collection
+  // 補齊：管理者可讀 staff 集合，會覆蓋/補上 Users 缺少的欄位
   try {
     const staffQ = await getDocs(
       query(
@@ -1150,13 +1155,13 @@ onMounted(async () => {
     );
     if (!staffQ.empty) {
       const s = staffQ.docs[0].data();
-      myEmpNo.value = s.empNo || staffQ.docs[0].id;
-      myDept.value = s.dept || "";
-      myStaffRole.value = s.staffRole || "";
+      if (!myEmpNo.value) myEmpNo.value = s.empNo || staffQ.docs[0].id;
+      if (!myDept.value) myDept.value = s.dept || "";
+      if (!myStaffRole.value) myStaffRole.value = s.staffRole || "";
       if (!myName.value) myName.value = s.name || "";
     }
   } catch (_) {
-    /* staff query may fail for non-admin without read access */
+    /* staff query fails for non-admin; rely on Users-side data */
   }
 
   if (!myName.value)
@@ -1383,6 +1388,21 @@ async function loadPending() {
     let lv2 = l2.docs.map((d) => ({ id: d.id, ...d.data() }));
     let ov1 = o1.docs.map((d) => ({ id: d.id, ...d.data() }));
     let ov2 = o2.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    // 補齊舊紀錄缺少的 dept：依 email 對照 staff 集合
+    try {
+      const staffSnap = await getDocs(collection(db, "staff"));
+      const emailDept = {};
+      staffSnap.docs.forEach((d) => {
+        const s = d.data();
+        if (s.email) emailDept[s.email] = s.dept || "";
+      });
+      const fill = (arr) =>
+        arr.forEach((r) => {
+          if (!r.dept && r.email && emailDept[r.email]) r.dept = emailDept[r.email];
+        });
+      fill(lv1); fill(lv2); fill(ov1); fill(ov2);
+    } catch (_) { /* ignore */ }
 
     if (isDeptHead.value && myDept.value) {
       // 主管只看同部門 stage 1；stage 2 由 HR 處理
