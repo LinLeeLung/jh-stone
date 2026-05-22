@@ -83,7 +83,7 @@
             <span class="side-type">{{ r.type }}</span>
           </div>
         </div>
-        <div class="leave-side-panel not-punched-panel" style="margin-top:10px">
+        <div v-if="isApprover" class="leave-side-panel not-punched-panel" style="margin-top:10px">
           <div class="side-panel-title np-title" style="display:flex;justify-content:space-between;align-items:center;">
             <span>未打卡 ({{ notPunchedList.length }})</span>
             <button class="np-refresh-btn" @click="fetchNotPunched" title="刷新">↻</button>
@@ -497,10 +497,13 @@ async function fetchDayLeaves() {
           r.startDate <= tomorrow,
       );
 
-    const allUsers = await fetchAllUsers();
-    const nameMap = {};
-    allUsers.forEach((u) => { if (u.uid) nameMap[u.uid] = u.displayName || u.name || ""; });
-    const recs = rawRecs.map((r) => r.uid && nameMap[r.uid] ? { ...r, name: nameMap[r.uid] } : r);
+    let recs = rawRecs;
+    try {
+      const allUsers = await fetchAllUsers();
+      const nameMap = {};
+      allUsers.forEach((u) => { if (u.uid) nameMap[u.uid] = u.displayName || u.name || ""; });
+      recs = rawRecs.map((r) => r.uid && nameMap[r.uid] ? { ...r, name: nameMap[r.uid] } : r);
+    } catch (_) { /* non-admin can't read all Users; use stored names */ }
 
     function groupByName(list) {
       const map = new Map();
