@@ -563,6 +563,7 @@
           <thead>
             <tr>
               <th>{{ t("col_employee") }}</th><th>{{ t("col_leave_type") }}</th><th>{{ t("col_date") }}</th><th>{{ t("col_days") }}/{{ t("col_hours") }}</th>
+              <th>{{ t("col_submitted_at") }}</th>
               <th>{{ t("col_status") }}</th>
               <th>{{ t("col_supervisor") }}</th><th>{{ t("col_supervisor_time") }}</th>
               <th>{{ t("col_hr") }}</th><th>{{ t("col_hr_time") }}</th>
@@ -575,6 +576,7 @@
               <td>{{ r.type }}</td>
               <td>{{ r.startDate }}{{ r.startDate !== r.endDate ? ' ~ ' + r.endDate : '' }}</td>
               <td>{{ r.unit === '小時' ? (r.hours + ' ' + t("hr_unit")) : (r.days + ' ' + t("leave_unit_day")) }}</td>
+              <td>{{ fmtTs(r.createdAt) }}</td>
               <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
               <td>{{ r.reviewer1Name || '—' }}</td>
               <td>{{ fmtTs(r.reviewedAt1) }}</td>
@@ -592,7 +594,7 @@
               </td>
             </tr>
             <tr v-if="!approvedLeaveByMe.length">
-              <td colspan="10" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_leave") }}</td>
+              <td colspan="11" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_leave") }}</td>
             </tr>
           </tbody>
         </table>
@@ -602,6 +604,7 @@
           <thead>
             <tr>
               <th>{{ t("col_employee") }}</th><th>{{ t("col_ot_date") }}</th><th>{{ t("col_time") }}</th><th>{{ t("col_hours") }}</th>
+              <th>{{ t("col_submitted_at") }}</th>
               <th>{{ t("col_status") }}</th>
               <th>{{ t("col_supervisor") }}</th><th>{{ t("col_supervisor_time") }}</th>
               <th>{{ t("col_hr") }}</th><th>{{ t("col_hr_time") }}</th>
@@ -614,6 +617,7 @@
               <td>{{ r.date }}</td>
               <td>{{ r.startTime }} – {{ r.endTime }}</td>
               <td>{{ r.hours }} {{ t("hr_unit") }}</td>
+              <td>{{ fmtTs(r.createdAt) }}</td>
               <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
               <td>{{ r.reviewer1Name || '—' }}</td>
               <td>{{ fmtTs(r.reviewedAt1) }}</td>
@@ -631,7 +635,7 @@
               </td>
             </tr>
             <tr v-if="!approvedOTByMe.length">
-              <td colspan="10" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_ot") }}</td>
+              <td colspan="11" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_ot") }}</td>
             </tr>
           </tbody>
         </table>

@@ -1219,11 +1219,11 @@ function printAnnualSlipFormat() {
       <td></td><td class="td-lbl">扣繳額</td>${emptyM}
     </tr>
     <tr>
-      <td rowspan="2" class="td-id-lbl">身份證<br>統一編號</td>
-      <td rowspan="2" class="td-id-val">${esc(staff.idNo)}</td>
+      <td colspan="2" class="td-id-lbl">身份證統一編號</td>
       <td></td><td class="td-lbl">伙食費</td>${emptyM}
     </tr>
     <tr>
+      <td colspan="2" class="td-id-val">${esc(staff.idNo)}</td>
       <td></td><td class="td-lbl">獎金</td>${emptyM}
     </tr>
     <tr>
@@ -1231,11 +1231,11 @@ function printAnnualSlipFormat() {
       <td></td><td class="td-lbl">健保投保額</td>${emptyM}
     </tr>
     <tr>
-      <td></td><td class="td-lbl">每月二代健保費*2%</td>${emptyM}
+      <td></td><td class="td-lbl td-lbl-sm">每月二代健保費*2%</td>${emptyM}
     </tr>
     <tr>
       <td></td><td class="td-lbl">蓋章</td>
-      <td colspan="12" class="td-seal"></td>
+      ${'<td class="td-seal"></td>'.repeat(12)}
     </tr>
   </tbody>
 </table>`;
@@ -1260,7 +1260,9 @@ function printAnnualSlipFormat() {
     '.slip th,.slip td{border:1px solid #000;padding:3px 4px;text-align:center;vertical-align:middle;font-size:12px;word-break:break-all;}',
     '.th-name{width:7%;}.th-sp{width:4%;}.th-dep{width:4%;}.th-total{width:8%;}.th-lbl{width:11%;}.th-m{width:5.5%;}',
     '.td-name{font-size:18px;font-weight:bold;}',
-    '.td-id-lbl{font-size:11px;line-height:1.4;}',
+    '.td-id-lbl{font-size:11px;line-height:1.4;text-align:center;vertical-align:middle;}',
+    '.td-id-val{font-size:11px;text-align:center;vertical-align:middle;letter-spacing:1px;}',
+    '.td-lbl-sm{font-size:9.5px !important;white-space:nowrap;}',
     '.td-addr{font-size:11px;text-align:center;vertical-align:middle;padding:4px;}',
     '.td-lbl{text-align:left;white-space:nowrap;padding-left:6px;font-size:12px;}',
     '.td-seal{height:42px;}',
