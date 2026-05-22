@@ -563,7 +563,10 @@
           <thead>
             <tr>
               <th>{{ t("col_employee") }}</th><th>{{ t("col_leave_type") }}</th><th>{{ t("col_date") }}</th><th>{{ t("col_days") }}/{{ t("col_hours") }}</th>
-              <th>{{ t("col_status") }}</th><th>{{ t("col_my_role") }}</th><th>{{ t("col_approved_at") }}</th>
+              <th>{{ t("col_status") }}</th>
+              <th>{{ t("col_supervisor") }}</th><th>{{ t("col_supervisor_time") }}</th>
+              <th>{{ t("col_hr") }}</th><th>{{ t("col_hr_time") }}</th>
+              <th>{{ t("col_actions") }}</th>
             </tr>
           </thead>
           <tbody>
@@ -573,11 +576,23 @@
               <td>{{ r.startDate }}{{ r.startDate !== r.endDate ? ' ~ ' + r.endDate : '' }}</td>
               <td>{{ r.unit === '小時' ? (r.hours + ' ' + t("hr_unit")) : (r.days + ' ' + t("leave_unit_day")) }}</td>
               <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
-              <td>{{ r.reviewer1Uid === currentUser.uid ? t("role_stage1") : t("role_stage2") }}</td>
-              <td>{{ fmtTs(r.reviewer1Uid === currentUser.uid ? r.reviewedAt1 : r.reviewedAt2) }}</td>
+              <td>{{ r.reviewer1Name || '—' }}</td>
+              <td>{{ fmtTs(r.reviewedAt1) }}</td>
+              <td>{{ r.reviewer2Name || '—' }}</td>
+              <td>{{ fmtTs(r.reviewedAt2) }}</td>
+              <td class="action-cell">
+                <button v-if="canRevoke(r, 1)" class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'leave', 1)">
+                  {{ t("btn_revoke_stage1") }}
+                </button>
+                <button v-if="canRevoke(r, 2)" class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'leave', 2)">
+                  {{ t("btn_revoke_stage2") }}
+                </button>
+              </td>
             </tr>
             <tr v-if="!approvedLeaveByMe.length">
-              <td colspan="7" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_leave") }}</td>
+              <td colspan="10" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_leave") }}</td>
             </tr>
           </tbody>
         </table>
@@ -587,7 +602,10 @@
           <thead>
             <tr>
               <th>{{ t("col_employee") }}</th><th>{{ t("col_ot_date") }}</th><th>{{ t("col_time") }}</th><th>{{ t("col_hours") }}</th>
-              <th>{{ t("col_status") }}</th><th>{{ t("col_my_role") }}</th><th>{{ t("col_approved_at") }}</th>
+              <th>{{ t("col_status") }}</th>
+              <th>{{ t("col_supervisor") }}</th><th>{{ t("col_supervisor_time") }}</th>
+              <th>{{ t("col_hr") }}</th><th>{{ t("col_hr_time") }}</th>
+              <th>{{ t("col_actions") }}</th>
             </tr>
           </thead>
           <tbody>
@@ -597,11 +615,23 @@
               <td>{{ r.startTime }} – {{ r.endTime }}</td>
               <td>{{ r.hours }} {{ t("hr_unit") }}</td>
               <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
-              <td>{{ r.reviewer1Uid === currentUser.uid ? t("role_stage1") : t("role_stage2") }}</td>
-              <td>{{ fmtTs(r.reviewer1Uid === currentUser.uid ? r.reviewedAt1 : r.reviewedAt2) }}</td>
+              <td>{{ r.reviewer1Name || '—' }}</td>
+              <td>{{ fmtTs(r.reviewedAt1) }}</td>
+              <td>{{ r.reviewer2Name || '—' }}</td>
+              <td>{{ fmtTs(r.reviewedAt2) }}</td>
+              <td class="action-cell">
+                <button v-if="canRevoke(r, 1)" class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'ot', 1)">
+                  {{ t("btn_revoke_stage1") }}
+                </button>
+                <button v-if="canRevoke(r, 2)" class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'ot', 2)">
+                  {{ t("btn_revoke_stage2") }}
+                </button>
+              </td>
             </tr>
             <tr v-if="!approvedOTByMe.length">
-              <td colspan="7" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_ot") }}</td>
+              <td colspan="10" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_ot") }}</td>
             </tr>
           </tbody>
         </table>
@@ -1063,16 +1093,39 @@ async function loadMyApproved() {
   const uid = currentUser.value.uid;
   loadingApproved.value = true;
   try {
-    const [la, lb, oa, ob] = await Promise.all([
-      getDocs(query(collection(db, "leaveRequests"), where("reviewer1Uid", "==", uid))),
-      getDocs(query(collection(db, "leaveRequests"), where("reviewer2Uid", "==", uid))),
-      getDocs(query(collection(db, "overtimeRequests"), where("reviewer1Uid", "==", uid))),
-      getDocs(query(collection(db, "overtimeRequests"), where("reviewer2Uid", "==", uid))),
-    ]);
+    let leaveDocs = [];
+    let otDocs = [];
+    if (isHRRole.value) {
+      // HR / admin / 管理者：查全部已處理 (approved1, approved2, rejected)
+      const STATUSES = ["approved1", "approved2", "rejected"];
+      const [lSnaps, oSnaps] = await Promise.all([
+        Promise.all(
+          STATUSES.map((s) =>
+            getDocs(query(collection(db, "leaveRequests"), where("status", "==", s))),
+          ),
+        ),
+        Promise.all(
+          STATUSES.map((s) =>
+            getDocs(query(collection(db, "overtimeRequests"), where("status", "==", s))),
+          ),
+        ),
+      ]);
+      leaveDocs = lSnaps.flatMap((s) => s.docs);
+      otDocs = oSnaps.flatMap((s) => s.docs);
+    } else {
+      const [la, lb, oa, ob] = await Promise.all([
+        getDocs(query(collection(db, "leaveRequests"), where("reviewer1Uid", "==", uid))),
+        getDocs(query(collection(db, "leaveRequests"), where("reviewer2Uid", "==", uid))),
+        getDocs(query(collection(db, "overtimeRequests"), where("reviewer1Uid", "==", uid))),
+        getDocs(query(collection(db, "overtimeRequests"), where("reviewer2Uid", "==", uid))),
+      ]);
+      leaveDocs = [...la.docs, ...lb.docs];
+      otDocs = [...oa.docs, ...ob.docs];
+    }
     const leaveMap = {};
-    for (const d of [...la.docs, ...lb.docs]) leaveMap[d.id] = { id: d.id, ...d.data() };
+    for (const d of leaveDocs) leaveMap[d.id] = { id: d.id, ...d.data() };
     const otMap = {};
-    for (const d of [...oa.docs, ...ob.docs]) otMap[d.id] = { id: d.id, ...d.data() };
+    for (const d of otDocs) otMap[d.id] = { id: d.id, ...d.data() };
 
     const [y, m] = approvedMonth.value.split("-").map(Number);
     const inMonth = (date) => {
@@ -1091,6 +1144,84 @@ async function loadMyApproved() {
   } finally {
     loadingApproved.value = false;
   }
+}
+
+// 撤回核准權限：
+//  stage 1 (主管)：原審核人本人 或 HR/admin
+//  stage 2 (HR)：HR/admin
+function canRevoke(r, stage) {
+  if (!r || !currentUser.value) return false;
+  if (stage === 1) {
+    if (!r.reviewer1Uid) return false;
+    return (
+      isHRRole.value || r.reviewer1Uid === currentUser.value.uid || isManager.value
+    );
+  }
+  if (stage === 2) {
+    if (!r.reviewer2Uid) return false;
+    return isHRRole.value;
+  }
+  return false;
+}
+
+async function revokeApproval(r, col, stage) {
+  const msg = stage === 1 ? t("confirm_revoke_stage1") : t("confirm_revoke_stage2");
+  if (!confirm(msg)) return;
+  const colName = col === "leave" ? "leaveRequests" : "overtimeRequests";
+  try {
+    let upd;
+    if (stage === 2) {
+      // 撤回 HR 核准 → 回到「主管已核准 (approved1)」狀態
+      upd = {
+        status: "approved1",
+        reviewer2Uid: null,
+        reviewer2Name: null,
+        reviewedAt2: null,
+        rejectStage: null,
+        rejectReason: null,
+      };
+      // 若是請假且原本為 approved2，需把已扣的配額還回
+      if (col === "leave" && r.status === "approved2" && r.uid && r.type && r.days) {
+        await restoreQuota(r.uid, r.type, r.days);
+      }
+    } else {
+      // 撤回主管核准 → 回到「待審 (pending)」狀態
+      // 如果 HR 已核准 (approved2) 並要撤回主管，需一併還原 HR
+      const needRestoreHR = r.status === "approved2";
+      upd = {
+        status: "pending",
+        reviewer1Uid: null,
+        reviewer1Name: null,
+        reviewedAt1: null,
+        rejectStage: null,
+        rejectReason: null,
+      };
+      if (needRestoreHR) {
+        upd.reviewer2Uid = null;
+        upd.reviewer2Name = null;
+        upd.reviewedAt2 = null;
+        if (col === "leave" && r.uid && r.type && r.days) {
+          await restoreQuota(r.uid, r.type, r.days);
+        }
+      }
+    }
+    await updateDoc(doc(db, colName, r.id), upd);
+    await loadMyApproved();
+  } catch (e) {
+    alert("撤回失敗：" + e.message);
+  }
+}
+
+async function restoreQuota(uid, leaveType, days) {
+  const qKey = QUOTA_KEY[leaveType];
+  if (!qKey) return;
+  const qRef = doc(db, "leaveQuota", uid);
+  const qSnap = await getDoc(qRef);
+  if (!qSnap.exists()) return;
+  const current = qSnap.data()[qKey] || { total: 0, used: 0 };
+  await updateDoc(qRef, {
+    [`${qKey}.used`]: Math.max(0, (current.used || 0) - (days || 0)),
+  });
 }
 function switchQuota() {
   tab.value = "quota";

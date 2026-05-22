@@ -197,6 +197,18 @@
             <input type="date" v-model="form.birthday" />
           </label>
           <label
+            >配偶
+            <select v-model="form.spouse">
+              <option value="">（未設定）</option>
+              <option value="已">已婚</option>
+              <option value="未">未婚</option>
+            </select>
+          </label>
+          <label
+            >扶養人數
+            <input type="number" v-model.number="form.numDependents" min="0" />
+          </label>
+          <label
             >手機
             <input v-model="form.phone" />
           </label>
@@ -391,6 +403,8 @@ const FIELDS = [
   { key: "empNo", label: "員工編號" },
   { key: "name", label: "姓名" },
   { key: "idNo", label: "身份證字號" },
+  { key: "spouse", label: "配偶" },
+  { key: "numDependents", label: "扶養人數", type: "number" },
   { key: "birthday", label: "生日" },
   { key: "phone", label: "手機" },
   { key: "email", label: "電郵" },
@@ -434,8 +448,8 @@ const AUTO_MAP = {
   員工姓名: "name",
   身份證: "idNo",
   身分證: "idNo",
-  身份證字號: "idNo",
-  生日: "birthday",
+  身份證字號: "idNo",  配偶: "spouse",
+  扶養人數: "numDependents",  生日: "birthday",
   出生日期: "birthday",
   手機: "phone",
   電話: "phone",
@@ -740,6 +754,8 @@ const emptyForm = () => ({
   empNo: "",
   name: "",
   idNo: "",
+  spouse: "",
+  numDependents: null,
   birthday: "",
   phone: "",
   email: "",

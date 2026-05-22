@@ -540,14 +540,26 @@
           <label class="af-item">
             員工：
             <select v-model="annualEmpNo" class="annual-emp-select">
-              <option value="">全部員工（不含離職）</option>
-              <option
-                v-for="s in staffList"
-                :key="`annual-${s.empNo}`"
-                :value="s.empNo"
-              >
-                {{ s.empNo }} {{ s.name }}
-              </option>
+              <option value="">全部在職員工</option>
+              <option value="__ALL__">全部員工（含離職）</option>
+              <optgroup label="在職">
+                <option
+                  v-for="s in allStaffForAnnual.filter(s => s.status !== '離職')"
+                  :key="`annual-${s.empNo}`"
+                  :value="s.empNo"
+                >
+                  {{ s.empNo }} {{ s.name }}
+                </option>
+              </optgroup>
+              <optgroup label="離職">
+                <option
+                  v-for="s in allStaffForAnnual.filter(s => s.status === '離職')"
+                  :key="`annual-off-${s.empNo}`"
+                  :value="s.empNo"
+                >
+                  {{ s.empNo }} {{ s.name }}（離職）
+                </option>
+              </optgroup>
             </select>
           </label>
           <button
@@ -689,7 +701,14 @@
             class="btn-sm btn-print"
             @click="printAnnualReport"
           >
-            列印 PDF
+            列印 PDF（彙整表）
+          </button>
+          <button
+            v-if="annualResult"
+            class="btn-sm btn-print"
+            @click="printAnnualSlipFormat"
+          >
+            列印薪資表格式
           </button>
           <button
             v-if="annualResult"
@@ -769,6 +788,7 @@ const loanForm = ref({
 });
 
 const staffList = ref([]);
+const allStaffForAnnual = ref([]);
 const staffBankMap = ref(new Map());
 const sensitiveView = ref("hidden");
 const lunchSheetUrl = ref("");
@@ -943,17 +963,19 @@ async function loadAnnualReport() {
     // 排除離職員工 (staffList 已過濾 status === '離職')
     const activeSet = new Set(staffList.value.map((s) => String(s.empNo)));
     const targetEmpNo = String(annualEmpNo.value || "").trim();
+    const includeAll = targetEmpNo === "__ALL__";
 
     const records = Array.from(dedup.values()).filter((r) => {
       const en = String(r.empNo ?? "");
+      if (includeAll) return true;
+      if (targetEmpNo) return en === targetEmpNo;
       if (!activeSet.has(en)) return false;
-      if (targetEmpNo && en !== targetEmpNo) return false;
       return true;
     });
 
-    if (targetEmpNo) {
+    if (targetEmpNo && !includeAll) {
       const staff =
-        staffList.value.find((s) => String(s.empNo) === targetEmpNo) || {
+        allStaffForAnnual.value.find((s) => String(s.empNo) === targetEmpNo) || {
           empNo: targetEmpNo,
           name: "",
         };
@@ -1000,7 +1022,7 @@ async function loadAnnualReport() {
       const totals = Object.fromEntries(selectedCols.map((c) => [c.key, 0]));
       for (const en of empNos) {
         const recs = byEmp.get(en);
-        const staff = staffList.value.find((s) => String(s.empNo) === en);
+        const staff = allStaffForAnnual.value.find((s) => String(s.empNo) === en);
         const sample = recs[0] || {};
         const values = {};
         for (const c of selectedCols) {
@@ -1011,12 +1033,19 @@ async function loadAnnualReport() {
           values[c.key] = sum;
           totals[c.key] += sum;
         }
+        const monthlyData = {};
+        for (let m = 1; m <= 12; m++) {
+          const mm = String(m).padStart(2, '0');
+          const rec = recs.find((r) => r.yyyyMM === year + mm);
+          monthlyData[mm] = rec ? getAnnualFieldValue(rec, 'reportedIncome') : 0;
+        }
         rows.push({
           empNo: en,
           name: staff?.name || sample.name || "",
           dept: sample.dept || "",
           monthCount: recs.length,
           values,
+          monthlyData,
         });
       }
       annualResult.value = {
@@ -1101,6 +1130,147 @@ tr.total-row th, tr.total-row td { font-weight: bold; background: #fff7d6; }
 </body></html>`;
 
   const win = window.open("", "_blank", "width=1200,height=820");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+    win.onafterprint = () => win.close();
+  };
+}
+
+function printAnnualSlipFormat() {
+  if (!annualResult.value) return;
+  const R = annualResult.value;
+  const year = String(R.year);
+  const rocYear = Number(year) - 1911;
+  const fmt = (v) => (Number(v) || 0).toLocaleString();
+  const esc = (s) =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+  const empBlocks = [];
+  if (R.mode === 'single') {
+    const staffInfo =
+      allStaffForAnnual.value.find((s) => String(s.empNo) === String(R.staff.empNo)) ||
+      { ...R.staff, idNo: '', address: '', spouse: '', numDependents: '' };
+    const monthlyValues = [];
+    let total = 0;
+    for (let m = 1; m <= 12; m++) {
+      const row = R.rows.find((r) => r.month === m);
+      const v = row ? (row.values['reportedIncome'] || 0) : 0;
+      monthlyValues.push(v);
+      total += v;
+    }
+    empBlocks.push({ staff: staffInfo, monthlyValues, total });
+  } else {
+    for (const row of R.rows) {
+      const staffInfo =
+        allStaffForAnnual.value.find((s) => String(s.empNo) === String(row.empNo)) ||
+        { empNo: row.empNo, name: row.name, idNo: '', address: '', spouse: '', numDependents: '' };
+      const monthlyValues = [];
+      let total = 0;
+      for (let m = 1; m <= 12; m++) {
+        const mm = String(m).padStart(2, '0');
+        const v = row.monthlyData ? (row.monthlyData[mm] || 0) : 0;
+        monthlyValues.push(v);
+        total += v;
+      }
+      empBlocks.push({ staff: staffInfo, monthlyValues, total });
+    }
+  }
+
+  function buildEmpHtml(block) {
+    const { staff, monthlyValues, total } = block;
+    const mHeaders = Array.from({ length: 12 }, (_, i) =>
+      `<th class="th-m">${i + 1}月份</th>`
+    ).join('');
+    const mTds = monthlyValues.map((v) =>
+      `<td class="num">${fmt(v)}</td>`
+    ).join('');
+    const emptyM = '<td colspan="12" class="empty-m"></td>';
+    return `<div class="page-hd">
+  <span class="co-name">公司名稱：峻晟實業股份有限公司</span>
+  <span class="yr-title">${rocYear}&ensp;年&ensp;度&ensp;薪&ensp;資&ensp;表</span>
+</div>
+<table class="slip">
+  <thead>
+    <tr>
+      <th class="th-name">姓名</th>
+      <th class="th-sp">配偶</th>
+      <th class="th-dep">扶養<br>人數</th>
+      <th class="th-total">合計</th>
+      <th class="th-lbl">月份</th>
+      ${mHeaders}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="7" class="td-name">${esc(staff.name)}</td>
+      <td rowspan="2" class="td-sp">${esc(staff.spouse)}</td>
+      <td rowspan="2" class="td-dep">${esc(staff.numDependents)}</td>
+      <td class="num">${fmt(total)}</td>
+      <td class="td-lbl">給付額</td>
+      ${mTds}
+    </tr>
+    <tr>
+      <td></td><td class="td-lbl">扣繳額</td>${emptyM}
+    </tr>
+    <tr>
+      <td rowspan="2" class="td-id-lbl">身份證<br>統一編號</td>
+      <td rowspan="2" class="td-id-val">${esc(staff.idNo)}</td>
+      <td></td><td class="td-lbl">伙食費</td>${emptyM}
+    </tr>
+    <tr>
+      <td></td><td class="td-lbl">獎金</td>${emptyM}
+    </tr>
+    <tr>
+      <td rowspan="3" colspan="2" class="td-addr">${esc(staff.address)}</td>
+      <td></td><td class="td-lbl">健保投保額</td>${emptyM}
+    </tr>
+    <tr>
+      <td></td><td class="td-lbl">每月二代健保費*2%</td>${emptyM}
+    </tr>
+    <tr>
+      <td></td><td class="td-lbl">蓋章</td>
+      <td colspan="12" class="td-seal"></td>
+    </tr>
+  </tbody>
+</table>`;
+  }
+
+  const blocksHtml = empBlocks
+    .map(
+      (b, i) =>
+        `<div class="emp-blk${(i % 2 === 1) ? ' brk' : ''}">${buildEmpHtml(b)}</div>`,
+    )
+    .join('');
+
+  const css = [
+    'body{font-family:"Noto Sans TC",Arial,sans-serif;font-size:13px;margin:6mm;color:#000;}',
+    '.emp-blk{margin-bottom:8mm;}',
+    '.emp-blk.brk{page-break-after:always;margin-bottom:0;}',
+    '.emp-blk:last-child{page-break-after:avoid;}',
+    '.page-hd{display:flex;align-items:baseline;margin-bottom:3px;}',
+    '.co-name{font-size:13px;white-space:nowrap;}',
+    '.yr-title{flex:1;text-align:center;font-size:18px;font-weight:bold;letter-spacing:6px;}',
+    '.slip{width:100%;border-collapse:collapse;table-layout:fixed;}',
+    '.slip th,.slip td{border:1px solid #000;padding:3px 4px;text-align:center;vertical-align:middle;font-size:12px;word-break:break-all;}',
+    '.th-name{width:7%;}.th-sp{width:4%;}.th-dep{width:4%;}.th-total{width:8%;}.th-lbl{width:11%;}.th-m{width:5.5%;}',
+    '.td-name{font-size:18px;font-weight:bold;}',
+    '.td-id-lbl{font-size:11px;line-height:1.4;}',
+    '.td-addr{font-size:11px;text-align:center;vertical-align:middle;padding:4px;}',
+    '.td-lbl{text-align:left;white-space:nowrap;padding-left:6px;font-size:12px;}',
+    '.td-seal{height:42px;}',
+    '.num{text-align:right;}',
+    '@media print{@page{size:A4 landscape;margin:6mm;}body{margin:0;}}',
+  ].join('');
+
+  const html = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${rocYear} 年度薪資表</title><style>${css}</style></head><body>${blocksHtml}</body></html>`;
+
+  const win = window.open('', '_blank', 'width=1400,height=900');
   win.document.write(html);
   win.document.close();
   win.focus();
@@ -1448,10 +1618,16 @@ async function loadStaff() {
     name: d.data().name || "",
     status: d.data().status || "",
     idNo: d.data().idNo || "",
+    address: d.data().address || "",
+    spouse: d.data().spouse || "",
+    numDependents: d.data().numDependents ?? "",
     bankName: d.data().bankName || "",
     bankAccount: d.data().bankAccount || "",
   }));
   staffBankMap.value = new Map(all.map((s) => [s.empNo, s]));
+  allStaffForAnnual.value = all
+    .filter((s) => s.name)
+    .sort((a, b) => String(a.empNo).localeCompare(String(b.empNo)));
   staffList.value = all
     .filter((s) => s.name && s.status !== "離職")
     .sort((a, b) => String(a.empNo).localeCompare(String(b.empNo)));
