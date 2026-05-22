@@ -62,7 +62,7 @@ service cloud.firestore {
           && !('customerApproved' in request.resource.data)
           && !('companyId' in request.resource.data)
         ) || isAdmin();
-      allow read: if signedIn() && (request.auth.uid == userId || isAdminOrManager());
+      allow read: if signedIn() && (request.auth.uid == userId || isAdminOrManager() || isStaff());
       allow update: if isAdminOrManager()
                     && (!('role' in request.resource.data) ||
                         request.resource.data.role in ['admin','管理者','員工','客戶','遊客'])
