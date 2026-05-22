@@ -73,13 +73,25 @@
       </div>
       </div>
 
-      <!-- 明日請假 -->
-      <div class="leave-side-panel">
-        <div class="side-panel-title">明日請假</div>
-        <div v-if="!tomorrowLeaveList.length" class="side-panel-empty">無</div>
-        <div v-for="r in tomorrowLeaveList" :key="r.name + r.type" class="side-panel-item">
-          <span class="side-name">{{ r.name }}</span>
-          <span class="side-type">{{ r.type }}</span>
+      <!-- 明日請假 / 未打卡 -->
+      <div class="side-col-right">
+        <div class="leave-side-panel">
+          <div class="side-panel-title">明日請假</div>
+          <div v-if="!tomorrowLeaveList.length" class="side-panel-empty">無</div>
+          <div v-for="r in tomorrowLeaveList" :key="r.name + r.type" class="side-panel-item">
+            <span class="side-name">{{ r.name }}</span>
+            <span class="side-type">{{ r.type }}</span>
+          </div>
+        </div>
+        <div class="leave-side-panel not-punched-panel" style="margin-top:10px">
+          <div class="side-panel-title np-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <span>未打卡 ({{ notPunchedList.length }})</span>
+            <button class="np-refresh-btn" @click="fetchNotPunched" title="刷新">↻</button>
+          </div>
+          <div v-if="!notPunchedList.length" class="side-panel-empty">全員到齊</div>
+          <div v-for="s in notPunchedList" :key="s.email || s.name" class="side-panel-item">
+            <span class="side-name">{{ s.name }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -438,6 +450,30 @@ const editModal = ref({ show: false, id: "", uid: "", name: "", date: "", punchI
 const newRecModal = ref({ show: false, uid: "", date: "", punchIn: "", punchOut: "", saving: false, err: "" });
 
 // ── 今明日請假名單 ─────────────────────────────────
+const notPunchedList = ref([]);
+
+async function fetchNotPunched() {
+  try {
+    const today = todayStr();
+    const [staffSnap, attSnap] = await Promise.all([
+      getDocs(query(collection(db, "staff"), where("status", "==", "在職"))),
+      getDocs(query(collection(db, "attendance"), where("date", "==", today))),
+    ]);
+    const punchedEmails = new Set(
+      attSnap.docs.map((d) => (d.data().email || "").toLowerCase()).filter(Boolean)
+    );
+    notPunchedList.value = staffSnap.docs
+      .map((d) => d.data())
+      .filter((s) => {
+        if (!s.email) return false;
+        return !punchedEmails.has(s.email.toLowerCase());
+      })
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "zh-Hant"));
+  } catch (e) {
+    console.error("fetchNotPunched:", e);
+  }
+}
+
 const todayLeaveList = ref([]);
 const tomorrowLeaveList = ref([]);
 
@@ -453,13 +489,18 @@ async function fetchDayLeaves() {
         where("endDate", ">=", today),
       ),
     );
-    const recs = snap.docs
+    const rawRecs = snap.docs
       .map((d) => ({ ...d.data() }))
       .filter(
         (r) =>
           (r.status === "approved1" || r.status === "approved2") &&
           r.startDate <= tomorrow,
       );
+
+    const allUsers = await fetchAllUsers();
+    const nameMap = {};
+    allUsers.forEach((u) => { if (u.uid) nameMap[u.uid] = u.displayName || u.name || ""; });
+    const recs = rawRecs.map((r) => r.uid && nameMap[r.uid] ? { ...r, name: nameMap[r.uid] } : r);
 
     function groupByName(list) {
       const map = new Map();
@@ -551,6 +592,7 @@ onMounted(async () => {
   // 讀取 staff role/dept 與待審計數
   await loadApproverInfo();
   if (isApprover.value) await loadPendingCounts();
+  fetchNotPunched();
 });
 
 onUnmounted(() => clearInterval(clockTimer));
@@ -719,7 +761,7 @@ async function punchIn() {
     const id = `${todayStr()}_${currentUser.uid}`;
     const data = {
       uid: currentUser.uid,
-      name: currentUser.displayName || currentUser.email,
+      name: userDoc?.displayName || currentUser.displayName || currentUser.email,
       email: currentUser.email,
       date: todayStr(),
       punchIn: timeStr(),
@@ -736,6 +778,7 @@ async function punchIn() {
     };
     await setDoc(doc(db, "attendance", id), data);
     todayRec.value = data;
+    fetchNotPunched();
   } catch (e) {
     punchErr.value = t("punch_fail") + e.message;
   } finally {
@@ -1094,6 +1137,23 @@ h1 {
   padding: 1px 5px;
   white-space: nowrap;
   margin-left: 4px;
+}
+.side-col-right {
+  width: 145px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+.not-punched-panel { border-color: #ffa726 !important; }
+.np-title { color: #e65100 !important; border-bottom-color: #ffe0b2 !important; }
+.np-refresh-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: .95rem;
+  color: #e65100;
+  padding: 0 2px;
+  line-height: 1;
 }
 .punch-date {
   font-size: 1rem;

@@ -1059,7 +1059,7 @@ function fmtTs(ts) {
   if (!ts) return "—";
   try {
     const d = ts.toDate ? ts.toDate() : new Date(ts);
-    return d.toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
   } catch { return "—"; }
 }
 function statusClass(s) {
@@ -1143,6 +1143,14 @@ async function loadMyApproved() {
     approvedOTByMe.value = Object.values(otMap)
       .filter((r) => inMonth(r.date))
       .sort((a, b) => (a.date > b.date ? -1 : 1));
+    // 以 Users 集合的最新 displayName 覆蓋
+    try {
+      const usersSnap = await getDocs(collection(db, "Users"));
+      const nameMap = {};
+      usersSnap.docs.forEach((d) => { const n = d.data().displayName; if (n) nameMap[d.id] = n; });
+      [...approvedLeaveByMe.value, ...approvedOTByMe.value]
+        .forEach((r) => { if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid]; });
+    } catch (_) { /* ignore */ }
   } catch (e) {
     console.error(e);
   } finally {
@@ -1549,6 +1557,19 @@ async function loadPending() {
           if (!r.dept && r.email && emailDept[r.email]) r.dept = emailDept[r.email];
         });
       fill(lv1); fill(lv2); fill(ov1); fill(ov2);
+    } catch (_) { /* ignore */ }
+
+    // 以 Users 集合的最新 displayName 覆蓋申請時存的舊姓名
+    try {
+      const usersSnap = await getDocs(collection(db, "Users"));
+      const nameMap = {};
+      usersSnap.docs.forEach((d) => {
+        const n = d.data().displayName;
+        if (n) nameMap[d.id] = n;
+      });
+      const applyName = (arr) =>
+        arr.forEach((r) => { if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid]; });
+      applyName(lv1); applyName(lv2); applyName(ov1); applyName(ov2);
     } catch (_) { /* ignore */ }
 
     if (isDeptHead.value && myDept.value) {
