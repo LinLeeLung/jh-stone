@@ -30,6 +30,7 @@ import {
   addDoc,
   serverTimestamp,
   writeBatch,
+  runTransaction,
 } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import {
@@ -38,6 +39,7 @@ import {
   uploadBytes,
   uploadBytesResumable,
   getDownloadURL,
+  getBytes,
   deleteObject,
 } from "firebase/storage";
 
@@ -1319,4 +1321,499 @@ export async function listNasLegacyPhotos(payload = {}) {
   const callable = httpsCallable(functionsInstance, "listNasLegacyPhotos");
   const resp = await callable(payload);
   return resp.data || {};
+}
+
+// ============================================================================
+// salesOrders / customers / productModels (新 ERP 架構)
+// ============================================================================
+
+// 取所有客戶（依名稱排序，前端可再做關鍵字過濾）
+export async function listCustomers() {
+  const snap = await getDocs(
+    query(collection(db, "customers"), orderBy("name")),
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// 依部門讀取在職員工（dept: "1" = 辦公室, "2" = 安裝, "3" = 廠內, "4" = 外勞）
+export async function listStaffByDept(dept) {
+  const snap = await getDocs(collection(db, "staff"));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((s) => String(s.dept ?? "") === String(dept) && String(s.status || "") !== "離職")
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"));
+}
+
+// 取所有產品型號（可指定 type 過濾：sink / stove / hood / accessory）
+export async function listProductModels(type) {
+  const ref = collection(db, "productModels");
+  const snap = type
+    ? await getDocs(query(ref, where("type", "==", type)))
+    : await getDocs(ref);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// 取單一銷售訂單
+export async function getSalesOrder(id) {
+  const snap = await getDoc(doc(db, "salesOrders", id));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+// 列出銷售訂單（依建檔時間倒序，預設 100 筆）
+export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
+  const ref = collection(db, "salesOrders");
+  const constraints = [];
+  if (status) constraints.push(where("status", "==", status));
+  constraints.push(orderBy("createdAt", "desc"));
+  constraints.push(limit(lim));
+  const snap = await getDocs(query(ref, ...constraints));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// 建立新銷售訂單（draft 狀態，回簽前無 orderNo）
+export async function createSalesOrder(data) {
+  const uid = auth.currentUser?.uid || null;
+  const payload = {
+    status: "draft",
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    createdByUid: uid,
+    updatedByUid: uid,
+  };
+  const ref = await addDoc(collection(db, "salesOrders"), payload);
+  return ref.id;
+}
+
+// ─── 繪圖截圖覆層上傳 ────────────────────────────────────────────────────────
+// 將 base64 data URL 上傳至 Firebase Storage，回傳永久 download URL。
+// 路徑：drawingOverlays/{orderId}/{timestamp}-{random}.{ext}
+export async function uploadOverlayImage(orderId, dataUrl) {
+  await authReadyPromise;
+  if (!orderId) throw new Error("orderId 必填");
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx === -1) throw new Error("無效的圖片資料");
+  const header = dataUrl.slice(0, commaIdx);
+  const b64 = dataUrl.slice(commaIdx + 1);
+  const mimeMatch = header.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "image/png";
+  const byteString = atob(b64);
+  const bytes = new Uint8Array(byteString.length);
+  for (let i = 0; i < byteString.length; i++)
+    bytes[i] = byteString.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  const ext = mime.split("/")[1]?.replace("jpeg", "jpg") || "png";
+  const path = `drawingOverlays/${orderId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, blob, { contentType: mime });
+  return getDownloadURL(ref);
+}
+
+// ─── 訂單附件（原始圖檔 / 打板照）────────────────────────────────────────────
+// category: "designFiles" | "samplePhotos"
+
+export async function uploadOrderAttachment(orderId, category, file) {
+  await authReadyPromise;
+  if (!orderId || !category || !file) throw new Error("參數錯誤");
+  const uid = auth.currentUser?.uid || null;
+  const safeName = sanitizeFilename(file.name || "file");
+  const storagePath = `orderFiles/${orderId}/${category}/${Date.now()}_${safeName}`;
+  const ref = storageRef(storage, storagePath);
+  await uploadBytes(ref, file, { contentType: file.type || "application/octet-stream" });
+  const url = await getDownloadURL(ref);
+  const docRef = await addDoc(
+    collection(db, "salesOrders", orderId, category),
+    {
+      name: file.name || "file",
+      url,
+      storagePath,
+      uploadedAt: serverTimestamp(),
+      uploadedByUid: uid,
+    },
+  );
+  return { id: docRef.id, name: file.name || "file", url, storagePath };
+}
+
+export async function listOrderAttachments(orderId, category) {
+  if (!orderId || !category) return [];
+  await authReadyPromise;
+  const q = query(
+    collection(db, "salesOrders", orderId, category),
+    orderBy("uploadedAt", "desc"),
+  );
+  const snaps = await getDocs(q);
+  return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function deleteOrderAttachment(orderId, category, fileId, storagePath) {
+  await authReadyPromise;
+  if (storagePath) {
+    try {
+      await deleteObject(storageRef(storage, storagePath));
+    } catch (e) {
+      console.warn("Storage 刪除失敗", e);
+    }
+  }
+  await deleteDoc(doc(db, "salesOrders", orderId, category, fileId));
+}
+
+// 更新銷售訂單
+export async function updateSalesOrder(id, data) {
+  const uid = auth.currentUser?.uid || null;
+  await updateDoc(doc(db, "salesOrders", id), {
+    ...data,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+// 批次標記訂單為已發單（status → inProduction，記錄 dispatchedAt）
+/**
+ * Download confirmed PDF bytes for an order using Firebase Storage SDK.
+ * Avoids CORS issues that arise when using plain fetch().
+ */
+export async function downloadConfirmedPdfBytes(orderId) {
+  const ref = storageRef(storage, `orderPDFs/${orderId}/confirmed.pdf`);
+  return new Uint8Array(await getBytes(ref));
+}
+
+export async function batchMarkDispatched(orderIds) {
+  if (!orderIds?.length) return;
+  const uid = auth.currentUser?.uid || null;
+  const CHUNK = 499;
+  for (let i = 0; i < orderIds.length; i += CHUNK) {
+    const chunk = orderIds.slice(i, i + CHUNK);
+    const batch = writeBatch(db);
+    for (const id of chunk) {
+      batch.update(doc(db, "salesOrders", id), {
+        dispatchedAt: serverTimestamp(),
+        status: "inProduction",
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      });
+    }
+    await batch.commit();
+  }
+}
+
+// ── 發單作業 ────────────────────────────────────────────────────────────────
+
+// 傳確定單：記錄快照 + 狀態改為 pendingSign
+export async function sendConfirmation(orderId, snapshot) {
+  const uid = auth.currentUser?.uid || null;
+  // 記錄每張圖的 updatedAt（秒），供發單時比對是否有圖在傳確定單後被修改
+  const drawSnap = await getDocs(collection(db, "salesOrders", orderId, "drawings"));
+  const drawingVersions = {};
+  drawSnap.docs.forEach((d) => {
+    const ts = d.data().updatedAt;
+    drawingVersions[d.id] = ts ? (ts.seconds ?? 0) : 0;
+  });
+  await updateDoc(doc(db, "salesOrders", orderId), {
+    pendingSignSnapshot: snapshot,
+    pendingSignDrawingVersions: drawingVersions,
+    pendingSignAt: serverTimestamp(),
+    status: "pendingSign",
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+// 上傳已簽回確定單掃描檔
+export async function uploadSignedScan(orderId, file) {
+  await authReadyPromise;
+  const ext = (file.name || "").split(".").pop() || "pdf";
+  const path = `signedScans/${orderId}/${Date.now()}.${ext}`;
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, file, { contentType: file.type || "application/pdf" });
+  return { url: await getDownloadURL(ref), storagePath: path };
+}
+
+// 封存確定單 PDF（發單後自動呼叫）
+export async function uploadConfirmedPdf(orderId, blob) {
+  await authReadyPromise;
+  const path = `orderPDFs/${orderId}/confirmed.pdf`;
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, blob, { contentType: "application/pdf" });
+  const url = await getDownloadURL(ref);
+  await updateDoc(doc(db, "salesOrders", orderId), { confirmedPdfUrl: url });
+  return url;
+}
+
+// 確認發單：atomic 產生訂單號 + 寫入最終資料 + status = confirmed
+// orderNo: 手動指定時直接用；autoIncrement=true 時從 SystemSettings/orderCounter 取下一號
+export async function getOrderCounter() {
+  const snap = await getDoc(doc(db, "SystemSettings", "orderCounter"));
+  return snap.exists() ? (Number(snap.data().seq) || 0) : 0;
+}
+
+export async function saveOrderCounter(seq) {
+  await setDoc(
+    doc(db, "SystemSettings", "orderCounter"),
+    { seq: Number(seq) },
+    { merge: true },
+  );
+}
+
+export async function issueOrder(orderId, updatedData, signedScanUrl, orderNo, autoIncrement = true) {
+  const uid = auth.currentUser?.uid || null;
+  let finalOrderNo = orderNo || "";
+  const counterRef = doc(db, "SystemSettings", "orderCounter");
+
+  await runTransaction(db, async (tx) => {
+    if (autoIncrement) {
+      const snap = await tx.get(counterRef);
+      const seq = (snap.exists() ? Number(snap.data().seq) : 0) + 1;
+      const rawCode = String(updatedData.customerId || "").trim();
+      const alpha3 = (rawCode.match(/[A-Za-z]+/) || [""])[0].slice(0, 3).toUpperCase();
+      finalOrderNo = `${String(seq).padStart(3, "0")}${alpha3}`;
+      tx.set(counterRef, { seq }, { merge: true });
+    }
+    const orderRef = doc(db, "salesOrders", orderId);
+    tx.update(orderRef, {
+      ...updatedData,
+      orderNo: finalOrderNo,
+      status: "confirmed",
+      customerSignedAt: serverTimestamp(),
+      signedScanUrl: signedScanUrl || null,
+      updatedAt: serverTimestamp(),
+      updatedByUid: uid,
+    });
+  });
+  return finalOrderNo;
+}
+
+
+// onProgress(done, total) 可選的進度回呼
+export async function batchImportSalesOrders(records, onProgress) {
+  const uid = auth.currentUser?.uid || null;
+  const CHUNK = 499;
+  let done = 0;
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK);
+    const batch = writeBatch(db);
+    for (const rec of chunk) {
+      const ref = doc(collection(db, "salesOrders"));
+      batch.set(ref, {
+        status: "confirmed",
+        ...rec,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdByUid: uid,
+        updatedByUid: uid,
+        importedFromExcel: true,
+      });
+    }
+    await batch.commit();
+    done += chunk.length;
+    onProgress?.(done, records.length);
+  }
+  return done;
+}
+
+// ── 訂單繪圖子集合（salesOrders/:id/drawings）─────────────────────────────
+
+export async function listOrderDrawings(orderId) {
+  const col = collection(db, "salesOrders", orderId, "drawings");
+  const snap = await getDocs(query(col, orderBy("seq", "asc")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function createOrderDrawing(orderId, type) {
+  const uid = auth.currentUser?.uid || null;
+  const col = collection(db, "salesOrders", orderId, "drawings");
+  // 算目前最大 seq
+  const existing = await getDocs(col);
+  const maxSeq = existing.docs.reduce(
+    (m, d) => Math.max(m, d.data().seq ?? 0),
+    0,
+  );
+  const ref = await addDoc(col, {
+    type,
+    seq: maxSeq + 1,
+    state: null,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    createdByUid: uid,
+  });
+  return ref.id;
+}
+
+export async function updateOrderDrawing(orderId, drawingId, stateObj) {
+  const uid = auth.currentUser?.uid || null;
+  const ref = doc(db, "salesOrders", orderId, "drawings", drawingId);
+  await updateDoc(ref, {
+    state: stateObj,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+export async function deleteOrderDrawing(orderId, drawingId) {
+  await deleteDoc(doc(db, "salesOrders", orderId, "drawings", drawingId));
+}
+
+export async function getOrderConfirmation(orderId) {
+  const snap = await getDoc(
+    doc(db, "salesOrders", orderId, "confirmationDoc", "layout"),
+  );
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function saveOrderConfirmation(orderId, layout) {
+  const uid = auth.currentUser?.uid || null;
+  await setDoc(doc(db, "salesOrders", orderId, "confirmationDoc", "layout"), {
+    ...layout,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+// 品牌 -> 材質對應表（存在 SystemSettings/brandMaterials）
+// 結構：{ map: { "品牌名": "quartz"|"porcelain"|"granite"|"other" } }
+export async function getBrandMaterials() {
+  const snap = await getDoc(doc(db, "SystemSettings", "brandMaterials"));
+  if (!snap.exists()) return {};
+  const data = snap.data() || {};
+  return data.map && typeof data.map === "object" ? data.map : {};
+}
+
+export async function saveBrandMaterials(map = {}) {
+  const uid = auth.currentUser?.uid || null;
+  const clean = {};
+  Object.keys(map).forEach((k) => {
+    const brand = String(k || "").trim();
+    const val = String(map[k] || "").trim();
+    if (brand && val) clean[brand] = val;
+  });
+  await setDoc(
+    doc(db, "SystemSettings", "brandMaterials"),
+    {
+      map: clean,
+      updatedAt: serverTimestamp(),
+      updatedByUid: uid,
+    },
+    { merge: true },
+  );
+}
+
+// 訂單下拉清單選項（類別/台面型別/特殊作法/水槽工法/爐子工法）
+// 結構：{ categories: [], countertopTypes: [], specialMethods: [], sinkMethods: [], stoveMethods: [] }
+export async function getOrderOptions() {
+  const snap = await getDoc(doc(db, "SystemSettings", "orderOptions"));
+  if (!snap.exists()) return {};
+  const d = snap.data() || {};
+  const pickArr = (a) =>
+    Array.isArray(a) ? a.filter((x) => typeof x === "string") : [];
+  return {
+    categories: pickArr(d.categories),
+    countertopTypes: pickArr(d.countertopTypes),
+    specialMethods: pickArr(d.specialMethods),
+    sinkMethods: pickArr(d.sinkMethods),
+    stoveMethods: pickArr(d.stoveMethods),
+  };
+}
+
+export async function saveOrderOptions(options = {}) {
+  const uid = auth.currentUser?.uid || null;
+  const clean = (a) =>
+    Array.isArray(a)
+      ? a.map((s) => String(s || "").trim()).filter(Boolean)
+      : [];
+  await setDoc(
+    doc(db, "SystemSettings", "orderOptions"),
+    {
+      categories: clean(options.categories),
+      countertopTypes: clean(options.countertopTypes),
+      specialMethods: clean(options.specialMethods),
+      sinkMethods: clean(options.sinkMethods),
+      stoveMethods: clean(options.stoveMethods),
+      updatedAt: serverTimestamp(),
+      updatedByUid: uid,
+    },
+    { merge: true },
+  );
+}
+
+// ????????????????????????????????????????????????????????????????????
+// ??摨?(Stamps)
+// stamps/{id}: { name, type, imageUrl, authorUid, authorName,
+//               shared, textConfig, createdAt }
+// ????????????????????????????????????????????????????????????????????
+
+export async function listStamps() {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid;
+  if (!uid) return [];
+  const col = collection(db, "stamps");
+  const [sharedSnap, mySnap] = await Promise.all([
+    getDocs(query(col, where("shared", "==", true), orderBy("createdAt", "desc"))),
+    getDocs(query(col, where("authorUid", "==", uid), orderBy("createdAt", "desc"))),
+  ]);
+  const map = new Map();
+  for (const d of mySnap.docs) map.set(d.id, { id: d.id, ...d.data() });
+  for (const d of sharedSnap.docs) if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() });
+  return Array.from(map.values());
+}
+
+export async function createStamp({ name, shared, textConfig = null }, imageBlob) {
+  const user = await getSignedInUser();
+  const col = collection(db, "stamps");
+  const docRef = await addDoc(col, {
+    name: String(name || "").trim() || "未命名",
+    type: textConfig ? "text" : "image",
+    imageUrl: "",
+    authorUid: user.uid,
+    authorName: user.displayName || user.email || "",
+    shared: shared === true,
+    textConfig: textConfig || null,
+    createdAt: serverTimestamp(),
+  });
+  const sRef = storageRef(storage, `stamps/${docRef.id}/image.png`);
+  await uploadBytes(sRef, imageBlob, { contentType: "image/png" });
+  const url = await getDownloadURL(sRef);
+  await updateDoc(docRef, { imageUrl: url });
+  return { id: docRef.id, imageUrl: url };
+}
+
+export async function toggleStampShared(stampId, shared) {
+  const user = await getSignedInUser();
+  const ref = doc(db, "stamps", stampId);
+  const snap = await getDoc(ref);
+  if (!snap.exists() || snap.data().authorUid !== user.uid) throw new Error("無權限");
+  await updateDoc(ref, { shared });
+}
+
+export async function deleteStamp(stampId) {
+  const user = await getSignedInUser();
+  const ref = doc(db, "stamps", stampId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  if (snap.data().authorUid !== user.uid) throw new Error("無權限刪除此圖章");
+  try { await deleteObject(storageRef(storage, `stamps/${stampId}/image.png`)); } catch (e) { /* ignore */ }
+  await deleteDoc(ref);
+}
+
+export async function saveStampToLibrary(stampId) {
+  const user = await getSignedInUser();
+  const ref = doc(db, "Users", user.uid);
+  const snap = await getDoc(ref);
+  const existing = snap.data()?.savedStampIds || [];
+  if (existing.includes(stampId)) return;
+  await updateDoc(ref, { savedStampIds: [...existing, stampId] });
+}
+
+export async function removeStampFromLibrary(stampId) {
+  const user = await getSignedInUser();
+  const ref = doc(db, "Users", user.uid);
+  const snap = await getDoc(ref);
+  const existing = snap.data()?.savedStampIds || [];
+  await updateDoc(ref, { savedStampIds: existing.filter((id) => id !== stampId) });
+}
+
+export async function getMySavedStampIds() {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid;
+  if (!uid) return [];
+  const snap = await getDoc(doc(db, "Users", uid));
+  return snap.data()?.savedStampIds || [];
 }

@@ -12,6 +12,10 @@
     "@svgdotjs/svg.js": "^3.2.5",
     "axios": "^1.13.6",
     "firebase": "^12.10.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.7.284",
     "vue": "^3.5.25",
     "vue-router": "^4.6.4",
     "xlsx": "^0.18.5"

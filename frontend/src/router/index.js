@@ -14,6 +14,13 @@ import StraightDrawingView from "../views/drawing/StraightDrawingView.vue";
 import LShapeDrawingView from "../views/drawing/LShapeDrawingView.vue";
 import MShapeDrawingView from "../views/drawing/MShapeDrawingView.vue";
 import IslandDrawingView from "../views/drawing/IslandDrawingView.vue";
+import OrderEditView from "../views/OrderEditView.vue";
+import OrderSettingsView from "../views/OrderSettingsView.vue";
+import OrdersView from "../views/OrdersView.vue";
+import OrderImportView from "../views/OrderImportView.vue";
+import DispatchView from "../views/DispatchView.vue";
+import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
+import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
 import { auth } from "../firebase";
 import { getUserByUid, authReadyPromise } from "../firebase";
 
@@ -124,6 +131,54 @@ const router = createRouter({
       component: PayrollHelpView,
       meta: { roles: ["admin", "管理者"], title: "薪資計算說明" },
     },
+    {
+      path: "/orders",
+      name: "orders",
+      component: OrdersView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "訂單列表" },
+    },
+    {
+      path: "/orders/new",
+      name: "order-new",
+      component: OrderEditView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "新建訂單" },
+    },
+    {
+      path: "/orders/:id/edit",
+      name: "order-edit",
+      component: OrderEditView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "編輯訂單" },
+    },
+    {
+      path: "/orders/settings",
+      name: "order-settings",
+      component: OrderSettingsView,
+      meta: { roles: ["admin", "管理者"], title: "訂單設定" },
+    },
+    {
+      path: "/orders/dispatch",
+      name: "order-dispatch",
+      component: DispatchView,
+      meta: { roles: ["admin", "管理者"], title: "發單作業" },
+    },
+    {
+      path: "/orders/import",
+      name: "order-import",
+      component: OrderImportView,
+      meta: { roles: ["admin", "管理者"], title: "匯入訂單" },
+    },
+    {
+      path: "/orders/:id/drawing",
+      name: "order-drawing",
+      component: OrderDrawingWrapper,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "訂單繪圖" },
+    },
+    {
+      path: "/orders/:id/confirmation",
+      name: "order-confirmation",
+      component: OrderConfirmationView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "生產確定單" },
+    },
   ],
 });
 
@@ -158,14 +213,21 @@ router.beforeEach(async (to, from, next) => {
   }
 
   try {
-    const doc = await getUserByUid(user.uid);
-    if (doc && allowedRoles.includes(doc.role)) {
+    const userDoc = await getUserByUid(user.uid);
+    const roleOk = allowedRoles.includes(userDoc?.role);
+    const allowedDepts = to.meta?.depts;
+    const deptOk = allowedDepts
+      ? allowedDepts.includes(String(userDoc?.dept ?? ""))
+      : false;
+    if (roleOk || deptOk) {
       next();
     } else {
-      console.warn("[router] role not allowed", {
+      console.warn("[router] role/dept not allowed", {
         path: to.fullPath,
-        role: doc?.role,
+        role: userDoc?.role,
+        dept: userDoc?.dept,
         allowedRoles,
+        allowedDepts,
       });
       next("/");
     }

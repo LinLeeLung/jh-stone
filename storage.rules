@@ -51,10 +51,34 @@ service firebase.storage {
       allow read, write: if isStaff();
     }
 
+    match /drawingOverlays/{orderId}/{fileName} {
+      allow read, write: if isStaff();
+    }
+
+    match /orderFiles/{orderId}/{category}/{fileName} {
+      allow read: if canReadOrder(orderId);
+      allow write: if isStaff();
+    }
+
+    match /signedScans/{orderId}/{fileName} {
+      allow read, write: if isStaff();
+    }
+
+    match /orderPDFs/{orderId}/{fileName} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+    }
+
     match /leaveDocuments/{fileName} {
       allow read: if signedIn();
       allow write: if signedIn()
         && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // 圖章庫圖片: 登入員工可讀; 只能寫自己目錄下的
+    match /stamps/{stampId}/image.png {
+      allow read: if isStaff();
+      allow write: if isStaff();
     }
 
     match /{allPaths=**} {

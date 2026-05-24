@@ -254,27 +254,78 @@
         <div class="field-row" style="gap: 8px; align-items: flex-end">
           <div class="field-item">
             <label>新增假日</label>
-            <input type="date" v-model="newHoliday" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 5px;" />
+            <input
+              type="date"
+              v-model="newHoliday"
+              style="
+                padding: 5px 8px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+              "
+            />
           </div>
-          <button class="btn-aux" @click="addHoliday" :disabled="!newHoliday">新增</button>
-          <button class="btn-aux" @click="autoLoadHolidays" :disabled="loadingHolidays" style="margin-left: 8px">
-            {{ loadingHolidays ? '載入中…' : '自動載入 ' + new Date().getFullYear() + ' 國定假日' }}
+          <button class="btn-aux" @click="addHoliday" :disabled="!newHoliday">
+            新增
+          </button>
+          <button
+            class="btn-aux"
+            @click="autoLoadHolidays"
+            :disabled="loadingHolidays"
+            style="margin-left: 8px"
+          >
+            {{
+              loadingHolidays
+                ? "載入中…"
+                : "自動載入 " + new Date().getFullYear() + " 國定假日"
+            }}
           </button>
         </div>
-        <div v-if="form.publicHolidays && form.publicHolidays.length" style="margin-top: 10px">
+        <div
+          v-if="form.publicHolidays && form.publicHolidays.length"
+          style="margin-top: 10px"
+        >
           <div
-            v-for="h in form.publicHolidays.slice().sort((a,b) => a.date < b.date ? -1 : 1)"
+            v-for="h in form.publicHolidays
+              .slice()
+              .sort((a, b) => (a.date < b.date ? -1 : 1))"
             :key="h.date"
-            style="display: inline-flex; align-items: center; gap: 6px; margin: 3px 6px 3px 0; background: #f0f4ff; border: 1px solid #c5d3f0; border-radius: 5px; padding: 3px 8px; font-size: 0.88rem;"
+            style="
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              margin: 3px 6px 3px 0;
+              background: #f0f4ff;
+              border: 1px solid #c5d3f0;
+              border-radius: 5px;
+              padding: 3px 8px;
+              font-size: 0.88rem;
+            "
           >
-            <span>{{ h.date }}<span v-if="h.name" style="margin-left:5px;color:#555;">{{ h.name }}</span></span>
+            <span
+              >{{ h.date
+              }}<span v-if="h.name" style="margin-left: 5px; color: #555">{{
+                h.name
+              }}</span></span
+            >
             <button
               @click="removeHoliday(h.date)"
-              style="background: none; border: none; cursor: pointer; color: #c0392b; font-size: 0.95rem; padding: 0; line-height: 1;"
-            >×</button>
+              style="
+                background: none;
+                border: none;
+                cursor: pointer;
+                color: #c0392b;
+                font-size: 0.95rem;
+                padding: 0;
+                line-height: 1;
+              "
+            >
+              ×
+            </button>
           </div>
         </div>
-        <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">尚未設定假日</div>
+        <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">
+          尚未設定假日
+        </div>
       </div>
 
       <!-- 補班日設定 -->
@@ -288,27 +339,82 @@
         <div class="field-row" style="gap: 8px; align-items: flex-end">
           <div class="field-item">
             <label>新增補班日</label>
-            <input type="date" v-model="newMakeupDay" style="padding: 5px 8px; border: 1px solid #ccc; border-radius: 5px;" />
+            <input
+              type="date"
+              v-model="newMakeupDay"
+              style="
+                padding: 5px 8px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+              "
+            />
           </div>
-          <button class="btn-aux" @click="addMakeupDay" :disabled="!newMakeupDay">新增</button>
-          <button class="btn-aux" @click="autoLoadMakeupDays" :disabled="loadingMakeupDays" style="margin-left: 8px">
-            {{ loadingMakeupDays ? '載入中…' : '自動載入 ' + new Date().getFullYear() + ' 補班日' }}
+          <button
+            class="btn-aux"
+            @click="addMakeupDay"
+            :disabled="!newMakeupDay"
+          >
+            新增
+          </button>
+          <button
+            class="btn-aux"
+            @click="autoLoadMakeupDays"
+            :disabled="loadingMakeupDays"
+            style="margin-left: 8px"
+          >
+            {{
+              loadingMakeupDays
+                ? "載入中…"
+                : "自動載入 " + new Date().getFullYear() + " 補班日"
+            }}
           </button>
         </div>
-        <div v-if="form.makeupWorkdays && form.makeupWorkdays.length" style="margin-top: 10px">
+        <div
+          v-if="form.makeupWorkdays && form.makeupWorkdays.length"
+          style="margin-top: 10px"
+        >
           <div
-            v-for="h in form.makeupWorkdays.slice().sort((a,b) => a.date < b.date ? -1 : 1)"
+            v-for="h in form.makeupWorkdays
+              .slice()
+              .sort((a, b) => (a.date < b.date ? -1 : 1))"
             :key="h.date"
-            style="display: inline-flex; align-items: center; gap: 6px; margin: 3px 6px 3px 0; background: #fff8e1; border: 1px solid #f0d080; border-radius: 5px; padding: 3px 8px; font-size: 0.88rem;"
+            style="
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              margin: 3px 6px 3px 0;
+              background: #fff8e1;
+              border: 1px solid #f0d080;
+              border-radius: 5px;
+              padding: 3px 8px;
+              font-size: 0.88rem;
+            "
           >
-            <span>{{ h.date }}<span v-if="h.name" style="margin-left:5px;color:#555;">{{ h.name }}</span></span>
+            <span
+              >{{ h.date
+              }}<span v-if="h.name" style="margin-left: 5px; color: #555">{{
+                h.name
+              }}</span></span
+            >
             <button
               @click="removeMakeupDay(h.date)"
-              style="background: none; border: none; cursor: pointer; color: #c0392b; font-size: 0.95rem; padding: 0; line-height: 1;"
-            >×</button>
+              style="
+                background: none;
+                border: none;
+                cursor: pointer;
+                color: #c0392b;
+                font-size: 0.95rem;
+                padding: 0;
+                line-height: 1;
+              "
+            >
+              ×
+            </button>
           </div>
         </div>
-        <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">尚未設定補班日</div>
+        <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">
+          尚未設定補班日
+        </div>
       </div>
 
       <!-- 便當費試算表 -->
@@ -316,18 +422,20 @@
         <div class="section-head">
           <h3 class="section-title">便當費試算表</h3>
           <p class="section-desc">
-            Google 試算表「發布到網路」的 CSV 網址。薪資頁可一鍵載入當月便當費。<br />
-            取得方式：試算表 → 檔案 → 共用 → 發布到網路 → 選取便當工作表 → CSV 格式 → 發布 → 複製連結。
+            Google 試算表「發布到網路」的 CSV
+            網址。薪資頁可一鍵載入當月便當費。<br />
+            取得方式：試算表 → 檔案 → 共用 → 發布到網路 → 選取便當工作表 → CSV
+            格式 → 發布 → 複製連結。
           </p>
         </div>
         <div class="field-row">
-          <div class="field-item" style="flex:1">
+          <div class="field-item" style="flex: 1">
             <label for="lunch-sheet-url">CSV 發布網址：</label>
             <input
               id="lunch-sheet-url"
               v-model="form.lunchSheetCsvUrl"
               placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv&gid=..."
-              style="width:100%"
+              style="width: 100%"
             />
           </div>
         </div>
@@ -987,7 +1095,11 @@ async function autoLoadMakeupDays() {
         const s = String(item.date);
         const dateStr = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
         const dow = new Date(dateStr + "T00:00:00").getDay();
-        return (dow === 0 || dow === 6) && item.description && item.description.includes("補班");
+        return (
+          (dow === 0 || dow === 6) &&
+          item.description &&
+          item.description.includes("補班")
+        );
       })
       .map((item) => {
         const s = String(item.date);
@@ -1003,9 +1115,10 @@ async function autoLoadMakeupDays() {
         added++;
       }
     }
-    message.value = added > 0
-      ? `已載入 ${added} 個補班日（重複者已跳過）`
-      : `${year} 年度無補班日`;
+    message.value =
+      added > 0
+        ? `已載入 ${added} 個補班日（重複者已跳過）`
+        : `${year} 年度無補班日`;
     setTimeout(() => (message.value = ""), 3000);
   } catch (e) {
     errorMessage.value = `無法自動載入補班日：${e.message}`;

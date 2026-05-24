@@ -28,6 +28,18 @@
         <RouterLink
           class="nav-link"
           v-if="
+            userDoc &&
+            (userDoc.role === 'admin' ||
+              userDoc.role === '管理者' ||
+              String(userDoc.dept) === '1')
+          "
+          to="/orders"
+          @click="closeNav"
+          >訂單</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
             userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
           "
           to="/settings"
@@ -44,7 +56,7 @@
           "
           to="/attendance"
           @click="closeNav"
-          >{{ t('nav_attendance') }}</RouterLink
+          >{{ t("nav_attendance") }}</RouterLink
         >
         <RouterLink
           class="nav-link"
@@ -56,7 +68,7 @@
           "
           to="/leave"
           @click="closeNav"
-          >{{ t('nav_leave') }}</RouterLink
+          >{{ t("nav_leave") }}</RouterLink
         >
         <RouterLink
           class="nav-link"
@@ -65,7 +77,7 @@
           "
           to="/payroll"
           @click="closeNav"
-          >{{ t('nav_payroll') }}</RouterLink
+          >{{ t("nav_payroll") }}</RouterLink
         >
         <RouterLink
           class="nav-link"
@@ -86,7 +98,7 @@
           "
           to="/employee"
           @click="closeNav"
-          >{{ t('nav_employee') }}</RouterLink
+          >{{ t("nav_employee") }}</RouterLink
         >
         <RouterLink
           class="nav-link"
@@ -98,7 +110,7 @@
           "
           to="/inventory"
           @click="closeNav"
-          >{{ t('nav_inventory') }}</RouterLink
+          >{{ t("nav_inventory") }}</RouterLink
         >
         <RouterLink
           class="nav-link"
@@ -110,7 +122,7 @@
           "
           to="/drawing/straight"
           @click="closeNav"
-          >{{ t('nav_drawing') }}</RouterLink
+          >{{ t("nav_drawing") }}</RouterLink
         >
         <a
           class="nav-link"
@@ -124,7 +136,7 @@
           target="_blank"
           rel="noopener noreferrer"
           @click="closeNav"
-          >{{ t('nav_tools') }}</a
+          >{{ t("nav_tools") }}</a
         >
       </div>
       <div v-if="user" class="top-nav-user">

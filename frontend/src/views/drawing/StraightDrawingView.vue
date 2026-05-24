@@ -1,5 +1,13 @@
 <template>
   <div class="drawing-page">
+    <!-- 儲存列（訂單繪圖模式才顯示）-->
+    <div v-if="orderId" class="save-bar">
+      <button class="btn-save" :disabled="saving" @click="saveDrawing">
+        {{ saving ? "儲存中…" : "💾 儲存繪圖" }}
+      </button>
+      <span v-if="saveMsg" class="save-msg">{{ saveMsg }}</span>
+    </div>
+
     <!-- 桶身輸入列 -->
     <div class="row">
       桶身
@@ -23,7 +31,7 @@
       <input
         type="text"
         v-model="connectValue"
-        style="width:4em"
+        style="width: 4em"
         title="輸入接線左起幾公分"
       />
       <button @click="redraw">繪圖</button>
@@ -695,8 +703,19 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, defineProps } from "vue";
 import { SVG } from "@svgdotjs/svg.js";
+import { updateOrderDrawing } from "../../firebase";
+
+const props = defineProps({
+  orderId: { type: String, default: null },
+  drawingId: { type: String, default: null },
+  savedState: { type: Object, default: null },
+  order: { type: Object, default: null },
+});
+
+const saving = ref(false);
+const saveMsg = ref("");
 
 // ─── SVG 繪圖用模組級變數（非響應式，每次 redraw 前更新）───
 let draw = null;
@@ -808,10 +827,171 @@ function s(key) {
   return settings[key];
 }
 
+// ─── 狀態快照（存 / 讀）─────────────────────────────────────────
+// ─── 取得含緊縮 viewBox 的 SVG（去除空白邊） ────────────────
+function getTightSvg(d) {
+  try {
+    const bb = d.bbox();
+    if (bb.width > 0 && bb.height > 0) {
+      const pad = 10;
+      d.viewbox(
+        bb.x - pad,
+        bb.y - pad,
+        bb.width + pad * 2,
+        bb.height + pad * 2,
+      );
+      const s = d.svg();
+      d.node.removeAttribute("viewBox");
+      return s;
+    }
+  } catch (e) {
+    /* fallthrough */
+  }
+  return d.svg();
+}
+
+function getSnapshot() {
+  return {
+    cabins: [...cabins.value],
+    depthVal: depthVal.value,
+    connectValue: connectValue.value,
+    isCutlineToggled: isCutlineToggled.value,
+    sink1: { ...sink1 },
+    sink2: { ...sink2 },
+    stove1: { ...stove1 },
+    stove2: { ...stove2 },
+    leftOption: leftOption.value,
+    rightOption: rightOption.value,
+    backOption: backOption.value,
+    slabDepthLeft: slabDepthLeft.value,
+    slabDepthRight: slabDepthRight.value,
+    backstop: backstop.value,
+    backHeight: backHeight.value,
+    frontType: frontType.value,
+    counterThick: counterThick.value,
+    leaveSpace: leaveSpace.value,
+    stoneType: stoneType.value,
+    slabThick: slabThick.value,
+    price: price.value,
+    sinkPrice: sinkPrice.value,
+    pinsinkPrice: pinsinkPrice.value,
+    stovePrice: stovePrice.value,
+    pinstovePrice: pinstovePrice.value,
+    sinkRadio: sinkRadio.value,
+    stoveRadio: stoveRadio.value,
+    dep65: dep65.value,
+    settings: { ...settings },
+    svgContent: draw ? getTightSvg(draw) : "",
+  };
+}
+
+function restoreSnapshot(snap) {
+  if (!snap) return;
+  if (Array.isArray(snap.cabins)) cabins.value = [...snap.cabins];
+  if (snap.depthVal != null) depthVal.value = snap.depthVal;
+  if (snap.connectValue != null) connectValue.value = snap.connectValue;
+  if (snap.isCutlineToggled != null)
+    isCutlineToggled.value = snap.isCutlineToggled;
+  if (snap.leftOption != null) leftOption.value = snap.leftOption;
+  if (snap.rightOption != null) rightOption.value = snap.rightOption;
+  if (snap.backOption != null) backOption.value = snap.backOption;
+  if (snap.slabDepthLeft != null) slabDepthLeft.value = snap.slabDepthLeft;
+  if (snap.slabDepthRight != null) slabDepthRight.value = snap.slabDepthRight;
+  if (snap.backstop != null) backstop.value = snap.backstop;
+  if (snap.backHeight != null) backHeight.value = snap.backHeight;
+  if (snap.frontType != null) frontType.value = snap.frontType;
+  if (snap.counterThick != null) counterThick.value = snap.counterThick;
+  if (snap.leaveSpace != null) leaveSpace.value = snap.leaveSpace;
+  if (snap.stoneType != null) stoneType.value = snap.stoneType;
+  if (snap.slabThick != null) slabThick.value = snap.slabThick;
+  if (snap.price != null) price.value = snap.price;
+  if (snap.sinkPrice != null) sinkPrice.value = snap.sinkPrice;
+  if (snap.pinsinkPrice != null) pinsinkPrice.value = snap.pinsinkPrice;
+  if (snap.stovePrice != null) stovePrice.value = snap.stovePrice;
+  if (snap.pinstovePrice != null) pinstovePrice.value = snap.pinstovePrice;
+  if (snap.sinkRadio != null) sinkRadio.value = snap.sinkRadio;
+  if (snap.stoveRadio != null) stoveRadio.value = snap.stoveRadio;
+  if (snap.dep65 != null) dep65.value = snap.dep65;
+  if (snap.sink1) Object.assign(sink1, snap.sink1);
+  if (snap.sink2) Object.assign(sink2, snap.sink2);
+  if (snap.stove1) Object.assign(stove1, snap.stove1);
+  if (snap.stove2) Object.assign(stove2, snap.stove2);
+  if (snap.settings) Object.assign(settings, snap.settings);
+}
+
+function preFillFromOrder(ord) {
+  if (!ord) return;
+  // 石材類型
+  const stone = ord.stones?.[0];
+  if (stone) {
+    const brand = (stone.brand || "").toLowerCase();
+    if (brand.includes("晶華") || brand.includes("jh")) {
+      stoneType.value = "jh";
+      slabThick.value = 1.5;
+    } else {
+      stoneType.value = "cs";
+      slabThick.value = 1.2;
+    }
+  }
+  // 水槽 1
+  const s1 = ord.sinks?.[0];
+  if (s1) {
+    sink1.enabled = true;
+    if (s1.holeWidthMm) sink1.sinkLength = s1.holeWidthMm / 10;
+    if (s1.holeDepthMm) sink1.sinkDepth = s1.holeDepthMm / 10;
+    if (s1.holeRadiusMm) sink1.R = s1.holeRadiusMm / 10;
+  }
+  // 水槽 2
+  const s2 = ord.sinks?.[1];
+  if (s2) {
+    sink2.enabled = true;
+    if (s2.holeWidthMm) sink2.sinkLength = s2.holeWidthMm / 10;
+    if (s2.holeDepthMm) sink2.sinkDepth = s2.holeDepthMm / 10;
+    if (s2.holeRadiusMm) sink2.R = s2.holeRadiusMm / 10;
+  }
+  // 爐子 1
+  const t1 = ord.stoves?.[0];
+  if (t1) {
+    stove1.enabled = true;
+    if (t1.holeWidthMm) stove1.stoveLength = t1.holeWidthMm / 10;
+    if (t1.holeDepthMm) stove1.stoveDepth = t1.holeDepthMm / 10;
+    if (t1.holeRadiusMm) stove1.R = t1.holeRadiusMm / 10;
+  }
+  // 爐子 2
+  const t2 = ord.stoves?.[1];
+  if (t2) {
+    stove2.enabled = true;
+    if (t2.holeWidthMm) stove2.stoveLength = t2.holeWidthMm / 10;
+    if (t2.holeDepthMm) stove2.stoveDepth = t2.holeDepthMm / 10;
+    if (t2.holeRadiusMm) stove2.R = t2.holeRadiusMm / 10;
+  }
+}
+
+async function saveDrawing() {
+  if (!props.orderId || !props.drawingId) return;
+  saving.value = true;
+  try {
+    await updateOrderDrawing(props.orderId, props.drawingId, getSnapshot());
+    saveMsg.value = "✓ 已儲存";
+    setTimeout(() => {
+      saveMsg.value = "";
+    }, 2000);
+  } catch (e) {
+    saveMsg.value = "儲存失敗";
+  } finally {
+    saving.value = false;
+  }
+}
+
 // ─── 生命週期 ──────────────────────────────────────────────────
 onMounted(() => {
   draw = SVG().addTo(svgContainerRef.value).size(1300, 250);
   getSinkData();
+  if (props.savedState) {
+    restoreSnapshot(props.savedState);
+  } else if (props.order) {
+    preFillFromOrder(props.order);
+  }
   redraw();
 });
 

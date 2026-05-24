@@ -1,0 +1,639 @@
+{
+  "YP": {
+    "status": "stockOut"
+  },
+  "2CG860": {
+    "status": "preOrder"
+  },
+  "106-03": {
+    "status": "discontinued"
+  },
+  "312-09": {
+    "status": "lastStock"
+  },
+  "CS-601": {
+    "status": "problematic",
+    "note": "色差"
+  },
+  "2CG863": {
+    "status": "preOrder"
+  },
+  "2CN716": {
+    "status": "discontinued"
+  },
+  "312-18A": {
+    "status": "lastStock"
+  },
+  "QJ-3L120": {
+    "status": "problematic"
+  },
+  "DT-238": {
+    "status": "stockOut"
+  },
+  "2CK880": {
+    "status": "preOrder"
+  },
+  "2CN718": {
+    "status": "discontinued"
+  },
+  "312-18RA": {
+    "status": "lastStock"
+  },
+  "JH-3001": {
+    "status": "problematic",
+    "note": "很難顧的白"
+  },
+  "2CK881": {
+    "status": "preOrder"
+  },
+  "303-10": {
+    "status": "discontinued"
+  },
+  "CS-541": {
+    "status": "lastStock"
+  },
+  "JH-1005": {
+    "status": "problematic",
+    "note": "櫻花蝦較多"
+  },
+  "2CK882": {
+    "status": "preOrder"
+  },
+  "306-05": {
+    "status": "discontinued"
+  },
+  "CS-628": {
+    "status": "discontinued"
+  },
+  "CS-545": {
+    "status": "problematic",
+    "note": "色差"
+  },
+  "2CP820": {
+    "status": "preOrder"
+  },
+  "312-05": {
+    "status": "discontinued"
+  },
+  "DT-8201": {
+    "status": "lastStock"
+  },
+  "312-07": {
+    "status": "discontinued"
+  },
+  "DT-8211": {
+    "status": "lastStock"
+  },
+  "2CP828": {
+    "status": "preOrder"
+  },
+  "312-17": {
+    "status": "discontinued"
+  },
+  "CS-008": {
+    "status": "lastStock"
+  },
+  "CG952": {
+    "status": "preOrder"
+  },
+  "603-04": {
+    "status": "discontinued"
+  },
+  "MS023D12": {
+    "status": "lastStock"
+  },
+  "CN712": {
+    "status": "preOrder"
+  },
+  "606-04": {
+    "status": "discontinued"
+  },
+  "MN032D12": {
+    "status": "lastStock"
+  },
+  "CP213": {
+    "status": "preOrder"
+  },
+  "612-05": {
+    "status": "discontinued"
+  },
+  "MN028D12B": {
+    "status": "lastStock"
+  },
+  "CP217": {
+    "status": "preOrder"
+  },
+  "CG956": {
+    "status": "discontinued"
+  },
+  "MS030D12": {
+    "status": "lastStock"
+  },
+  "CP218": {
+    "status": "preOrder"
+  },
+  "CG958": {
+    "status": "discontinued"
+  },
+  "612-13W": {
+    "status": "lastStock"
+  },
+  "CP219": {
+    "status": "preOrder"
+  },
+  "CL-802": {
+    "status": "discontinued"
+  },
+  "CS-562": {
+    "status": "lastStock"
+  },
+  "CP315": {
+    "status": "preOrder"
+  },
+  "CN716": {
+    "status": "discontinued"
+  },
+  "CS-509": {
+    "status": "lastStock"
+  },
+  "CP712": {
+    "status": "preOrder"
+  },
+  "CN718": {
+    "status": "discontinued"
+  },
+  "CS-626": {
+    "status": "lastStock"
+  },
+  "CS-006": {
+    "status": "preOrder"
+  },
+  "CS-001": {
+    "status": "discontinued"
+  },
+  "CS-007": {
+    "status": "preOrder"
+  },
+  "CS-002": {
+    "status": "discontinued"
+  },
+  "CS-010": {
+    "status": "preOrder"
+  },
+  "CS-003": {
+    "status": "discontinued"
+  },
+  "CS-013": {
+    "status": "preOrder"
+  },
+  "CS-004": {
+    "status": "discontinued"
+  },
+  "CS-202": {
+    "status": "preOrder"
+  },
+  "CS-101": {
+    "status": "discontinued"
+  },
+  "CS-301": {
+    "status": "discontinued"
+  },
+  "CS-103": {
+    "status": "discontinued"
+  },
+  "CS-506": {
+    "status": "preOrder"
+  },
+  "CS-203": {
+    "status": "discontinued"
+  },
+  "CS-510": {
+    "status": "preOrder"
+  },
+  "CS-204": {
+    "status": "discontinued"
+  },
+  "CS-528": {
+    "status": "preOrder"
+  },
+  "CS-529": {
+    "status": "preOrder"
+  },
+  "CS-302": {
+    "status": "discontinued"
+  },
+  "CS-530": {
+    "status": "preOrder"
+  },
+  "CS-502": {
+    "status": "discontinued"
+  },
+  "312-24A": {
+    "status": "preOrder"
+  },
+  "DT-610": {
+    "status": "discontinued"
+  },
+  "DT-2038": {
+    "status": "preOrder"
+  },
+  "MQ-711": {
+    "status": "discontinued"
+  },
+  "CS-531": {
+    "status": "preOrder"
+  },
+  "DT-2019": {
+    "status": "discontinued"
+  },
+  "CS-534": {
+    "status": "preOrder"
+  },
+  "CS-508": {
+    "status": "discontinued"
+  },
+  "CS-538": {
+    "status": "preOrder"
+  },
+  "CS-511": {
+    "status": "discontinued"
+  },
+  "CS-549": {
+    "status": "preOrder"
+  },
+  "CS-512": {
+    "status": "discontinued"
+  },
+  "CS-550": {
+    "status": "preOrder"
+  },
+  "CS-513": {
+    "status": "discontinued"
+  },
+  "CS-603": {
+    "status": "preOrder"
+  },
+  "CS-514": {
+    "status": "discontinued"
+  },
+  "CS-615": {
+    "status": "preOrder"
+  },
+  "CS-520": {
+    "status": "discontinued"
+  },
+  "CS-622": {
+    "status": "preOrder"
+  },
+  "CS-521": {
+    "status": "discontinued"
+  },
+  "CS-630": {
+    "status": "preOrder"
+  },
+  "CS-522": {
+    "status": "discontinued"
+  },
+  "CS-631": {
+    "status": "preOrder"
+  },
+  "CS-523": {
+    "status": "discontinued"
+  },
+  "CS-632": {
+    "status": "preOrder"
+  },
+  "CS-524": {
+    "status": "discontinued"
+  },
+  "CS-687": {
+    "status": "preOrder"
+  },
+  "CS-525": {
+    "status": "discontinued"
+  },
+  "CS-706": {
+    "status": "preOrder"
+  },
+  "CS-532": {
+    "status": "discontinued"
+  },
+  "CS-710": {
+    "status": "preOrder"
+  },
+  "CS-542": {
+    "status": "discontinued"
+  },
+  "CS-711": {
+    "status": "preOrder"
+  },
+  "CS-600": {
+    "status": "discontinued"
+  },
+  "CS-712": {
+    "status": "preOrder"
+  },
+  "CS-601A": {
+    "status": "discontinued"
+  },
+  "CS-713": {
+    "status": "preOrder"
+  },
+  "CS-604": {
+    "status": "discontinued"
+  },
+  "CS-717": {
+    "status": "preOrder"
+  },
+  "CS-605": {
+    "status": "discontinued"
+  },
+  "CS-718": {
+    "status": "preOrder"
+  },
+  "CS-607": {
+    "status": "discontinued"
+  },
+  "CS-719": {
+    "status": "preOrder"
+  },
+  "CS-608": {
+    "status": "discontinued"
+  },
+  "CS-8533": {
+    "status": "preOrder"
+  },
+  "CS-609": {
+    "status": "discontinued"
+  },
+  "CS-8535": {
+    "status": "preOrder"
+  },
+  "DT-306": {
+    "status": "discontinued"
+  },
+  "CS-8623": {
+    "status": "preOrder"
+  },
+  "CS-610": {
+    "status": "discontinued"
+  },
+  "CS-8627": {
+    "status": "preOrder"
+  },
+  "CS-613": {
+    "status": "discontinued"
+  },
+  "CS-517": {
+    "status": "preOrder"
+  },
+  "CS-507": {
+    "status": "discontinued"
+  },
+  "CS-8687": {
+    "status": "preOrder"
+  },
+  "CS-616": {
+    "status": "discontinued"
+  },
+  "DT-304": {
+    "status": "discontinued"
+  },
+  "CS-617": {
+    "status": "discontinued"
+  },
+  "DT-609": {
+    "status": "preOrder"
+  },
+  "CS-618": {
+    "status": "discontinued"
+  },
+  "DT-8303": {
+    "status": "preOrder"
+  },
+  "CS-619": {
+    "status": "discontinued"
+  },
+  "DT-8305": {
+    "status": "preOrder"
+  },
+  "CS-620": {
+    "status": "discontinued"
+  },
+  "blue": {
+    "status": "preOrder"
+  },
+  "CS-624": {
+    "status": "discontinued"
+  },
+  "CS-720": {
+    "status": "preOrder"
+  },
+  "CS-633": {
+    "status": "discontinued"
+  },
+  "CS-8603": {
+    "status": "preOrder"
+  },
+  "CS-686": {
+    "status": "discontinued"
+  },
+  "CS-627": {
+    "status": "preOrder"
+  },
+  "CS-688": {
+    "status": "discontinued"
+  },
+  "CS-015": {
+    "status": "preOrder"
+  },
+  "CS-699": {
+    "status": "discontinued"
+  },
+  "CS-515": {
+    "status": "preOrder"
+  },
+  "CS-701": {
+    "status": "discontinued"
+  },
+  "CS-606": {
+    "status": "preOrder"
+  },
+  "CS-702": {
+    "status": "discontinued"
+  },
+  "DT-241": {
+    "status": "preOrder"
+  },
+  "CS-703": {
+    "status": "discontinued"
+  },
+  "512-13A": {
+    "status": "preOrder"
+  },
+  "CS-705": {
+    "status": "discontinued"
+  },
+  "DT-240": {
+    "status": "preOrder"
+  },
+  "CS-8103": {
+    "status": "discontinued"
+  },
+  "CS-551": {
+    "status": "preOrder"
+  },
+  "CS-8203": {
+    "status": "discontinued"
+  },
+  "CS-505": {
+    "status": "preOrder"
+  },
+  "CS-8607": {
+    "status": "discontinued"
+  },
+  "CS-547": {
+    "status": "preOrder"
+  },
+  "CS-8608": {
+    "status": "discontinued"
+  },
+  "CS-548": {
+    "status": "preOrder"
+  },
+  "CS-8617": {
+    "status": "discontinued"
+  },
+  "312-12A": {
+    "status": "preOrder"
+  },
+  "DGR-1052": {
+    "status": "discontinued"
+  },
+  "DT-210": {
+    "status": "preOrder"
+  },
+  "DT-1002": {
+    "status": "discontinued"
+  },
+  "CS-640": {
+    "status": "preOrder"
+  },
+  "DT-1006": {
+    "status": "discontinued"
+  },
+  "DT-112": {
+    "status": "preOrder"
+  },
+  "DT-103": {
+    "status": "discontinued"
+  },
+  "DT-1011": {
+    "status": "preOrder"
+  },
+  "DT-104": {
+    "status": "discontinued"
+  },
+  "DT-1012": {
+    "status": "preOrder"
+  },
+  "DT-201": {
+    "status": "discontinued"
+  },
+  "212-05": {
+    "status": "preOrder"
+  },
+  "DT-203": {
+    "status": "discontinued"
+  },
+  "DT-207": {
+    "status": "discontinued"
+  },
+  "DT-211": {
+    "status": "discontinued"
+  },
+  "DT-8036": {
+    "status": "discontinued"
+  },
+  "DT-8102": {
+    "status": "discontinued"
+  },
+  "DT-8207": {
+    "status": "discontinued"
+  },
+  "DT-8210": {
+    "status": "discontinued"
+  },
+  "DT-8304": {
+    "status": "discontinued"
+  },
+  "G-5001": {
+    "status": "discontinued"
+  },
+  "G-5311": {
+    "status": "discontinued"
+  },
+  "CS-536": {
+    "status": "discontinued"
+  },
+  "QJ-201W": {
+    "status": "discontinued"
+  },
+  "ROO-2203": {
+    "status": "discontinued"
+  },
+  "SFL-1102": {
+    "status": "discontinued"
+  },
+  "SHS-2404": {
+    "status": "discontinued"
+  },
+  "SWH-1103": {
+    "status": "discontinued"
+  },
+  "312-16B01": {
+    "status": "discontinued"
+  },
+  "CS-501": {
+    "status": "discontinued"
+  },
+  "CS-561": {
+    "status": "discontinued"
+  },
+  "CS-557": {
+    "status": "discontinued"
+  },
+  "306-16B01": {
+    "status": "discontinued"
+  },
+  "612-04": {
+    "status": "discontinued"
+  },
+  "212-22A": {
+    "status": "discontinued"
+  },
+  "512-05A": {
+    "status": "discontinued"
+  },
+  "CL-806": {
+    "status": "discontinued"
+  },
+  "CS-614": {
+    "status": "discontinued"
+  },
+  "DT-219": {
+    "status": "discontinued"
+  },
+  "CS-8614": {
+    "status": "discontinued"
+  },
+  "CL-715": {
+    "status": "discontinued"
+  },
+  "CL-807": {
+    "status": "discontinued"
+  },
+  "CL-713": {
+    "status": "discontinued"
+  }
+}

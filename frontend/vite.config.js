@@ -57,4 +57,7 @@ export default defineConfig({
     host: true, // 監聽 0.0.0.0，區域網路手機可連
     port: 5173,
   },
+  optimizeDeps: {
+    exclude: ["pdfjs-dist"],
+  },
 });

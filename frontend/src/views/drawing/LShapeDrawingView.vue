@@ -1,6 +1,25 @@
 <template>
   <div class="drawing-page">
-    <!-- 轉角歸屬（接線位置） -->
+    <!-- 儲存列 -->
+    <div class="save-bar">
+      <template v-if="orderId">
+        <button class="btn-save" :disabled="saving" @click="saveDrawing">
+          {{ saving ? "儲存中…" : "💾 儲存繪圖" }}
+        </button>
+        <span v-if="saveMsg" class="save-msg">{{ saveMsg }}</span>
+      </template>
+      <button class="btn-img" @click="imgInputRef.click()">📷 插入截圖</button>
+      <input
+        ref="imgInputRef"
+        type="file"
+        accept="image/*"
+        style="display: none"
+        @change="onImgFile"
+      />
+      <span class="img-hint"
+        >（可 Ctrl+V 貼上｜拖曳移動｜右下角縮放｜雙擊刪除）</span
+      >
+    </div>
     <div class="row corner-row">
       <button
         class="corner-btn"
@@ -448,9 +467,17 @@
             @change="redraw"
           />背牆</label
         >
-        <input
+      </div>
+      <div class="row">
+        背牆高度<input
           type="number"
           v-model.number="backHeight"
+          step="0.1"
+          class="number"
+          @change="redraw"
+        />公分 &nbsp;&nbsp;枱面厚度<input
+          type="number"
+          v-model.number="counterThick"
           step="0.1"
           class="number"
           @change="redraw"
@@ -462,14 +489,50 @@
       </div>
     </div>
 
-    <!-- SVG 畫布 -->
-    <div ref="svgContainerRef" class="svg-container"></div>
+    <!-- SVG 畫布 + 圖片疊層 -->
+    <div
+      class="img-canvas"
+      ref="imgCanvasRef"
+      @mousemove="onImgMouseMove"
+      @mouseup="onImgMouseUp"
+      @mouseleave="onImgMouseUp"
+    >
+      <div ref="svgContainerRef" class="svg-container"></div>
+      <div
+        v-for="img in overlayImages"
+        :key="img.id"
+        class="o-img"
+        :style="{ left: img.x + 'px', top: img.y + 'px', width: img.w + 'px' }"
+        @mousedown.stop="startImgDrag($event, img)"
+        @dblclick.stop="removeImg(img.id)"
+      >
+        <img
+          :src="img.src"
+          style="width: 100%; display: block; pointer-events: none"
+        />
+        <div
+          class="o-img-rh"
+          @mousedown.stop="startImgResize($event, img)"
+        ></div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, onUnmounted } from "vue";
 import { SVG } from "@svgdotjs/svg.js";
+import { updateOrderDrawing, uploadOverlayImage } from "../../firebase";
+
+const props = defineProps({
+  orderId: { type: String, default: null },
+  drawingId: { type: String, default: null },
+  savedState: { type: Object, default: null },
+  order: { type: Object, default: null },
+});
+
+const saving = ref(false);
+const saveMsg = ref("");
 
 const svgContainerRef = ref(null);
 let draw = null;
@@ -527,19 +590,220 @@ const rightEndDepth = ref(null);
 const backOption = ref("後靠牆");
 const backstop = ref(false);
 const backHeight = ref(4);
+const counterThick = ref(4);
+
+// ─── 截圖插入 ────────────────────────────────────────────
+const overlayImages = ref([]);
+const imgInputRef = ref(null);
+const imgCanvasRef = ref(null);
+let _imgDrag = null;
+// key: id, value: Promise — 追蹤背景上傳中的截圖
+const _pendingOverlayUploads = new Map();
+
+function onImgFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => addOverlayImage(ev.target.result);
+  reader.readAsDataURL(file);
+  e.target.value = "";
+}
+function addOverlayImage(src) {
+  const id = Date.now();
+  overlayImages.value.push({ id, src, x: 20, y: 20, w: 320 });
+  if (!props.orderId) return;
+  const p = uploadOverlayImage(props.orderId, src)
+    .then((url) => {
+      const img = overlayImages.value.find((i) => i.id === id);
+      if (img) img.src = url;
+    })
+    .catch((e) => console.warn("截圖上傳失敗", e))
+    .finally(() => _pendingOverlayUploads.delete(id));
+  _pendingOverlayUploads.set(id, p);
+}
+function removeImg(id) {
+  overlayImages.value = overlayImages.value.filter((i) => i.id !== id);
+}
+function startImgDrag(e, img) {
+  _imgDrag = {
+    img,
+    type: "drag",
+    startX: e.clientX,
+    startY: e.clientY,
+    origX: img.x,
+    origY: img.y,
+  };
+  e.preventDefault();
+}
+function startImgResize(e, img) {
+  _imgDrag = { img, type: "resize", startX: e.clientX, origW: img.w };
+  e.preventDefault();
+}
+function onImgMouseMove(e) {
+  if (!_imgDrag) return;
+  if (_imgDrag.type === "drag") {
+    _imgDrag.img.x = _imgDrag.origX + (e.clientX - _imgDrag.startX);
+    _imgDrag.img.y = _imgDrag.origY + (e.clientY - _imgDrag.startY);
+  } else {
+    _imgDrag.img.w = Math.max(
+      60,
+      _imgDrag.origW + (e.clientX - _imgDrag.startX),
+    );
+  }
+}
+function onImgMouseUp() {
+  _imgDrag = null;
+}
+function onPaste(e) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith("image/")) {
+      const blob = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = (ev) => addOverlayImage(ev.target.result);
+      reader.readAsDataURL(blob);
+      break;
+    }
+  }
+}
 
 // ─── 繪圖座標常數 ────────────────────────────────────────
 // L 型佈局：
 //   水平段(左段)：從 (x0, y0) 向右延伸，深度 leftDepth 向下
 //   垂直段(右段)：從 (x0 + leftTotalLen - rightDepth, y0) 向下延伸，寬度 rightDepth 向右到 x0 + leftTotalLen
 //   兩段在右上角重疊，形成 L 型
-const ORIGIN_X = 200;
+const ORIGIN_X = 120;
 const ORIGIN_Y = 120;
+
+// ─── 取得含緊縮 viewBox 的 SVG（去除空白邊） ────────────────
+function getTightSvg(d) {
+  return d.svg();
+}
+
+// ─── 狀態快照 ─────────────────────────────────────────────
+function getSnapshot() {
+  return {
+    leftCabins: [...leftCabins.value],
+    leftDepth: leftDepth.value,
+    leftPlus: leftPlus.value,
+    leftConnect: leftConnect.value,
+    leftCutToggled: leftCutToggled.value,
+    rightCabins: [...rightCabins.value],
+    rightDepth: rightDepth.value,
+    rightPlus: rightPlus.value,
+    rightConnect: rightConnect.value,
+    rightCutToggled: rightCutToggled.value,
+    cornerSide: cornerSide.value,
+    leftSinks: leftSinks.map((s) => ({ ...s })),
+    leftStoves: leftStoves.map((s) => ({ ...s })),
+    rightSinks: rightSinks.map((s) => ({ ...s })),
+    rightStoves: rightStoves.map((s) => ({ ...s })),
+    leftEnd: leftEnd.value,
+    leftEndDepth: leftEndDepth.value,
+    rightEnd: rightEnd.value,
+    rightEndDepth: rightEndDepth.value,
+    backOption: backOption.value,
+    backstop: backstop.value,
+    backHeight: backHeight.value,
+    counterThick: counterThick.value,
+    overlayImages: overlayImages.value.map((i) => ({ ...i })),
+    svgContent: draw ? getTightSvg(draw) : "",
+  };
+}
+
+function restoreSnapshot(snap) {
+  if (!snap) return;
+  if (Array.isArray(snap.leftCabins)) leftCabins.value = [...snap.leftCabins];
+  if (Array.isArray(snap.rightCabins))
+    rightCabins.value = [...snap.rightCabins];
+  if (snap.leftDepth != null) leftDepth.value = snap.leftDepth;
+  if (snap.leftPlus != null) leftPlus.value = snap.leftPlus;
+  if (snap.leftConnect != null) leftConnect.value = snap.leftConnect;
+  if (snap.leftCutToggled != null) leftCutToggled.value = snap.leftCutToggled;
+  if (snap.rightDepth != null) rightDepth.value = snap.rightDepth;
+  if (snap.rightPlus != null) rightPlus.value = snap.rightPlus;
+  if (snap.rightConnect != null) rightConnect.value = snap.rightConnect;
+  if (snap.rightCutToggled != null)
+    rightCutToggled.value = snap.rightCutToggled;
+  if (snap.cornerSide !== undefined) cornerSide.value = snap.cornerSide;
+  if (snap.leftEnd != null) leftEnd.value = snap.leftEnd;
+  if (snap.leftEndDepth != null) leftEndDepth.value = snap.leftEndDepth;
+  if (snap.rightEnd != null) rightEnd.value = snap.rightEnd;
+  if (snap.rightEndDepth != null) rightEndDepth.value = snap.rightEndDepth;
+  if (snap.backOption != null) backOption.value = snap.backOption;
+  if (snap.backstop != null) backstop.value = snap.backstop;
+  if (snap.backHeight != null) backHeight.value = snap.backHeight;
+  if (snap.counterThick != null) counterThick.value = snap.counterThick;
+  if (Array.isArray(snap.overlayImages))
+    overlayImages.value = snap.overlayImages.map((i) => ({ ...i }));
+  if (Array.isArray(snap.leftSinks))
+    snap.leftSinks.forEach((s, i) => {
+      if (leftSinks[i]) Object.assign(leftSinks[i], s);
+    });
+  if (Array.isArray(snap.leftStoves))
+    snap.leftStoves.forEach((s, i) => {
+      if (leftStoves[i]) Object.assign(leftStoves[i], s);
+    });
+  if (Array.isArray(snap.rightSinks))
+    snap.rightSinks.forEach((s, i) => {
+      if (rightSinks[i]) Object.assign(rightSinks[i], s);
+    });
+  if (Array.isArray(snap.rightStoves))
+    snap.rightStoves.forEach((s, i) => {
+      if (rightStoves[i]) Object.assign(rightStoves[i], s);
+    });
+}
+
+function preFillFromOrder(ord) {
+  if (!ord) return;
+  const s1 = ord.sinks?.[0];
+  if (s1) {
+    leftSinks[0].enabled = true;
+    if (s1.holeWidthMm) leftSinks[0].sinkLength = s1.holeWidthMm / 10;
+    if (s1.holeDepthMm) leftSinks[0].sinkDepth = s1.holeDepthMm / 10;
+    if (s1.holeRadiusMm) leftSinks[0].R = s1.holeRadiusMm / 10;
+  }
+  const s2 = ord.sinks?.[1];
+  if (s2) {
+    leftSinks[1].enabled = true;
+    if (s2.holeWidthMm) leftSinks[1].sinkLength = s2.holeWidthMm / 10;
+    if (s2.holeDepthMm) leftSinks[1].sinkDepth = s2.holeDepthMm / 10;
+    if (s2.holeRadiusMm) leftSinks[1].R = s2.holeRadiusMm / 10;
+  }
+}
+
+async function saveDrawing() {
+  if (!props.orderId || !props.drawingId) return;
+  if (_pendingOverlayUploads.size)
+    await Promise.allSettled([..._pendingOverlayUploads.values()]);
+  saving.value = true;
+  try {
+    await updateOrderDrawing(props.orderId, props.drawingId, getSnapshot());
+    saveMsg.value = "✓ 已儲存";
+    setTimeout(() => {
+      saveMsg.value = "";
+    }, 2000);
+  } catch (e) {
+    saveMsg.value = "儲存失敗";
+  } finally {
+    saving.value = false;
+  }
+}
 
 // ─── 生命週期 ────────────────────────────────────────────
 onMounted(() => {
   draw = SVG().addTo(svgContainerRef.value).size(1400, 900);
+  if (props.savedState) {
+    restoreSnapshot(props.savedState);
+  } else if (props.order) {
+    preFillFromOrder(props.order);
+  }
   redraw();
+  document.addEventListener("paste", onPaste);
+});
+onUnmounted(() => {
+  document.removeEventListener("paste", onPaste);
 });
 
 // ─── 工具 ────────────────────────────────────────────────
@@ -652,13 +916,14 @@ function redraw() {
   }
   if (backstop.value) {
     // 內側背牆線：L 型上緣為連續直線，需延伸到 x0+w（含轉角上方）
+    const bh = parseFloat(backHeight.value) || 2;
     if (w > 0)
       draw
-        .line(x0, y0 + 2, x0 + w, y0 + 2)
+        .line(x0, y0 + bh, x0 + w, y0 + bh)
         .stroke({ width: 1, color: "black" });
     if (wL > 0)
       draw
-        .line(x0 + w - 2, y0, x0 + w - 2, y0 + wL)
+        .line(x0 + w - bh, y0, x0 + w - bh, y0 + wL)
         .stroke({ width: 1, color: "black" });
   }
 
@@ -693,6 +958,11 @@ function redraw() {
     if (w > 0) drawTopWall(x0, y0, w);
     if (wL > 0) drawRightSideWall(x0 + w, y0, wL);
   }
+
+  // 動態收縮 SVG 尺寸，貼近實際繪圖內容
+  const contentRight = x0 + (w > 0 ? w : hL) + 80;
+  const contentBottom = y0 + Math.max(w > 0 ? h : 0, wL > 0 ? wL : 0) + 80;
+  draw.size(Math.max(contentRight, 200), Math.max(contentBottom, 200));
 }
 
 // ─── L 型外框 ────────────────────────────────────────────
@@ -1182,6 +1452,29 @@ input[type="radio"] {
   padding: 10px;
   font-size: 14px;
 }
+.save-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 8px;
+}
+.btn-save {
+  padding: 5px 16px;
+  background: #1f4bb8;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.btn-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.save-msg {
+  font-size: 13px;
+  color: #2d7d46;
+}
 .row {
   display: flex;
   flex-wrap: wrap;
@@ -1229,12 +1522,55 @@ label {
   padding: 6px 8px;
   border-radius: 6px;
 }
-.svg-container {
+.img-canvas {
+  position: relative;
   margin-top: 16px;
+}
+.svg-container {
   background: #fff;
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   overflow: auto;
+}
+.o-img {
+  position: absolute;
+  cursor: grab;
+  border: 1.5px dashed #aaa;
+  border-radius: 2px;
+  user-select: none;
+  top: 0;
+}
+.o-img:active {
+  cursor: grabbing;
+}
+.o-img-rh {
+  position: absolute;
+  bottom: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  background: #1f4bb8;
+  border: 2px solid #fff;
+  border-radius: 2px;
+  cursor: se-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.o-img:hover .o-img-rh {
+  opacity: 1;
+}
+.btn-img {
+  padding: 5px 12px;
+  background: #059669;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.img-hint {
+  font-size: 11px;
+  color: #999;
 }
 strong {
   margin-right: 4px;

@@ -1,0 +1,11 @@
+輸入檔: C:\Users\Owner\jh-stone\data\raw\products-raw.tsv
+總列數(扣除 header): 1799
+  乾淨可匯入: 1744
+  待人工確認: 48
+  垃圾資料: 7
+
+OK 分類:
+  stove: 1446
+  sink: 292
+  hood: 3
+  accessory: 3

@@ -198,9 +198,76 @@ service cloud.firestore {
       allow create, update, delete: if isAdminOrManager();
     }
 
+    // 新 ERP 主檔：客戶資料、產品型號、石材狀態（所有員工可讀，admin/manager 可寫）
+    match /customers/{docId} {
+      allow read: if isStaff();
+      allow write: if isAdminOrManager();
+    }
+
+    match /productModels/{docId} {
+      allow read: if isStaff();
+      allow write: if isAdminOrManager();
+    }
+
+    match /stoneStatus/{docId} {
+      allow read: if isStaff();
+      allow write: if isAdminOrManager();
+    }
+
+    // 銷售訂單（新 ERP）：員工可讀寫；admin/manager 可刪
+    match /salesOrders/{docId} {
+      allow read: if isStaff();
+      allow create: if isStaff()
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update: if isStaff()
+        && request.resource.data.updatedByUid == request.auth.uid;
+      allow delete: if isAdminOrManager();
+
+      match /drawings/{drawingId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.createdByUid == request.auth.uid;
+        allow update: if isStaff()
+          && request.resource.data.updatedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
+
+      match /confirmationDoc/{docId} {
+        allow read: if isStaff();
+        allow write: if isStaff()
+          && request.resource.data.updatedByUid == request.auth.uid;
+      }
+
+      match /designFiles/{fileId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
+
+      match /samplePhotos/{fileId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
+    }
+
     // Deny everything else by default - lock down the DB
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    // 圖章庫: 登入員工皆可讀取 shared 圖章; 作者可寫自己的
+    match /stamps/{stampId} {
+      allow read: if isStaff()
+        && (resource.data.shared == true || resource.data.authorUid == request.auth.uid);
+      allow create: if isStaff()
+        && request.resource.data.authorUid == request.auth.uid;
+      allow update: if isStaff()
+        && resource.data.authorUid == request.auth.uid;
+      allow delete: if isStaff()
+        && resource.data.authorUid == request.auth.uid;
     }
   }
 }
