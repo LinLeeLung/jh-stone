@@ -9,9 +9,16 @@
 
 ```mermaid
 flowchart LR
-  A[詢價/收水槽] --> B[打板]
+  A[詢價/收水槽] --> Q0[獨立報價<br/>accn / QuotePanel]
+  Q0 -->|保留貨源| Q0L[料已叫進<br/>價格快照鎖定]
+  Q0L --> B[打板]
+  A -->|未先報價| B
   B --> C[繪圖]
-  C --> D{客戶確認回簽}
+  C --> Q[計價<br/>比對舊報價?]
+  Q -->|有舊報價| QL[沿用鎖定價格]
+  Q -->|無舊報價| QN[現時計價]
+  QL --> D{客戶確認回簽}
+  QN --> D
   D -->|簽回| E[正式發單<br/>產生訂單號]
   E --> F[拆料單]
   F --> G[橋剪裁切]
@@ -36,6 +43,7 @@ flowchart LR
 | --- | ------------ | ----------------------------------------------- | --------------- | ----------------- |
 | 1   | **客戶管理** | `customers`                                     | `/customers`    | P1 — 其他模組基礎 |
 | 2   | **訂單管理** | `salesOrders`(新)、`orderDrafts`(打板/繪圖階段) | `/sales-orders` | P1                |
+| 2.5 | **計價模組** | `quotes`(頂層)、`priceMaster`                   | `/quote`、嵌入訂單頁 | P1.5 — 回簽前必須 |
 | 3   | **生產管理** | `productionJobs`、`productionStages`            | `/production`   | P2                |
 | 4   | **派車管理** | `dispatches`、`vehicles`                        | `/dispatch`     | P3                |
 | 5   | **維修管理** | `serviceTickets`                                | `/service`      | P4                |
@@ -95,7 +103,9 @@ flowchart LR
 | `promisedAt`                   | date                            | 預計交貨日                                                                                                                                               |
 | `installedAt`                  | date                            | 實際安裝日                                                                                                                                               |
 | `warrantyStartedAt`            | date                            | 保證書申請日(保固起算)                                                                                                                                   |
-| `subtotal`/`tax`/`total`       | number                          | 金額(會計用)                                                                                                                                             |
+| `sourceQuoteId`                | string?                         | 來源報價單 id（`quotes/{id}`）；有值代表金額鎖定於該報價，不隨市場價變動                                                                                  |
+| `priceLocked`                  | bool                            | `true` = 使用舊報價快照價格；`false` = 訂單內重新計價                                                                                                    |
+| `subtotal`/`tax`/`total`       | number                          | 金額(會計用，從 sourceQuote 複製或計價後填入)                                                                                                            |
 | `invoiceNo`                    | string                          | 發票號(會計回填)                                                                                                                                         |
 | `paymentStatus`                | enum                            | `unpaid`/`partial`/`paid`                                                                                                                                |
 | `status`                       | enum                            | `draft`→`pendingSign`→`confirmed`→`inProduction`→`done`→`scheduled`→`installed`→`closed` / `cancelled`                                                   |
@@ -103,6 +113,152 @@ flowchart LR
 | `createdAt`/`lockedAt`         | timestamp                       | `lockedAt` 後禁改(會計鎖單)                                                                                                                              |
 | `createdByUid`                 | string                          | 建檔人                                                                                                                                                   |
 | `legacySheetRow`               | object                          | 舊 Sheet 匯入原始列備份                                                                                                                                  |
+
+---
+
+### 3.3 `quotes` — 報價單(**頂層集合**)
+
+> #### 為什麼改為頂層集合?
+>
+> 報價單的生命週期**早於訂單**：業務報完價、為客戶叫進石材（鎖定成本），訂單可能數週後才正式建立。  
+> 等到繪圖完再計價時，若沿用子集合設計，則無法查詢「這個客戶之前有沒有報過」。  
+> 改為頂層集合後，新訂單建立時可直接比對未連結的舊報價，**避免以現時市場促銷價覆蓋原本已鎖成本的報價**。
+
+#### 價格快照機制 (Price Snapshot)
+
+```
+報價當下：pricePerCm = 75（從 Google Sheets 讀入） → 寫死進 quotes doc
+三週後促銷：Google Sheets 改為 60
+新訂單建立：系統找到舊報價 → 顯示「沿用 2026-04-10 報價 $75/cm，不改用現時 $60」
+→ 使用者確認 → salesOrders.sourceQuoteId = 舊報價 id，金額鎖定
+```
+
+**⚠️ 寫入 `quotes` 時必須立即快照所有單價**，絕不在訂單建立時重新讀取 Google Sheets。
+
+#### 兩種觸發來源
+
+| 來源 | 說明 |
+|------|------|
+| **獨立報價（Pre-order）** | 業務在 QuotePanel 直接報價，此時 `orderId = null`；可能觸發叫料 |
+| **訂單內計價（In-order）** | 繪圖完成後在訂單頁計價，此時 `orderId` = 已存在的草稿訂單 id |
+
+#### 欄位定義
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| `quoteNo` | string | `Q` + yymm + 流水號（`Q2604001`） |
+| `orderId` | string? | 連結的訂單；`null` = 獨立報價，未轉訂單 |
+| `customerId` | string | 客戶 id |
+| `customerSnapshot` | object | `{name, taxId, contactPerson, phone}`（快照，稽核用） |
+| `projectName` | string | 工地/案名（用於比對舊報價） |
+| `siteAddress` | string | 安裝地點 |
+| `version` | number | 1, 2, 3… 同一專案重新報價時遞增 |
+| `supersededBy` | string? | 若本版已被新版取代，填新版 quoteNo |
+| `isFutures` | bool | 期貨旗標（顯示「期貨訂貨風險告知」5 條） |
+| `quoteDate` | date | 報價日 |
+| `validUntil` | date | 有效期限（預設 quoteDate + 30 天） |
+| **`stoneLines[]`** | array | **石材計費 — 寫入時立即快照單價** |
+| └ `color` | string | 石材顏色/型號 |
+| └ `brand` | string | 品牌 |
+| └ `totalCm` | number | 總公分數 |
+| └ `pricePerCm` | number | **快照值**（元/cm，寫入時從 Sheets 讀入，之後不再改動） |
+| └ `priceSnapshotAt` | timestamp | 快照時間點（稽核） |
+| └ `lineTotal` | number | totalCm × pricePerCm |
+| **`workItems[]`** | array | **工作項目費** |
+| └ `name` | string | 項目名（如「下嵌水槽」） |
+| └ `method` | string? | 安裝方式（下嵌/上掛/平接…） |
+| └ `qty` | number | 數量 |
+| └ `unitPrice` | number | **快照值**（寫入時從 `priceMaster` 讀入，不隨 master 變動） |
+| └ `lineTotal` | number | qty × unitPrice |
+| `otherItems[]` | array | 自定義項目（名稱、qty、unitPrice、lineTotal） |
+| `subtotal` | number | stoneLines + workItems + otherItems 合計 |
+| `discount` | number | 折扣金額（負數） |
+| `discountNote` | string | 折扣說明 |
+| `taxRate` | number | 預設 0.05 |
+| `tax` | number | (subtotal + discount) × taxRate |
+| `total` | number | 含稅總計 |
+| `status` | enum | `draft` → `sent` → `accepted` / `rejected` / `expired` |
+| `sentAt` | timestamp | 傳送客戶時間 |
+| `acceptedAt` | timestamp | 客戶確認時間 |
+| `linkedAt` | timestamp | 與訂單連結時間（從獨立報價轉為訂單用） |
+| `priceSheetUrl` | string | 報價當下讀取的 Apps Script URL（稽核） |
+| `createdByUid` | string | 建立人 |
+| `createdAt` / `updatedAt` | timestamp | |
+
+#### 報價比對流程（新訂單建立時）
+
+```
+1. 使用者在 OrderEditView 選定客戶（customerId）
+2. 系統查詢：
+   quotes
+     WHERE customerId == selectedCustomerId
+     AND orderId == null              // 尚未連結訂單
+     AND status IN ['sent','accepted']
+     AND validUntil >= today()        // 在有效期內
+   ORDER BY quoteDate DESC LIMIT 5
+3. 若有結果 → UI 彈出「找到 N 筆舊報價」列表（quoteNo / 案名 / 日期 / 含稅總計）
+4. 使用者選擇「沿用此報價」→ 系統：
+   a. 將 quotes/{id}.orderId = 新訂單 id，linkedAt = now()
+   b. 將報價金額複製至 salesOrders（subtotal/tax/total）
+   c. stoneLines/workItems 也複製到訂單的 pricing snapshot
+   d. UI 顯示黃色警示「使用 YYYY-MM-DD 報價價格（$X/cm），非當前市價（$Y/cm）」
+5. 使用者選擇「不沿用，重新計價」→ 進入正常計價流程，讀取當時 Google Sheets 單價
+```
+
+#### Cloud Function `onQuoteAccepted`
+
+```
+quotes/{id} status: sent → accepted
+  ├─ 更新 salesOrders.subtotal / tax / total
+  ├─ 更新 salesOrders.customerSignedAt = acceptedAt
+  ├─ 若有同 orderId 其他 active quote → 標為 superseded
+  └─ 觸發 onOrderSigned（產生訂單號 + 建生產工單）
+```
+
+#### `priceMaster` — 工作項目單價主檔（獨立集合，讓管理者維護）
+
+> 取代 `accn/src/items.js` 的靜態陣列，改為 Firestore 動態維護。
+
+| 欄位 | 說明 |
+|------|------|
+| `name` | 項目名（`下嵌水槽` / `平接水槽` / `上掛`…） |
+| `category` | `sink` / `stove` / `edge` / `misc` |
+| `defaultPrice` | 當前預設單價（元） |
+| `unit` | `只` / `支` / `式` |
+| `active` | bool |
+| `updatedAt` / `updatedByUid` | 稽核 |
+
+> 報價時從 `priceMaster` 讀入 `unitPrice` 並立即快照；之後 `priceMaster.defaultPrice` 調整不影響已建報價。
+
+#### Firestore 規則
+
+```
+match /quotes/{id} {
+  allow read: if isStaff()
+    || (isApprovedCustomer() && resource.data.customerId == myCustomerId());
+  allow create: if isOffice() || isAdminOrManager();
+  allow update: if isAdminOrManager()
+    || (isOffice() && resource.data.status in ['draft','sent']);
+  // accepted 後鎖定，僅 admin 可改
+  allow update: if isAdmin() && resource.data.status == 'accepted';
+}
+
+match /priceMaster/{id} {
+  allow read: if isStaff();
+  allow write: if isAdminOrManager();
+}
+```
+
+#### accn 舊資料遷移
+
+| 動作 | 說明 |
+|------|------|
+| **UI 移植** | 將 `Estimate.vue`、`SiteEstimate.vue`、`QuoteView.vue` 移植至 jh-stone，掛在 `/quote` 路由 |
+| **Firebase Project** | 改用 jh-stone 的 Firebase Project，不再使用 accn 的獨立專案 |
+| **歷史資料** | 從 accn Firestore 匯出 → 以 `import-quotes.mjs` 腳本寫入 jh-stone 的 `quotes` 集合（`orderId=null`，`status='accepted'`，`version=1`） |
+| **Google Sheets 石材單價** | 繼續沿用現有 Apps Script，長期可將單價複製進 `priceMaster` 的 `stoneColors` 子集合統一管理 |
+
+---
 
 ### 3.4 `productionJobs` — 生產工單(一張訂單一工單)
 
@@ -354,10 +510,11 @@ match /serviceTickets/{id} {
 | Function             | 觸發                                                   | 用途                                                                                                   |
 | -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `generateOrderNo`    | onCall                                                 | 取下個訂單號(交易遞增,避免衝突)                                                                        |
+| `onQuoteAccepted`    | onUpdate `quotes` — `status` 從 `sent` → `accepted`    | 回寫金額到 `salesOrders`(subtotal/tax/total)；舊版 quotes 標 `superseded`；呼叫 `onOrderSigned`        |
 | `onOrderSigned`      | onUpdate `salesOrders` — `customerSignedAt` 由空變有值 | 自動產生訂單號(呼叫 `generateOrderNo`) + 建立 `productionJobs`(依 `rearTreatment` 決定 `activeStages`) |
 | `onStageDoneAdvance` | onUpdate `productionStages/*`                          | 自動推進 `currentStage`;`qc=fail` 可退回指定關                                                         |
 | `onOrderInstalled`   | onUpdate `dispatches` → completed                      | 回寫 `salesOrders.status='installed'` + `installedAt`                                                  |
-| `exportToAccounting` | onCall / 排程                                          | 匯出 `lockedAt` 後的訂單到會計系統(CSV/API)                                                            |
+| `exportToAccounting` | onCall / 排程                                          | 匯出 `lockedAt` 後的訂單到會計系統(CSV/API)，含報價明細                                                |
 | `checkWarranty`      | callable                                               | 維修建單時計算 `warrantyStatus`                                                                        |
 
 ---
@@ -380,7 +537,7 @@ match /serviceTickets/{id} {
 | ------ | ------------------------------------------------------------------------------------ | -------------------------------------------------- |
 | **S0** | 本文件 + Firestore index 草案 + 規則骨架 PR                                          | docs + rules                                       |
 | **S1** | 客戶管理 CRUD(`/customers`) + Users 連結客戶                                         | CustomerMgmtView                                   |
-| **S2** | 訂單草稿 + 正式訂單(含項目/金額/狀態流) + **`productModels` 型號主檔(含舊資料匯入)** | OrderDraftView, SalesOrderView, ProductCatalogView |
+| **S2** | 訂單草稿 + 正式訂單 + **`productModels` 型號主檔** + **計價模組**（`quotes` 頂層集合、`priceMaster`、Google Sheets 石材單價快照、報價比對邏輯）+ **accn UI 移植** | OrderDraftView, SalesOrderView, ProductCatalogView, QuoteView, QuotePanel |
 | **S3** | 生產工單 + 三關卡看板 + QC 退回                                                      | ProductionBoardView                                |
 | **S4** | 派車排程(日曆/拖拉)+ 安裝人員手機端簡化頁                                            | DispatchScheduleView, MyDispatchView               |
 | **S5** | 維修工單 + 保固判定 + 客戶報修入口                                                   | ServiceTicketView                                  |

@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { exec } from "node:child_process";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import tailwindcss from "@tailwindcss/postcss";
+import { fileURLToPath, URL } from "node:url";
 
 const pkg = JSON.parse(
   readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
@@ -20,7 +22,6 @@ const buildTime = new Intl.DateTimeFormat("zh-TW", {
   .replace(/\//g, "-");
 const appVersion = `v${pkg.version} (${buildTime} 台灣時間)`;
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [
     vue(),
@@ -56,6 +57,16 @@ export default defineConfig({
   server: {
     host: true, // 監聽 0.0.0.0，區域網路手機可連
     port: 5173,
+  },
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
+  css: {
+    postcss: {
+      plugins: [tailwindcss()],
+    },
   },
   optimizeDeps: {
     exclude: ["pdfjs-dist"],

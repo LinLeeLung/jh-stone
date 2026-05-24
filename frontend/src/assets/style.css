@@ -1,0 +1,342 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body, .result-container {
+  font-family: "DFKai-SB", "標楷體", DFKai-SB, "KaiTi", "Noto Serif TC", serif;
+  margin: 0px;
+  padding: 0px;
+}
+
+/* ✅ 報表容器樣式 */
+.result-container {
+  width: 100%;
+  margin-top: 20px;
+  background-color: whitE;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+/* ✅ 表格樣式 */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  table-layout: fixed; /* ✅ 固定寬度避免表格爆寬 */
+  margin: 0; /* ✅ 不要 margin-right: 10px */
+  border-spacing: 0;
+}
+
+th, td {
+  border: 0.5px solid #999;
+  padding: 8px;
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+th {
+  background-color: #d8fffc;
+  font-weight: bold;
+}
+
+/* ✅ 特殊欄位樣式 */
+td.remarks {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+td.whitespace-pre-line {
+  white-space: pre-line !important;
+}
+
+td.text-left {
+  text-align: left !important;
+}
+
+td.text-center {
+  text-align: center !important;
+}
+
+td.text-left.whitespace-pre-line {
+  text-align: left !important;
+  white-space: pre-line !important;
+}
+
+/* ✅ 標題與文字區塊 */
+h1, h3 {
+  text-align: center;
+  margin-top: 5px;
+}
+
+.header {
+  font-size: 26px;
+  padding: 2px 0;
+  text-align: center;
+}
+
+.add {
+  font-size: 20px;
+  padding: 2px 0;
+  text-align: center;
+}
+
+.info {
+  font-size: 18px;
+  padding: 2px 0;
+  text-align: left;
+}
+
+.notice {
+  font-size: 14px;
+  padding: 2px 0;
+  text-align: left;
+}
+.result-container p.notice {
+  line-height: 0.1;
+  font-size: 12px;
+  margin: 0;
+  padding: 0;
+
+}
+
+/* ✅ 固定欄寬 */
+.w120 { width: 120px; }
+.w110 { width: 110px; }
+.w100 { width: 100px; }
+.w90  { width: 90px; }
+.w80  { width: 80px; }
+.w70  { width: 70px; }
+.w65  { width: 65px; }
+.w60  { width: 60px; }
+.w55  { width: 55px; }
+.w50  { width: 50px; }
+.w45  { width: 45px; }
+.w40  { width: 40px; }
+.w35  { width: 35px; }
+.w30  { width: 30px; }
+.w25  { width: 25px; }
+
+.note {
+  font-size: 12px;
+  color: #050505;
+  text-align: left;
+  width: 80px;
+}
+
+.calprogress {
+  font-size: 12px;
+  color: #111110;
+  text-align: left;
+  width: 130px;
+}
+
+.wide-col { width: 120px; }
+
+.text-left {
+  text-align: left !important;
+}
+
+/* ✅ 響應式卡片容器 */
+:deep(.one-card-container) {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 1rem;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+@media (min-width: 640px) {
+  :deep(.one-card-container) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  :deep(.one-card-container) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ✅ 手機優化樣式 */
+@media (max-width: 768px) {
+  .result-container {
+    padding: 10px;
+    font-size: 13px;
+    
+  }
+
+  table {
+    
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    width: 95%;
+  }
+
+  th, td {
+    padding: 2px;
+    font-size: 13px;
+    text-align: left !important;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+}
+
+/* ✅ 列印優化，防止手機列印內容不見 */
+@page {
+  margin: 10mm 12mm;
+  size: A4 portrait;
+}
+
+@media print {
+  html, body {
+    overflow: visible !important;
+    height: auto !important;
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+  }
+
+  .result-container {
+    width: 794px; /* A4寬度 px 對應 */
+    max-width: 794px;
+    margin: 0 auto;
+    overflow: visible !important;
+    display: block !important;
+    box-sizing: border-box;
+    padding: 0;
+    border: none;
+    background: white;
+  }
+
+  table {
+    width: 100% !important;
+    table-layout: fixed;
+    border-collapse: collapse !important;
+    margin: 0;
+    border-spacing: 0;
+  }
+
+  th, td {
+    
+    box-sizing: border-box !important;
+ 
+    border: 1px solid black !important;
+    padding: 4px !important;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    
+  }
+
+  th {
+    background-color: #e5f4f9 !important;
+    color: black !important;
+    font-weight: bold;
+  }
+
+  /* 防止邊框消失、顏色不印出 */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  table, thead, tbody, tr, th, td {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    visibility: visible !important;
+    transform: none !important;
+  }
+
+  .note,
+  .calprogress {
+    font-size: 12px;
+    color: black;
+    text-align: left;
+  }
+
+  /* 緊密文字段落（適用於備註區 p 標籤） */
+  .result-container p {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.5px !important;
+  }
+}
+
+
+
+
+:root {
+  --color-red-500: rgb(239, 68, 68);
+  --color-red-600: rgb(220, 38, 38);
+
+  --color-green-50: rgb(240, 253, 244);
+  --color-green-500: rgb(34, 197, 94);
+  --color-green-600: rgb(22, 163, 74);
+
+  --color-blue-50: rgb(239, 246, 255);
+  --color-blue-100: rgb(219, 234, 254);
+  --color-blue-500: rgb(59, 130, 246);
+  --color-blue-600: rgb(37, 99, 235);
+
+  --color-purple-500: rgb(168, 85, 247);
+  --color-purple-600: rgb(147, 51, 234);
+
+  --color-gray-100: rgb(243, 244, 246);
+  --color-gray-200: rgb(229, 231, 235);
+  --color-gray-300: rgb(209, 213, 219);
+  --color-gray-400:   #9ca3af;
+  --color-gray-500:   #6b7280;
+  --color-gray-600: rgb(75, 85, 99);
+  --color-gray-700: rgb(55, 65, 81);
+ 
+}
+
+th .resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background-color: transparent;
+}
+#notification-container {
+  position: fixed; /* 固定在螢幕上的位置 */
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%); /* 水平居中 */
+  z-index: 1000; /* 確保在其他元素之上 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px; /* 訊息框之間的間距 */
+}
+
+.notification {
+  background-color: #f0f0f0;
+  color: #333;
+  padding: 15px 20px;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  opacity: 1;
+  transition: opacity 0.3s ease-in-out; /* 淡入淡出效果 */
+}
+
+.notification.success {
+  background-color: #e6ffe6;
+  color: #367c39;
+}
+
+.notification.error {
+  background-color: #ffe6e6;
+  color: #cc0000;
+}
+
+.notification.fade-out {
+  opacity: 0;
+}

@@ -21,6 +21,8 @@ import OrderImportView from "../views/OrderImportView.vue";
 import DispatchView from "../views/DispatchView.vue";
 import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
 import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
+import CustomerMgmtView from "../views/CustomerMgmtView.vue";
+import QuotePageView from "../views/QuotePageView.vue";
 import { auth } from "../firebase";
 import { getUserByUid, authReadyPromise } from "../firebase";
 
@@ -166,6 +168,18 @@ const router = createRouter({
       name: "order-import",
       component: OrderImportView,
       meta: { roles: ["admin", "管理者"], title: "匯入訂單" },
+    },
+    {
+      path: "/customers",
+      name: "customers",
+      component: CustomerMgmtView,
+      meta: { roles: ["員工", "admin", "管理者"], depts: ["1"], title: "客戶管理" },
+    },
+    {
+      path: "/quote",
+      name: "quote",
+      component: QuotePageView,
+      meta: { roles: ["員工", "admin", "管理者"], depts: ["1"], title: "估價單" },
     },
     {
       path: "/orders/:id/drawing",

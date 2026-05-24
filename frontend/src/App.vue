@@ -40,6 +40,30 @@
         <RouterLink
           class="nav-link"
           v-if="
+            userDoc &&
+            (userDoc.role === 'admin' ||
+              userDoc.role === '管理者' ||
+              String(userDoc.dept) === '1')
+          "
+          to="/customers"
+          @click="closeNav"
+          >客戶</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
+            userDoc &&
+            (userDoc.role === 'admin' ||
+              userDoc.role === '管理者' ||
+              String(userDoc.dept) === '1')
+          "
+          to="/quote"
+          @click="closeNav"
+          >估價</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
             userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
           "
           to="/settings"
