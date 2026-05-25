@@ -19,12 +19,31 @@ import OrderSettingsView from "../views/OrderSettingsView.vue";
 import OrdersView from "../views/OrdersView.vue";
 import OrderImportView from "../views/OrderImportView.vue";
 import DispatchView from "../views/DispatchView.vue";
+import ProductionView from "../views/ProductionView.vue";
 import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
 import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
 import CustomerMgmtView from "../views/CustomerMgmtView.vue";
 import QuotePageView from "../views/QuotePageView.vue";
 import { auth } from "../firebase";
-import { getUserByUid, authReadyPromise } from "../firebase";
+import { getUserByUid, authReadyPromise, getRoutePermissionsConfig } from "../firebase";
+import { DEFAULT_ROUTE_PERMISSIONS, findPermission } from "../config/routePermissions";
+
+// 記憶體快取：Firestore 設定讀取一次後存在此，null 表示「尚未載入」
+let _permCache = null;  // false = 已確認 Firestore 無資料；陣列 = 已取得設定
+async function getEffectivePermissions() {
+  if (_permCache !== null) return _permCache;
+  try {
+    const firestoreRoutes = await getRoutePermissionsConfig();
+    _permCache = firestoreRoutes ?? DEFAULT_ROUTE_PERMISSIONS;
+  } catch {
+    _permCache = DEFAULT_ROUTE_PERMISSIONS;
+  }
+  return _permCache;
+}
+/** 外部（AdminView）儲存後需呼叫此函式讓快取失效 */
+export function invalidatePermissionsCache() {
+  _permCache = null;
+}
 
 const SITE_NAME = "峻晟安裝查詢";
 
@@ -161,13 +180,19 @@ const router = createRouter({
       path: "/orders/dispatch",
       name: "order-dispatch",
       component: DispatchView,
-      meta: { roles: ["admin", "管理者"], title: "發單作業" },
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "發單作業" },
     },
     {
       path: "/orders/import",
       name: "order-import",
       component: OrderImportView,
       meta: { roles: ["admin", "管理者"], title: "匯入訂單" },
+    },
+    {
+      path: "/production",
+      name: "production",
+      component: ProductionView,
+      meta: { roles: ["員工", "admin", "管理者"], depts: ["3"], title: "生產流程" },
     },
     {
       path: "/customers",
@@ -202,9 +227,12 @@ router.afterEach((to) => {
   document.title = title ? `${title} — ${SITE_NAME}` : SITE_NAME;
 });
 
-// 路由守衛：檢查 meta.roles（若設定）
+// 路由守衛：優先使用 Firestore 設定，fallback 至 meta.roles
 router.beforeEach(async (to, from, next) => {
-  const allowedRoles = to.meta && to.meta.roles;
+  // 若路由本身未設定 meta.roles，且在 DEFAULT_ROUTE_PERMISSIONS 中也找不到，則放行
+  const permissions = await getEffectivePermissions();
+  const permDef = findPermission(permissions, to.path);
+  const allowedRoles = permDef ? permDef.roles : (to.meta?.roles ?? null);
   if (!allowedRoles) {
     next();
     return;
@@ -229,7 +257,7 @@ router.beforeEach(async (to, from, next) => {
   try {
     const userDoc = await getUserByUid(user.uid);
     const roleOk = allowedRoles.includes(userDoc?.role);
-    const allowedDepts = to.meta?.depts;
+    const allowedDepts = permDef?.depts ?? to.meta?.depts ?? null;
     const deptOk = allowedDepts
       ? allowedDepts.includes(String(userDoc?.dept ?? ""))
       : false;

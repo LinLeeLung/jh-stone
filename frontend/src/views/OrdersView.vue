@@ -3,7 +3,7 @@
     <header class="page-header">
       <h2>訂單列表</h2>
       <div class="header-actions">
-        <RouterLink v-if="isAdmin" class="btn-aux" to="/orders/dispatch"
+        <RouterLink v-if="canDispatch" class="btn-aux" to="/orders/dispatch"
           >📋 發單作業</RouterLink
         >
         <RouterLink v-if="isAdmin" class="btn-aux" to="/orders/import"
@@ -20,7 +20,7 @@
       <input
         v-model="keyword"
         class="search-input"
-        placeholder="搜尋客戶名稱 / 訂單號碼 / 地址"
+        placeholder="搜尋客戶名稱 / 訂單號碼 / 地址 / 石材"
         @input="applyFilter"
       />
       <select v-model="statusFilter" @change="applyFilter">
@@ -53,9 +53,11 @@
             <th class="sortable" @click="setSort('status')">訂單狀態{{ sortIcon('status') }}</th>
             <th class="sortable" @click="setSort('sinkStatus')">水槽狀態{{ sortIcon('sinkStatus') }}</th>
             <th class="sortable" @click="setSort('orderNo')">訂單號{{ sortIcon('orderNo') }}</th>
+            <th class="sortable" @click="setSort('stones')">石材{{ sortIcon('stones') }}</th>
             <th class="sortable" @click="setSort('customerName')">客戶{{ sortIcon('customerName') }}</th>
             <th class="sortable" @click="setSort('category')">類別{{ sortIcon('category') }}</th>
             <th class="sortable" @click="setSort('countertop')">台面{{ sortIcon('countertop') }}</th>
+            <th class="sortable" @click="setSort('total')">含稅金額{{ sortIcon('total') }}</th>
             <th class="sortable" @click="setSort('siteAddress')">施工地址{{ sortIcon('siteAddress') }}</th>
             <th>打板</th>
             <th>對圖</th>
@@ -80,7 +82,16 @@
             </td>
             <td class="col-date">{{ fmtDate(o.promisedAt) }}</td>
             <td>
-              <span class="status-chip" :class="'status-' + o.status">
+              <select
+                v-if="isAdmin"
+                :value="o.status"
+                class="status-select"
+                :class="'status-' + o.status"
+                @change="onStatusChange(o, $event.target.value)"
+              >
+                <option v-for="(label, val) in STATUS_LABEL" :key="val" :value="val">{{ label }}</option>
+              </select>
+              <span v-else class="status-chip" :class="'status-' + o.status">
                 {{ STATUS_LABEL[o.status] || o.status || "—" }}
               </span>
             </td>
@@ -98,8 +109,17 @@
               <span v-if="o.orderNo" class="order-no">{{ o.orderNo }}</span>
               <span v-else class="dim">—</span>
             </td>
+            <td class="col-stones">
+              <template v-if="o.stones && o.stones.length">
+                <div v-for="(s, i) in o.stones" :key="i" class="stone-tag">
+                  {{ [s.brand, s.color].filter(Boolean).join(' ') || '—' }}
+                </div>
+              </template>
+              <span v-else class="dim">—</span>
+            </td>
             <td class="col-customer">
               <div class="customer-name">{{ o.customerName || "—" }}</div>
+              <span v-if="o.isTestData" class="test-badge">測</span>
               <div class="customer-sub">
                 {{ o.customerContact?.name || "" }}
               </div>
@@ -110,6 +130,10 @@
               <span v-if="o.countertop?.totalCm" class="cm-tag"
                 >{{ o.countertop.totalCm }}cm</span
               >
+            </td>
+            <td class="col-price">
+              <span v-if="o.total" class="price-tag">{{ Math.round(o.total * 1.05).toLocaleString() }}</span>
+              <span v-else class="dim">—</span>
             </td>
             <td class="col-addr">{{ o.siteAddress || "—" }}</td>
             <td class="col-staff">{{ o.templatingStaff || "—" }}</td>
@@ -127,7 +151,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
-import { listSalesOrders, auth, getUserByUid } from "../firebase";
+import { listSalesOrders, updateSalesOrder, auth, getUserByUid } from "../firebase";
 import { SINK_STATUS_LIST, getSinkStatus } from "../utils/sinkStatus";
 
 const STATUS_LABEL = {
@@ -145,6 +169,7 @@ const loading = ref(true);
 const rows = ref([]);
 const filtered = ref([]);
 const isAdmin = ref(false);
+const canDispatch = ref(false);
 
 const keyword = ref("");
 const statusFilter = ref("");
@@ -181,6 +206,10 @@ function sortVal(o, col) {
     case "customerName": return o.customerName ?? "";
     case "category": return o.category ?? "";
     case "countertop": return o.countertop?.type ?? "";
+    case "stones": {
+      const first = Array.isArray(o.stones) && o.stones[0];
+      return first ? [first.brand, first.color].filter(Boolean).join(' ') : "";
+    }
     case "siteAddress": return o.siteAddress ?? "";
     default: return "";
   }
@@ -192,6 +221,7 @@ onMounted(async () => {
     if (uid) {
       const u = await getUserByUid(uid);
       isAdmin.value = u?.role === "admin" || u?.role === "管理者";
+      canDispatch.value = isAdmin.value || u?.dept === "1";
     }
     rows.value = await listSalesOrders({ limit: loadLimit });
   } finally {
@@ -209,7 +239,10 @@ function applyFilter() {
     if (st && o.status !== st) return false;
     if (sk && !hasSinkStatus(o, sk)) return false;
     if (kw) {
-      const hay = [o.orderNo, o.customerName, o.siteAddress, o.category]
+      const stonesText = Array.isArray(o.stones)
+        ? o.stones.map((s) => [s.brand, s.color].filter(Boolean).join(' ')).join(' ')
+        : '';
+      const hay = [o.orderNo, o.customerName, o.siteAddress, o.category, stonesText]
         .join(" ")
         .toLowerCase();
       if (!hay.includes(kw)) return false;
@@ -228,6 +261,17 @@ function applyFilter() {
     });
   }
   filtered.value = result;
+}
+
+async function onStatusChange(order, newStatus) {
+  const old = order.status;
+  order.status = newStatus; // optimistic update
+  try {
+    await updateSalesOrder(order.id, { status: newStatus });
+  } catch (e) {
+    order.status = old; // rollback
+    alert("狀態更新失敗：" + (e?.message || e));
+  }
 }
 
 function hasSinkStatus(order, val) {
@@ -347,6 +391,15 @@ function fmtDate(val) {
   font-weight: 600;
   color: #1d4ed8;
 }
+.col-stones {
+  min-width: 90px;
+  white-space: nowrap;
+}
+.stone-tag {
+  font-size: 12px;
+  color: #374151;
+  line-height: 1.5;
+}
 .col-customer .customer-name {
   font-weight: 500;
 }
@@ -359,6 +412,15 @@ function fmtDate(val) {
   color: #6b7280;
   margin-left: 4px;
 }
+.col-price {
+  text-align: right;
+  white-space: nowrap;
+}
+.price-tag {
+  font-weight: 600;
+  color: #1565c0;
+  font-size: 13px;
+}
 .sink-badge {
   display: inline-block;
   font-size: 11px;
@@ -366,6 +428,17 @@ function fmtDate(val) {
   padding: 2px 6px;
   border-radius: 10px;
   margin-right: 4px;
+}
+.test-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: #fde68a;
+  color: #92400e;
+  margin-left: 4px;
+  vertical-align: middle;
 }
 .dim {
   color: #d1d5db;
@@ -378,30 +451,45 @@ function fmtDate(val) {
   background: #e5e7eb;
   color: #374151;
 }
+.status-select {
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  cursor: pointer;
+  outline: none;
+}
+.status-select.status-draft,
 .status-chip.status-draft {
   background: #f3f4f6;
   color: #6b7280;
 }
+.status-select.status-pendingSign,
 .status-chip.status-pendingSign {
   background: #fef3c7;
   color: #b45309;
 }
+.status-select.status-confirmed,
 .status-chip.status-confirmed {
   background: #dbeafe;
   color: #1d4ed8;
 }
+.status-select.status-inProduction,
 .status-chip.status-inProduction {
   background: #fef9c3;
   color: #92400e;
 }
+.status-select.status-delivered,
 .status-chip.status-delivered {
   background: #d1fae5;
   color: #065f46;
 }
+.status-select.status-done,
 .status-chip.status-done {
   background: #dcfce7;
   color: #166534;
 }
+.status-select.status-cancelled,
 .status-chip.status-cancelled {
   background: #fee2e2;
   color: #991b1b;

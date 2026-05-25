@@ -26,8 +26,23 @@ service cloud.firestore {
       return signedIn() && myRole() in ['admin', '管理者', '員工'];
     }
 
+    // 行動角色：只能存取打卡/請假/加班（幫員工個人手機用帳號）
+    function isMobileStaff() {
+      return signedIn() && myRole() == '行動';
+    }
+
     function isAdminOrManager() {
       return signedIn() && myRole() in ['admin', '管理者'];
+    }
+
+    // 廠內員工（部門 3）或一般員工以上角色
+    function isFactoryOrStaff() {
+      return isStaff()
+        || (signedIn() && userDoc().data.dept == '3');
+    }
+
+    function myDept() {
+      return signedIn() ? userDoc().data.dept : null;
     }
 
     function isApprovedCustomer() {
@@ -62,10 +77,10 @@ service cloud.firestore {
           && !('customerApproved' in request.resource.data)
           && !('companyId' in request.resource.data)
         ) || isAdmin();
-      allow read: if signedIn() && (request.auth.uid == userId || isAdminOrManager() || isStaff());
+      allow read: if signedIn() && (request.auth.uid == userId || isAdminOrManager() || isStaff() || isMobileStaff());
       allow update: if isAdminOrManager()
                     && (!('role' in request.resource.data) ||
-                        request.resource.data.role in ['admin','管理者','員工','客戶','遊客'])
+                        request.resource.data.role in ['admin','管理者','員工','行動','客戶','遊客'])
                     || (
                       signedIn()
                       && request.auth.uid == userId
@@ -96,9 +111,13 @@ service cloud.firestore {
     }
 
     // System settings (e.g. NAS path): staff can read (needed for punchLocation geofencing); only admin/manager can write
+    // Exception: orderCounter can be written by any staff (needed for issueOrder transaction)
     match /SystemSettings/{docId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isMobileStaff();
       allow write: if isAdminOrManager();
+    }
+    match /SystemSettings/orderCounter {
+      allow read, write: if isStaff();
     }
 
     // Client-side upload diagnostics for intermittent device/network issues.
@@ -135,50 +154,56 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Employee basic data: admin/manager can read and write
+    // Employee basic data: all staff can read (needed for order/install staff selectors); only admin/manager can write
     match /staff/{empNo} {
-      allow read, write: if isAdminOrManager();
+      allow read: if isStaff();
+      allow write: if isAdminOrManager();
     }
 
     // Attendance (打卡): staff can create/read their own record; admin/manager can read/write all
     match /attendance/{docId} {
       allow create: if isAdminOrManager()
-        || (isStaff() && request.resource.data.uid == request.auth.uid);
+        || ((isStaff() || isMobileStaff()) && request.resource.data.uid == request.auth.uid);
       allow update: if isAdminOrManager()
-        || (isStaff() && resource.data.uid == request.auth.uid);
+        || ((isStaff() || isMobileStaff()) && resource.data.uid == request.auth.uid);
       // resource == null when the doc doesn't exist yet; allow the read so getDoc returns "not found"
-      allow read: if isStaff()
+      allow read: if (isStaff() || isMobileStaff())
         && (resource == null || resource.data.uid == request.auth.uid || isAdminOrManager());
       allow delete: if isAdminOrManager();
     }
 
     // Leave requests: staff submit own; admin/manager review all
     match /leaveRequests/{docId} {
-      allow create: if isStaff()
+      allow create: if (isStaff() || isMobileStaff())
         && request.resource.data.uid == request.auth.uid;
-      // All staff can read so that 主管 and HR can load the pending queue
-      allow read: if isStaff();
-      // Department-scoped filtering is enforced in app logic
-      allow update: if isStaff();
-      allow delete: if isStaff()
+      // All staff can read so that 主管 and HR can load the pending queue;
+      // 行動角色只能讀自己的請假單
+      allow read: if isStaff()
+        || (isMobileStaff() && resource.data.uid == request.auth.uid);
+      allow update: if isStaff()
+        || (isMobileStaff() && resource.data.uid == request.auth.uid);
+      allow delete: if (isStaff() || isMobileStaff())
         && resource.data.uid == request.auth.uid
         && resource.data.status == 'pending';
     }
 
     // Overtime requests: same rules as leave requests
     match /overtimeRequests/{docId} {
-      allow create: if isStaff()
+      allow create: if (isStaff() || isMobileStaff())
         && request.resource.data.uid == request.auth.uid;
-      allow read: if isStaff();
-      allow update: if isStaff();
-      allow delete: if isStaff()
+      // 行動角色只能讀自己的申請
+      allow read: if isStaff()
+        || (isMobileStaff() && resource.data.uid == request.auth.uid);
+      allow update: if isStaff()
+        || (isMobileStaff() && resource.data.uid == request.auth.uid);
+      allow delete: if (isStaff() || isMobileStaff())
         && resource.data.uid == request.auth.uid
         && resource.data.status == 'pending';
     }
 
     // Leave quota: all staff can read; only admin/manager can write
     match /leaveQuota/{uid} {
-      allow read: if isStaff();
+      allow read: if isStaff() || (isMobileStaff() && request.auth.uid == uid);
       allow write: if isAdminOrManager();
     }
 
@@ -201,7 +226,7 @@ service cloud.firestore {
     // 新 ERP 主檔：客戶資料、產品型號、石材狀態（所有員工可讀，admin/manager 可寫）
     match /customers/{docId} {
       allow read: if isStaff();
-      allow write: if isAdminOrManager();
+      allow write: if isAdminOrManager() || (isStaff() && myDept() == '1');
     }
 
     match /productModels/{docId} {
@@ -219,8 +244,8 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if isStaff()
         && request.resource.data.createdByUid == request.auth.uid;
-      allow update: if isStaff()
-        && request.resource.data.updatedByUid == request.auth.uid;
+      allow update: if isAdminOrManager()
+        || (isStaff() && request.resource.data.updatedByUid == request.auth.uid);
       allow delete: if isAdminOrManager();
 
       match /drawings/{drawingId} {
@@ -251,6 +276,28 @@ service cloud.firestore {
           && request.resource.data.uploadedByUid == request.auth.uid;
         allow delete: if isStaff();
       }
+    }
+
+    // productionJobs（生產流程管理）：廠內員工（dept=3）或一般員工以上皆可讀寫；admin/manager 可刪除
+    match /productionJobs/{docId} {
+      allow read: if isFactoryOrStaff();
+      allow create: if isFactoryOrStaff()
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update: if isFactoryOrStaff()
+        && request.resource.data.updatedByUid == request.auth.uid;
+      allow delete: if isAdminOrManager();
+    }
+
+    // customerPricing（客戶計價記憶）：員工可讀寫
+    match /customerPricing/{docId} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+    }
+
+    // System configuration（路由權限等）：所有已登入員工可讀；只有 admin/manager 可寫
+    match /Config/{docId} {
+      allow read: if isStaff() || isMobileStaff();
+      allow write: if isAdminOrManager();
     }
 
     // Deny everything else by default - lock down the DB

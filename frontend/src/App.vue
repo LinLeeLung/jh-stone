@@ -45,6 +45,30 @@
               userDoc.role === '管理者' ||
               String(userDoc.dept) === '1')
           "
+          to="/orders/dispatch"
+          @click="closeNav"
+          >發單作業</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
+            userDoc &&
+            (userDoc.role === 'admin' ||
+              userDoc.role === '管理者' ||
+              String(userDoc.dept) === '3')
+          "
+          to="/production"
+          @click="closeNav"
+          >生產</RouterLink
+        >
+        <RouterLink
+          class="nav-link"
+          v-if="
+            userDoc &&
+            (userDoc.role === 'admin' ||
+              userDoc.role === '管理者' ||
+              String(userDoc.dept) === '1')
+          "
           to="/customers"
           @click="closeNav"
           >客戶</RouterLink
@@ -75,6 +99,7 @@
           v-if="
             userDoc &&
             (userDoc.role === '員工' ||
+              userDoc.role === '行動' ||
               userDoc.role === 'admin' ||
               userDoc.role === '管理者')
           "
@@ -87,6 +112,7 @@
           v-if="
             userDoc &&
             (userDoc.role === '員工' ||
+              userDoc.role === '行動' ||
               userDoc.role === 'admin' ||
               userDoc.role === '管理者')
           "

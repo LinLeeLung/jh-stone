@@ -395,7 +395,7 @@
                         <th>品名</th>
                         <th>長</th>
                         <th>寬</th>
-                        <th>前沿<br />距離</th>
+                        <th>R角</th>
                         <th>下嵌<br />嵌入</th>
                       </tr>
                     </thead>
@@ -404,7 +404,7 @@
                         <td>{{ s.model || "" }}</td>
                         <td>{{ s.holeWidthMm || "" }}</td>
                         <td>{{ s.holeDepthMm || "" }}</td>
-                        <td>{{ s.frontEdgeMm || "" }}</td>
+                        <td>{{ s.holeRadiusMm || "" }}</td>
                         <td>{{ s.method || "" }}</td>
                       </tr>
                     </tbody>
@@ -691,6 +691,7 @@ import {
   saveOrderConfirmation,
   uploadOverlayImage,
   uploadConfirmedPdf,
+  refreshConfirmedPdfDownloadUrl,
 } from "../../firebase";
 import StampPanel from "../../components/StampPanel.vue";
 
@@ -1214,6 +1215,15 @@ async function loadAll() {
     ]);
     order.value = ord;
     confirmedPdfUrl.value = ord?.confirmedPdfUrl || null;
+    // If URL exists but has no download token (e.g. stored before getDownloadURL was used),
+    // re-fetch a fresh token URL from Storage so it opens without a 403.
+    if (confirmedPdfUrl.value && !confirmedPdfUrl.value.includes("token=")) {
+      try {
+        confirmedPdfUrl.value = await refreshConfirmedPdfDownloadUrl(orderId.value);
+      } catch (e) {
+        console.warn("Could not refresh confirmedPdfUrl", e);
+      }
+    }
     if (conf?.cf) Object.assign(cf, conf.cf);
     if (Array.isArray(conf?.overlayImgs)) overlayImgs.value = conf.overlayImgs.map(i => ({ ...i }));
     if (Array.isArray(conf?.textOverlays)) textOverlays.value = conf.textOverlays.map(o => ({ ...o }));

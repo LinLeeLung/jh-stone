@@ -22,6 +22,10 @@
         </select>
         <span class="staff-count">共 {{ filtered.length }} 筆</span>
       </div>
+      <div v-if="canWrite" style="font-size:0.82rem;color:#6b7280;margin-bottom:8px;display:flex;gap:20px">
+        <span>一般戶最後號碼：<span class="mono" style="color:#374151;font-weight:600">{{ lastStandardId }}</span></span>
+        <span>個人戶最後號碼：<span class="mono" style="color:#374151;font-weight:600">{{ lastIndividualId }}</span></span>
+      </div>
 
       <!-- 列表 -->
       <div class="table-wrap">
@@ -47,9 +51,15 @@
               <td>{{ c.contactPerson || '—' }}</td>
               <td>{{ c.phone || '—' }}</td>
               <td>{{ c.paymentTerms || '—' }}</td>
-              <td>
+              <td style="white-space:nowrap">
                 <button class="btn-aux" @click="openEdit(c)" v-if="canWrite">編輯</button>
                 <button class="btn-aux" @click="openView(c)" v-else>查看</button>
+                <button
+                  v-if="isAdmin"
+                  class="btn-aux"
+                  style="color:#dc2626;margin-left:4px"
+                  @click="deleteCustomer(c)"
+                >刪除</button>
               </td>
             </tr>
             <tr v-if="filtered.length === 0">
@@ -190,7 +200,7 @@ import {
   db, auth, authReadyPromise
 } from '../firebase'
 import {
-  collection, getDocs, setDoc, updateDoc, doc,
+  collection, getDocs, setDoc, updateDoc, deleteDoc, doc,
   serverTimestamp, getDoc
 } from 'firebase/firestore'
 
@@ -215,6 +225,22 @@ const isOffice = computed(() =>
 )
 const canRead  = computed(() => !!userDoc.value)
 const canWrite = computed(() => isOffice.value)
+
+// ── 最後號碼 ────────────────────────────────────────────
+const lastStandardId = computed(() => {
+  const list = customers.value
+    .map(c => { const m = (c._docId || '').match(/^[A-Z]{3}(\d{4})$/); return m ? { id: c._docId, n: parseInt(m[1], 10) } : null })
+    .filter(Boolean)
+    .sort((a, b) => b.n - a.n)
+  return list[0]?.id || '（無）'
+})
+const lastIndividualId = computed(() => {
+  const list = customers.value
+    .map(c => { const m = (c._docId || '').match(/^ACC(\d+)-(\d+)$/i); return m ? { id: c._docId, acc: parseInt(m[1], 10), seq: parseInt(m[2], 10) } : null })
+    .filter(Boolean)
+    .sort((a, b) => a.acc !== b.acc ? b.acc - a.acc : b.seq - a.seq)
+  return list[0]?.id || '（無）'
+})
 
 // ── 對話框 ─────────────────────────────────────────────
 const dialog = ref({ open: false, isNew: true, viewOnly: false, docId: null, legacyCode: '' })
@@ -269,19 +295,21 @@ async function loadCustomers() {
   }
 }
 
-// ── 產生客戶編號 C + yymm + 三位流水 ─────────────────────
-function pad3(n) { return String(n).padStart(3, '0') }
+// ── 產生客戶編號：3英字 + 4數字流水（AAA0001, AAB0002 … BQH1104, BQI1105 …）
+// 數字部分直接作為序號，英字部分為同一序號的 base-26 表示（AAA=1）
+function numToLetters(n) {
+  const n0 = n - 1
+  const c3 = n0 % 26
+  const c2 = Math.floor(n0 / 26) % 26
+  const c1 = Math.floor(n0 / 676) % 26
+  return String.fromCharCode(65 + c1, 65 + c2, 65 + c3)
+}
 async function genCustomerId() {
-  const now = new Date()
-  const yymm = String(now.getFullYear()).slice(2) + String(now.getMonth() + 1).padStart(2, '0')
-  const prefix = `C${yymm}`
   const existing = customers.value
-    .map(c => c._docId)
-    .filter(id => id && id.startsWith(prefix))
-    .map(id => parseInt(id.slice(prefix.length), 10))
-    .filter(n => !isNaN(n))
+    .map(c => { const m = (c._docId || '').match(/^[A-Z]{3}(\d{4})$/); return m ? parseInt(m[1], 10) : 0 })
+    .filter(n => n > 0)
   const next = existing.length > 0 ? Math.max(...existing) + 1 : 1
-  return `${prefix}${pad3(next)}`
+  return `${numToLetters(next)}${String(next).padStart(4, '0')}`
 }
 
 // ── 對話框操作 ──────────────────────────────────────────
@@ -372,6 +400,17 @@ async function save() {
     errMsg.value = `儲存失敗：${e.message}`
   } finally {
     saving.value = false
+  }
+}
+
+// ── 刪除客戶 ────────────────────────────────────────────
+async function deleteCustomer(c) {
+  if (!confirm(`確定要刪除「${c.name}」？此操作無法復原。`)) return
+  try {
+    await deleteDoc(doc(db, 'customers', c._docId))
+    await loadCustomers()
+  } catch (e) {
+    alert(`刪除失敗：${e.message}`)
   }
 }
 

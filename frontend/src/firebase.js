@@ -99,7 +99,7 @@ function isPermissionDeniedError(error) {
 const ADMIN_EMAIL = "linlilung@gmail.com";
 
 // allowed roles in the system
-export const ROLES = ["admin", "管理者", "員工", "客戶", "遊客"];
+export const ROLES = ["admin", "管理者", "員工", "行動", "客戶", "遊客"];
 
 export function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);
@@ -402,11 +402,49 @@ export async function updateUserDisplayName(uid, displayName) {
   await updateDoc(userRef, { displayName: name });
 }
 
+export async function updateUserDept(uid, dept) {
+  const userRef = doc(db, "Users", uid);
+  const value = String(dept || "").trim();
+  await updateDoc(userRef, { dept: value || null });
+}
+
 // fetch single user doc
 export async function getUserByUid(uid) {
   const userRef = doc(db, "Users", uid);
   const snap = await getDoc(userRef);
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+// ── 路由權限設定（Config/routePermissions）────────────────────────────────
+
+/**
+ * 讀取 Firestore 中儲存的路由權限覆寫設定。
+ * 若文件不存在則回傳 null（由呼叫端 fallback 至預設值）。
+ * @returns {Promise<import('./config/routePermissions').RoutePermDef[] | null>}
+ */
+export async function getRoutePermissionsConfig() {
+  const ref = doc(db, "Config", "routePermissions");
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return Array.isArray(data.routes) ? data.routes : null;
+}
+
+/**
+ * 將路由權限設定儲存至 Firestore Config/routePermissions。
+ * 僅 admin 可呼叫（由 UI 層限制，此函式本身不做角色驗證）。
+ * @param {import('./config/routePermissions').RoutePermDef[]} routes
+ */
+export async function saveRoutePermissionsConfig(routes) {
+  if (!Array.isArray(routes)) throw new Error("routes 必須為陣列");
+  // Firestore 不接受 undefined，將每筆資料中 undefined 的欄位移除
+  const sanitized = routes.map((r) => {
+    const entry = { path: r.path, title: r.title, roles: Array.isArray(r.roles) ? r.roles : [], group: r.group || '' };
+    if (Array.isArray(r.depts) && r.depts.length > 0) entry.depts = r.depts;
+    return entry;
+  });
+  const ref = doc(db, "Config", "routePermissions");
+  await setDoc(ref, { routes: sanitized }, { merge: false });
 }
 
 export async function getAllPendingOrdersForSearch() {
@@ -1371,6 +1409,37 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
 }
 
 // 建立新銷售訂單（draft 狀態，回簽前無 orderNo）
+// 刪除所有標記為測試資料的訂單
+export async function deleteTestOrders() {
+  await authReadyPromise;
+  const q = query(collection(db, "salesOrders"), where("isTestData", "==", true));
+  const snap = await getDocs(q);
+  const ids = snap.docs.map((d) => d.id);
+  const CHUNK = 499;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    ids.slice(i, i + CHUNK).forEach((id) => batch.delete(doc(db, "salesOrders", id)));
+    await batch.commit();
+  }
+  return ids.length;
+}
+
+export async function resetAllOrderStatusToDraft() {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const snap = await getDocs(collection(db, "salesOrders"));
+  const ids = snap.docs.map((d) => d.id);
+  const CHUNK = 499;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    ids.slice(i, i + CHUNK).forEach((id) =>
+      batch.update(doc(db, "salesOrders", id), { status: "draft", updatedByUid: uid })
+    );
+    await batch.commit();
+  }
+  return ids.length;
+}
+
 export async function createSalesOrder(data) {
   const uid = auth.currentUser?.uid || null;
   const payload = {
@@ -1479,6 +1548,7 @@ export async function downloadConfirmedPdfBytes(orderId) {
 
 export async function batchMarkDispatched(orderIds) {
   if (!orderIds?.length) return;
+  await authReadyPromise;
   const uid = auth.currentUser?.uid || null;
   const CHUNK = 499;
   for (let i = 0; i < orderIds.length; i += CHUNK) {
@@ -1535,7 +1605,28 @@ export async function uploadConfirmedPdf(orderId, blob) {
   const ref = storageRef(storage, path);
   await uploadBytes(ref, blob, { contentType: "application/pdf" });
   const url = await getDownloadURL(ref);
-  await updateDoc(doc(db, "salesOrders", orderId), { confirmedPdfUrl: url });
+  await updateDoc(doc(db, "salesOrders", orderId), {
+    confirmedPdfUrl: url,
+    updatedByUid: auth.currentUser?.uid ?? null,
+  });
+  return url;
+}
+
+// Re-fetch a fresh download URL (with token) for an already-uploaded confirmed PDF.
+// Useful when the URL stored in Firestore is missing the &token= parameter.
+export async function refreshConfirmedPdfDownloadUrl(orderId) {
+  await authReadyPromise;
+  const path = `orderPDFs/${orderId}/confirmed.pdf`;
+  const ref = storageRef(storage, path);
+  const url = await getDownloadURL(ref);
+  try {
+    await updateDoc(doc(db, "salesOrders", orderId), {
+      confirmedPdfUrl: url,
+      updatedByUid: auth.currentUser?.uid ?? null,
+    });
+  } catch (e) {
+    console.warn("refreshConfirmedPdfDownloadUrl: could not save to Firestore", e);
+  }
   return url;
 }
 
@@ -1555,6 +1646,7 @@ export async function saveOrderCounter(seq) {
 }
 
 export async function issueOrder(orderId, updatedData, signedScanUrl, orderNo, autoIncrement = true) {
+  await authReadyPromise;
   const uid = auth.currentUser?.uid || null;
   let finalOrderNo = orderNo || "";
   const counterRef = doc(db, "SystemSettings", "orderCounter");
@@ -1816,4 +1908,233 @@ export async function getMySavedStampIds() {
   if (!uid) return [];
   const snap = await getDoc(doc(db, "Users", uid));
   return snap.data()?.savedStampIds || [];
+}
+
+// ============================================================================
+// productionJobs — 生產流程管理
+// 工序順序: cut(裁切) → waterjet(水刀) → template(套板) → qc(驗收) → done
+// ============================================================================
+
+export const PRODUCTION_STAGES = [
+  { key: "cut",      label: "裁切", next: "waterjet" },
+  { key: "waterjet", label: "水刀", next: "template" },
+  { key: "template", label: "套板", next: "qc" },
+  { key: "qc",       label: "驗收", next: "done" },
+];
+
+function _primaryMaterial(stones) {
+  if (!stones?.length) return "other";
+  const counts = {};
+  for (const s of stones) {
+    const t = s.materialType || "other";
+    counts[t] = (counts[t] || 0) + 1;
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+// 建立生產工單（發單後自動呼叫，orderId 重複時只更新 orderNo）
+export async function createProductionJob(orderId, orderData) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+
+  // 避免重複建立
+  const existing = await getDocs(
+    query(collection(db, "productionJobs"), where("orderId", "==", orderId))
+  );
+  if (!existing.empty) {
+    await updateDoc(doc(db, "productionJobs", existing.docs[0].id), {
+      orderNo: orderData.orderNo || "",
+      updatedAt: serverTimestamp(),
+      updatedByUid: uid,
+    });
+    return existing.docs[0].id;
+  }
+
+  const stones = (orderData.stones || []).map((s) => ({
+    brand: s.brand || "",
+    color: s.color || "",
+    materialType: s.materialType || "other",
+  }));
+
+  const payload = {
+    orderId,
+    orderNo:      orderData.orderNo || "",
+    customerName: orderData.customerName || "",
+    siteAddress:  orderData.siteAddress || "",
+    stones,
+    countertop:   orderData.countertop || {},
+    promisedAt:   orderData.promisedAt || null,
+    total:        orderData.total ?? null,
+    primaryMaterial: _primaryMaterial(stones),
+    currentStage: "cut",
+    stages: {
+      cut:      { status: "pending" },
+      waterjet: { status: "pending" },
+      template: { status: "pending" },
+      qc:       { status: "pending" },
+    },
+    createdAt:    serverTimestamp(),
+    updatedAt:    serverTimestamp(),
+    createdByUid: uid,
+  };
+
+  const ref = await addDoc(collection(db, "productionJobs"), payload);
+  return ref.id;
+}
+
+// 取得全部生產工單（依 promisedAt 升冪，client 端再過濾）
+export async function listProductionJobs() {
+  await authReadyPromise;
+  const snap = await getDocs(collection(db, "productionJobs"));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// 回填：為所有 confirmed / inProduction 訂單補建 productionJob（若尚未建立）
+export async function backfillProductionJobs(onProgress) {
+  await authReadyPromise;
+
+  // 取得所有已有工單的 orderId
+  const existingSnap = await getDocs(collection(db, "productionJobs"));
+  const existingOrderIds = new Set(existingSnap.docs.map((d) => d.data().orderId).filter(Boolean));
+
+  // 查詢 confirmed + inProduction 訂單（不限筆數）
+  const statuses = ["confirmed", "inProduction"];
+  let orders = [];
+  for (const status of statuses) {
+    const snap = await getDocs(
+      query(collection(db, "salesOrders"), where("status", "==", status))
+    );
+    snap.docs.forEach((d) => orders.push({ id: d.id, ...d.data() }));
+  }
+
+  const toCreate = orders.filter((o) => !existingOrderIds.has(o.id));
+  let done = 0;
+  for (const order of toCreate) {
+    await createProductionJob(order.id, order);
+    done++;
+    onProgress?.(done, toCreate.length);
+  }
+  return { total: toCreate.length, done };
+}
+
+// 推進工序（完成目前關卡，currentStage 前進到下一關）
+export async function advanceProductionStage(jobId, stageKey, doneByName) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const idx = PRODUCTION_STAGES.findIndex((s) => s.key === stageKey);
+  const nextStage = idx >= 0 && idx < PRODUCTION_STAGES.length - 1
+    ? PRODUCTION_STAGES[idx + 1].key
+    : "done";
+
+  const updates = {
+    [`stages.${stageKey}.status`]:     "done",
+    [`stages.${stageKey}.doneAt`]:     serverTimestamp(),
+    [`stages.${stageKey}.doneByUid`]:  uid,
+    [`stages.${stageKey}.doneByName`]: doneByName || "",
+    currentStage: nextStage,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  };
+  await updateDoc(doc(db, "productionJobs", jobId), updates);
+
+  // 驗收完成 → 訂單狀態改為 done
+  if (nextStage === "done") {
+    const jobSnap = await getDoc(doc(db, "productionJobs", jobId));
+    const orderId = jobSnap.exists() ? jobSnap.data().orderId : null;
+    if (orderId) {
+      await updateDoc(doc(db, "salesOrders", orderId), {
+        status: "done",
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      });
+    }
+  }
+}
+
+// 驗收退回指定工序
+export async function rejectProductionQc(jobId, targetStage, notes) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const stageKeys = PRODUCTION_STAGES.map((s) => s.key);
+  const targetIdx = stageKeys.indexOf(targetStage);
+
+  const updates = {
+    currentStage: targetStage,
+    "stages.qc.status": "rejected",
+    "stages.qc.notes": notes || "",
+    "stages.qc.rejectedAt": serverTimestamp(),
+    "stages.qc.rejectedByUid": uid,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  };
+  // 清空目標關卡（含）到 qc 之前的 done 狀態
+  for (let i = targetIdx; i < stageKeys.length - 1; i++) {
+    updates[`stages.${stageKeys[i]}.status`]    = "pending";
+    updates[`stages.${stageKeys[i]}.doneAt`]    = null;
+    updates[`stages.${stageKeys[i]}.doneByUid`] = null;
+    updates[`stages.${stageKeys[i]}.doneByName`] = null;
+  }
+  await updateDoc(doc(db, "productionJobs", jobId), updates);
+}
+
+// 通用退回／重設：從任何狀態（含 done）退回指定關卡
+export async function resetProductionJob(jobId, toStage, notes) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const stageKeys = PRODUCTION_STAGES.map((s) => s.key);
+  const targetIdx = stageKeys.indexOf(toStage);
+  if (targetIdx < 0) throw new Error("無效的工序：" + toStage);
+
+  const updates = {
+    currentStage: toStage,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  };
+  // 清空目標關卡（含）之後的所有工序狀態
+  for (let i = targetIdx; i < stageKeys.length; i++) {
+    updates[`stages.${stageKeys[i]}.status`]      = "pending";
+    updates[`stages.${stageKeys[i]}.doneAt`]      = null;
+    updates[`stages.${stageKeys[i]}.doneByUid`]   = null;
+    updates[`stages.${stageKeys[i]}.doneByName`]  = null;
+    updates[`stages.${stageKeys[i]}.rejectedAt`]  = null;
+    updates[`stages.${stageKeys[i]}.notes`]       = notes || null;
+  }
+  // 若從 done 退回，同步還原訂單狀態為 inProduction
+  const jobSnap = await getDoc(doc(db, "productionJobs", jobId));
+  if (jobSnap.exists()) {
+    const orderId = jobSnap.data().orderId;
+    const prevStage = jobSnap.data().currentStage;
+    if (orderId && prevStage === "done") {
+      await updateDoc(doc(db, "salesOrders", orderId), {
+        status: "inProduction",
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      });
+    }
+  }
+  await updateDoc(doc(db, "productionJobs", jobId), updates);
+}
+
+// ─── 客戶計價記憶 ─────────────────────────────────────────────
+export async function getCustomerPricing(customerId) {
+  if (!customerId) return null;
+  await authReadyPromise;
+  const snap = await getDoc(doc(db, "customerPricing", customerId));
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function updateCustomerPricing(customerId, { customerName, stonePrices, defaultPricePerCm }) {
+  if (!customerId) return;
+  await authReadyPromise;
+  await setDoc(
+    doc(db, "customerPricing", customerId),
+    {
+      customerId,
+      customerName: customerName || "",
+      stonePrices: stonePrices || {},
+      defaultPricePerCm: defaultPricePerCm || null,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 }

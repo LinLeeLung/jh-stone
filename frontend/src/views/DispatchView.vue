@@ -95,10 +95,22 @@
       </table>
     </div>
 
+    <!-- 工站選擇 -->
+    <div class="station-bar">
+      <span class="station-label">發單關卡：</span>
+      <label v-for="s in STATIONS" :key="s" class="station-check">
+        <input type="checkbox" v-model="stationMap[s]" />
+        {{ s }}
+      </label>
+    </div>
+
     <!-- 已選摘要 -->
     <div v-if="selectedIds.size" class="selection-summary">
       已選 <strong>{{ selectedIds.size }}</strong> 張訂單（其中
-      <strong>{{ selectedWithPdf }}</strong> 張有確定單PDF）× 6 關卡 = <strong>{{ selectedWithPdf * 6 }}</strong> 頁　（裁切 / 水刀 / 黏合 / 水磨 / 套板 / 驗收）
+      <strong>{{ selectedWithPdf }}</strong> 張有確定單PDF）×
+      <strong>{{ activeStations.length }}</strong> 關卡 =
+      <strong>{{ selectedWithPdf * activeStations.length }}</strong> 頁　
+      <span class="station-names">{{ activeStations.join(' / ') || '（未選任何關卡）' }}</span>
       <span v-if="selectedWithPdf < selectedIds.size" class="warn-no-pdf">　⚠️ {{ selectedIds.size - selectedWithPdf }} 張無PDF將略過</span>
     </div>
 
@@ -114,7 +126,7 @@ import { ref, computed, onMounted } from "vue";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { jsPDF } from "jspdf";
-import { listSalesOrders, batchMarkDispatched } from "../firebase";
+import { listSalesOrders, batchMarkDispatched, downloadConfirmedPdfBytes } from "../firebase";
 
 GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
@@ -129,6 +141,10 @@ const STATUS_LABEL = {
   done: "完工",
   cancelled: "已取消",
 };
+
+// Station selection: default all enabled
+const stationMap = ref(Object.fromEntries(STATIONS.map(s => [s, true])));
+const activeStations = computed(() => STATIONS.filter(s => stationMap.value[s]));
 
 const loading = ref(true);
 const rows = ref([]);
@@ -261,6 +277,11 @@ async function onDispatchPrint() {
   if (!ids.length) return;
   errorMsg.value = "";
 
+  if (!activeStations.value.length) {
+    errorMsg.value = "請至少選擇一個發單關卡。";
+    return;
+  }
+
   const selectedOrders = rows.value.filter(o => ids.includes(o.id));
   // Sort by promisedAt ascending (nearest deadline first)
   const sorted = [...selectedOrders].sort((a, b) => {
@@ -283,7 +304,7 @@ async function onDispatchPrint() {
   if (missing.length) {
     confirmMsg += `\n\n⚠️ ${missing.length} 張無確定單PDF，將略過。`;
   }
-  confirmMsg += `\n\n系統將標記「生產中」並產生 ${ordersWithPdf.length * STATIONS.length} 頁合併PDF。`;
+  confirmMsg += `\n\n系統將標記「生產中」並產生 ${ordersWithPdf.length * activeStations.value.length} 頁合併PDF（${activeStations.value.join('、')}）。`;
 
   if (!confirm(confirmMsg)) return;
 
@@ -304,7 +325,7 @@ async function onDispatchPrint() {
 
     // 3. Build merged PDF via pdfjs → canvas → jsPDF
     pdfProgress.value = `產生PDF中… (0 / ${ordersWithPdf.length * STATIONS.length})`;
-    const blob = await buildDispatchPdf(ordersWithPdf);
+    const blob = await buildDispatchPdf(ordersWithPdf, activeStations.value);
 
     // 4. Open blob URL
     const url = URL.createObjectURL(blob);
@@ -356,22 +377,22 @@ function drawWatermark(ctx, station, w, h) {
 let _pdfDone = 0;
 let _pdfTotal = 0;
 
-async function buildDispatchPdf(orders) {
+async function buildDispatchPdf(orders, stations) {
   _pdfDone = 0;
-  _pdfTotal = orders.length * STATIONS.length;
+  _pdfTotal = orders.length * stations.length;
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   let firstPage = true;
 
-  for (const station of STATIONS) {
+  for (const station of stations) {
     for (const order of orders) {
       pdfProgress.value = `產生PDF中… (${_pdfDone + 1} / ${_pdfTotal})`;
 
       let srcBytes;
       try {
-        const resp = await fetch(order.confirmedPdfUrl, { credentials: "omit" });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        srcBytes = new Uint8Array(await resp.arrayBuffer());
+        // Use Firebase Storage SDK directly — avoids CORS restrictions (works on any LAN IP)
+        const arrayBuffer = await downloadConfirmedPdfBytes(order.id);
+        srcBytes = new Uint8Array(arrayBuffer);
       } catch (e) {
         console.error(`無法取得 ${order.orderNo} 的PDF:`, e);
         errorMsg.value = (errorMsg.value ? errorMsg.value + "\n" : "") +
@@ -422,6 +443,9 @@ async function buildDispatchPdf(orders) {
     }
   }
 
+  if (firstPage) {
+    throw new Error("所有確定單PDF均無法下載，請檢查網路連線或重新登入後再試。");
+  }
   return doc.output("blob");
 }
 </script>
@@ -601,6 +625,39 @@ async function buildDispatchPdf(orders) {
 }
 .btn-aux:hover {
   background: #e5e7eb;
+}
+.station-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+.station-label {
+  color: #374151;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.station-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  color: #1f2937;
+}
+.station-check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.station-names {
+  color: #374151;
 }
 .hint {
   color: #6b7280;

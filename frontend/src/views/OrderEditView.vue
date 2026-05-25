@@ -175,6 +175,79 @@
         <p v-if="!form.stones.length" class="muted small">尚未加入石材</p>
       </section>
 
+        <!-- 計價 -->
+      <section class="card">
+        <header class="card-head">
+          <h3>計價</h3>
+          <a href="/quote" target="_blank" class="btn-aux">📊 開啟估價單</a>
+        </header>
+
+        <!-- 客戶歷史價格提示 -->
+        <div v-if="customerPricing" class="pricing-history">
+          <div class="pricing-history-head">
+            <span>📝 歷史價格</span>
+            <span v-if="customerPricing.defaultPricePerCm" class="muted small">上次預設 {{ customerPricing.defaultPricePerCm.toLocaleString() }} 元/cm</span>
+          </div>
+          <div v-if="suggestedPrices.length" class="pricing-suggestions">
+            <div v-for="s in suggestedPrices" :key="s.key" class="pricing-sugg-item">
+              <span class="muted small">{{ s.label }}：</span>
+              <strong>{{ s.price.toLocaleString() }} 元/cm</strong>
+              <button class="btn-mini" type="button" @click="form.pricePerCm = s.price">套用</button>
+            </div>
+          </div>
+          <div v-else-if="customerPricing.defaultPricePerCm" class="pricing-sugg-item">
+            <span class="muted small">上次價格：</span>
+            <strong>{{ customerPricing.defaultPricePerCm.toLocaleString() }} 元/cm</strong>
+            <button class="btn-mini" type="button" @click="form.pricePerCm = customerPricing.defaultPricePerCm">套用</button>
+          </div>
+          <div v-else class="muted small">尚無此客戶計價記錄</div>
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <label>每公分售價</label>
+          <div class="inline">
+            <input v-model.number="form.pricePerCm" type="number" min="0" style="width:100px" placeholder="0" />
+            <span class="muted">元/cm</span>
+            <span v-if="form.pricePerCm && form.countertop.totalCm" class="muted small">
+              台面估算 {{ (form.pricePerCm * form.countertop.totalCm).toLocaleString() }} 元
+            </span>
+          </div>
+        </div>
+        <div class="row">
+          <label>未稅金額</label>
+          <div class="inline">
+            <input v-model.number="form.total" type="number" min="0" style="width:140px" placeholder="0" />
+            <span class="muted">元</span>
+            <button
+              v-if="form.pricePerCm && form.countertop.totalCm"
+              class="btn-mini"
+              type="button"
+              @click="form.total = form.pricePerCm * form.countertop.totalCm"
+            >套用估算</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>含稅金額 (5%)</label>
+          <div class="inline">
+            <span class="price-display">{{ form.total ? Math.round(form.total * 1.05).toLocaleString() : '—' }} 元</span>
+          </div>
+        </div>
+        <div class="row">
+          <label>已收訂金</label>
+          <div class="inline">
+            <input v-model.number="form.depositPaid" type="number" min="0" style="width:140px" placeholder="0" />
+            <span class="muted">元</span>
+            <span v-if="form.total && form.depositPaid != null" class="muted small">
+              餘款 {{ Math.round(form.total * 1.05 - (form.depositPaid || 0)).toLocaleString() }} 元
+            </span>
+          </div>
+        </div>
+        <div class="row">
+          <label>收款備註</label>
+          <input v-model="form.paymentNotes" type="text" placeholder="例：現金、匯款、分期…" />
+        </div>
+      </section>
+
       <!-- 附件（原始圖檔 / 打板照）-->
       <section v-if="isEdit" class="card full">
         <h3>附件</h3>
@@ -285,14 +358,19 @@
             + 新增水槽
           </button>
         </header>
+        <datalist v-for="(_, di) in form.sinks" :key="'sdl-'+di" :id="'sink-dl-'+di">
+          <option v-for="m in sinkModels" :key="m.id" :value="(m.brand ? m.brand + ' ' : '') + m.model" />
+        </datalist>
         <div v-for="(s, i) in form.sinks" :key="i" class="sink-row">
           <div class="sink-row-main">
-            <select v-model="s.modelId" @change="onSinkModelChange(i)">
-              <option value="">-- 選型號 --</option>
-              <option v-for="m in sinkModels" :key="m.id" :value="m.id">
-                {{ m.brand ? m.brand + " " : "" }}{{ m.model }}
-              </option>
-            </select>
+            <input
+              type="text"
+              :value="(s.brand ? s.brand + ' ' : '') + s.model"
+              :list="'sink-dl-' + i"
+              placeholder="型號（可自行輸入）"
+              @change="onSinkTextChange(i, $event.target.value)"
+              class="sink-model-input"
+            />
             <input
               v-model.number="s.bowlCount"
               type="number"
@@ -376,13 +454,18 @@
             + 新增爐子
           </button>
         </header>
+        <datalist v-for="(_, di) in form.stoves" :key="'stdl-'+di" :id="'stove-dl-'+di">
+          <option v-for="m in stoveModels" :key="m.id" :value="(m.brand ? m.brand + ' ' : '') + m.model" />
+        </datalist>
         <div v-for="(s, i) in form.stoves" :key="i" class="sub-row">
-          <select v-model="s.modelId" @change="onStoveModelChange(i)">
-            <option value="">-- 選型號 --</option>
-            <option v-for="m in stoveModels" :key="m.id" :value="m.id">
-              {{ m.brand ? m.brand + " " : "" }}{{ m.model }}
-            </option>
-          </select>
+          <input
+            type="text"
+            :value="(s.brand ? s.brand + ' ' : '') + s.model"
+            :list="'stove-dl-' + i"
+            placeholder="型號（可自行輸入）"
+            @change="onStoveTextChange(i, $event.target.value)"
+            class="sink-model-input"
+          />
           <input
             v-model.number="s.holeWidthMm"
             type="number"
@@ -413,30 +496,6 @@
       <!-- 切割/邊緣 -->
       <section class="card">
         <h3>生產指令</h3>
-        <div class="row">
-          <label>切法</label>
-          <select v-model="form.cutMethod">
-            <option value="factory">廠切</option>
-            <option value="onsite">現切</option>
-          </select>
-        </div>
-        <div class="row">
-          <label>開放邊</label>
-          <div class="inline">
-            <label class="chk">
-              <input type="checkbox" v-model="form.openEdges.left" /> 左
-            </label>
-            <label class="chk">
-              <input type="checkbox" v-model="form.openEdges.right" /> 右
-            </label>
-            <input
-              v-model.number="form.extraMm"
-              type="number"
-              placeholder="預留 mm"
-              style="width: 110px"
-            />
-          </div>
-        </div>
         <div class="row">
           <label>打板日</label>
           <input v-model="form.templatingDate" type="date" />
@@ -472,6 +531,13 @@
         <div class="row">
           <label>特殊備註</label>
           <textarea v-model="form.specialNotes" rows="3"></textarea>
+        </div>
+        <div class="row" v-if="userRole === 'admin' || userRole === '管理者'">
+          <label>測試標記</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" v-model="form.isTestData" style="width:auto;height:auto" />
+            <span style="color:#e55;">此為測試資料（上線前可於管理介面批次清除）</span>
+          </label>
         </div>
       </section>
 
@@ -515,6 +581,9 @@ import {
   deleteOrderAttachment,
   listStaffByDept,
   sendConfirmation,
+  createProductionJob,
+  getCustomerPricing,
+  updateCustomerPricing,
 } from "../firebase";
 import IssuanceDialog from "../components/IssuanceDialog.vue";
 import { SINK_STATUS_LIST } from "../utils/sinkStatus";
@@ -528,6 +597,21 @@ import {
 } from "../utils/orderOptions";
 
 const userRole = ref("");
+const customerPricing = ref(null);
+
+// 上次對當前石材的建議價格
+const suggestedPrices = computed(() => {
+  if (!customerPricing.value) return [];
+  const result = [];
+  const prices = customerPricing.value.stonePrices || {};
+  for (const s of form.value.stones || []) {
+    const key = [s.brand, s.color].filter(Boolean).join('/');
+    if (key && prices[key] != null) {
+      result.push({ key, label: `${s.brand} ${s.color}`.trim(), price: prices[key] });
+    }
+  }
+  return result;
+});
 
 // ─── 發單作業 ────────────────────────────────────────────────
 const orderStatus = ref("");
@@ -556,6 +640,8 @@ async function onSendConfirmation() {
 function onIssued(orderNo) {
   showIssuanceDialog.value = false;
   orderStatus.value = "confirmed";
+  // 自動建立生產工單
+  createProductionJob(route.params.id, { ...toPayload(), orderNo }).catch(console.error);
   alert(`發單成功！訂單號：${orderNo}\n即將跳轉確定單頁面封存PDF。`);
   router.push({ name: "order-confirmation", params: { id: route.params.id } });
 }
@@ -741,6 +827,11 @@ const form = ref({
   promisedAt: "",
   sinkReceivedAt: "",
   specialNotes: "",
+  isTestData: false,
+  pricePerCm: null,
+  total: null,
+  depositPaid: null,
+  paymentNotes: "",
 });
 
 const filteredCustomers = computed(() => {
@@ -753,7 +844,7 @@ const filteredCustomers = computed(() => {
   );
 });
 
-function pickCustomer(c) {
+async function pickCustomer(c) {
   form.value.customerId = c.code || c.id;
   form.value.customerName = c.name || "";
   if (c.phone && !form.value.customerContact.phone) {
@@ -761,6 +852,12 @@ function pickCustomer(c) {
   }
   customerKeyword.value = `${c.code || ""} ${c.name || ""}`.trim();
   showCustomerList.value = false;
+  // 載入歷史價格
+  customerPricing.value = await getCustomerPricing(form.value.customerId);
+  // 如果尚未填價格，自動帶入上次預設
+  if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {
+    form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
+  }
 }
 
 function toggleSpecialMethod(name, checked) {
@@ -828,27 +925,53 @@ function addStove() {
   form.value.stoves.push(newStove());
 }
 
-function onSinkModelChange(i) {
+function onSinkTextChange(i, text) {
   const s = form.value.sinks[i];
-  const m = sinkModels.value.find((x) => x.id === s.modelId);
-  if (!m) return;
-  s.brand = m.brand || "";
-  s.model = m.model || "";
-  if (m.holeWidthMm) s.holeWidthMm = m.holeWidthMm;
-  if (m.holeDepthMm) s.holeDepthMm = m.holeDepthMm;
-  if (m.holeRadiusMm) s.holeRadiusMm = m.holeRadiusMm;
-  if (m.bowlCount) s.bowlCount = m.bowlCount;
+  const t = text.trim();
+  // Try to match against inventory list (by "Brand Model" or just "Model")
+  const m = sinkModels.value.find(
+    (x) => ((x.brand ? x.brand + " " : "") + x.model) === t || x.model === t
+  );
+  if (m) {
+    s.modelId = m.id;
+    s.brand = m.brand || "";
+    s.model = m.model || "";
+    if (m.holeWidthMm) s.holeWidthMm = m.holeWidthMm;
+    if (m.holeDepthMm) s.holeDepthMm = m.holeDepthMm;
+    if (m.holeRadiusMm) s.holeRadiusMm = m.holeRadiusMm;
+    if (m.bowlCount) s.bowlCount = m.bowlCount;
+  } else {
+    // Free text — store as model name, clear inventory link
+    s.modelId = "";
+    s.brand = "";
+    s.model = t;
+  }
+}
+function onSinkModelChange(i) {
+  // kept for compatibility (unused now)
 }
 
-function onStoveModelChange(i) {
+function onStoveTextChange(i, text) {
   const s = form.value.stoves[i];
-  const m = stoveModels.value.find((x) => x.id === s.modelId);
-  if (!m) return;
-  s.brand = m.brand || "";
-  s.model = m.model || "";
-  if (m.holeWidthMm) s.holeWidthMm = m.holeWidthMm;
-  if (m.holeDepthMm) s.holeDepthMm = m.holeDepthMm;
-  if (m.holeRadiusMm) s.holeRadiusMm = m.holeRadiusMm;
+  const t = text.trim();
+  const m = stoveModels.value.find(
+    (x) => ((x.brand ? x.brand + " " : "") + x.model) === t || x.model === t
+  );
+  if (m) {
+    s.modelId = m.id;
+    s.brand = m.brand || "";
+    s.model = m.model || "";
+    if (m.holeWidthMm) s.holeWidthMm = m.holeWidthMm;
+    if (m.holeDepthMm) s.holeDepthMm = m.holeDepthMm;
+    if (m.holeRadiusMm) s.holeRadiusMm = m.holeRadiusMm;
+  } else {
+    s.modelId = "";
+    s.brand = "";
+    s.model = t;
+  }
+}
+function onStoveModelChange(i) {
+  // kept for compatibility (unused now)
 }
 
 function toDateInputStr(val) {
@@ -895,6 +1018,11 @@ function toPayload() {
     promisedAt: trimDate(f.promisedAt),
     sinkReceivedAt: trimDate(f.sinkReceivedAt),
     specialNotes: f.specialNotes || "",
+    isTestData: f.isTestData === true,
+    pricePerCm: f.pricePerCm ?? null,
+    total: f.total ?? null,
+    depositPaid: f.depositPaid ?? null,
+    paymentNotes: f.paymentNotes || "",
   };
 }
 
@@ -913,6 +1041,20 @@ async function onSave() {
       const id = await createSalesOrder(payload);
       alert(`已建立訂單 (id: ${id})`);
       router.replace({ name: "order-edit", params: { id } });
+    }
+    // 儲存客戶計價記憑
+    if (form.value.customerId && form.value.pricePerCm) {
+      const stonePrices = {};
+      for (const s of form.value.stones || []) {
+        const key = [s.brand, s.color].filter(Boolean).join('/');
+        if (key) stonePrices[key] = form.value.pricePerCm;
+      }
+      await updateCustomerPricing(form.value.customerId, {
+        customerName: form.value.customerName,
+        stonePrices,
+        defaultPricePerCm: form.value.pricePerCm,
+      });
+      customerPricing.value = await getCustomerPricing(form.value.customerId);
     }
   } catch (e) {
     console.error(e);
@@ -987,6 +1129,10 @@ async function loadAll() {
         // 統一將 promisedAt 轉成 YYYY-MM-DD（相容 Excel 序號、毫秒時間戳）
         if (form.value.promisedAt) {
           form.value.promisedAt = toDateInputStr(form.value.promisedAt);
+        }
+        // 載入客戶計價記憑
+        if (form.value.customerId) {
+          customerPricing.value = await getCustomerPricing(form.value.customerId);
         }
       }
     }
@@ -1166,6 +1312,10 @@ onMounted(loadAll);
   font-size: 12px;
   min-width: 0;
 }
+.sink-model-input {
+  min-width: 160px;
+  flex: 1 1 160px;
+}
 .sink-row-status {
   display: flex;
   gap: 6px;
@@ -1245,6 +1395,38 @@ onMounted(loadAll);
 }
 .muted {
   color: #999;
+}
+.price-display {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1565c0;
+  letter-spacing: 0.5px;
+}
+.pricing-history {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #f0f7ff;
+  border: 1px solid #bbdefb;
+  border-radius: 6px;
+}
+.pricing-history-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1565c0;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pricing-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.pricing-sugg-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .material-tag {
   display: inline-block;

@@ -19,6 +19,7 @@
                 <th>姓名</th>
                 <th class="secondary-col">電郵</th>
                 <th>角色</th>
+                <th>部門</th>
                 <th>動作</th>
               </tr>
             </thead>
@@ -32,6 +33,14 @@
                   <select v-model="u.role">
                     <option v-for="r in roles" :key="r" :value="r">
                       {{ r }}
+                    </option>
+                  </select>
+                </td>
+                <td>
+                  <select v-model="u.dept" style="min-width: 90px">
+                    <option value="">— 未設定</option>
+                    <option v-for="d in deptOptions" :key="d.value" :value="d.value">
+                      {{ d.label }}
                     </option>
                   </select>
                 </td>
@@ -373,6 +382,97 @@
             </tbody>
           </table>
         </div>
+
+        <!-- ── 路由權限管理矩陣 ───────────────────────────────────── -->
+        <div class="toolbar-row" style="margin-top: 28px">
+          <h2 style="margin: 0">路由權限管理</h2>
+          <span class="muted-text" style="font-size: 13px">勾選各角色可存取的頁面，儲存後立即生效</span>
+          <button class="btn-manage" @click="savePermissions" :disabled="permSaving">
+            {{ permSaving ? '儲存中…' : '儲存設定' }}
+          </button>
+          <button class="btn-aux" @click="resetPermissions" :disabled="permSaving">
+            還原預設值
+          </button>
+        </div>
+        <p v-if="permSaveMsg" :style="{ color: permSaveMsg.startsWith('✅') ? '#198754' : '#dc3545', marginTop: '6px' }">
+          {{ permSaveMsg }}
+        </p>
+        <div class="table-wrap" style="margin-top: 10px; overflow-x: auto">
+          <table class="data-table perm-table">
+            <thead>
+              <tr>
+                <th style="min-width: 120px">頁面</th>
+                <th v-for="role in permAllRoles" :key="role" style="text-align: center; white-space: nowrap">{{ role }}</th>
+                <th style="min-width: 100px">允許部門</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="group in permGroups" :key="group.name">
+                <tr>
+                  <td :colspan="permAllRoles.length + 2" style="font-weight: 600; background: #f0f2f5; padding: 4px 10px; font-size: 13px">
+                    {{ group.name }}
+                  </td>
+                </tr>
+                <tr v-for="perm in group.items" :key="perm.path">
+                  <td style="white-space: nowrap; font-size: 14px">{{ perm.title }}</td>
+                  <td v-for="role in permAllRoles" :key="role" style="text-align: center">
+                    <input
+                      type="checkbox"
+                      :checked="perm.roles.includes(role)"
+                      @change="togglePermRole(perm, role, $event.target.checked)"
+                      style="width: auto; height: auto; cursor: pointer"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      :value="perm.depts ? perm.depts.join(', ') : ''"
+                      @change="updatePermDepts(perm, $event.target.value)"
+                      placeholder="留空=不限"
+                      style="width: 90px; font-size: 12px; padding: 2px 5px"
+                      title="部門代號，多個以逗號分隔，例如：1, 2"
+                    />
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted-text" style="margin-top: 6px; font-size: 12px">
+          ⚠️ 「admin」角色不建議取消任何頁面的存取權限，以免無法管理系統。「允許部門」填部門代號（如 1, 2），留空表示不以部門限制。角色勾選與允許部門為 OR 關係（符合其一即可進入）。
+        </p>
+
+        <!-- 測試資料清除 -->
+        <div style="margin-top: 28px; padding: 16px; background: #fff8e1; border: 1px solid #fbbf24; border-radius: 8px; max-width: 480px">
+          <h3 style="margin: 0 0 8px; font-size: 15px; color: #92400e;">🧹 清除測試資料</h3>
+          <p style="margin: 0 0 12px; font-size: 13px; color: #78350f;">
+            刪除所有在訂單中勾選「測試標記」的訂單。此操作不可復原，請確認已完成所有測試後再執行。
+          </p>
+          <button
+            class="btn-manage"
+            style="background:#ef4444;border-color:#ef4444;color:#fff;"
+            :disabled="testDataDeleting"
+            @click="onClearTestData"
+          >
+            {{ testDataDeleting ? "刪除中…" : "清除所有測試訂單" }}
+          </button>
+        </div>
+
+        <!-- 重設所有訂單狀態 -->
+        <div style="margin-top: 16px; padding: 16px; background: #fff1f2; border: 1px solid #fca5a5; border-radius: 8px; max-width: 480px">
+          <h3 style="margin: 0 0 8px; font-size: 15px; color: #991b1b;">⚠️ 重設所有訂單狀態</h3>
+          <p style="margin: 0 0 12px; font-size: 13px; color: #7f1d1d;">
+            把系統內所有訂單的狀態強制改回「草稿」。僅供測試環境使用，上線後請勿執行。
+          </p>
+          <button
+            class="btn-manage"
+            style="background:#b91c1c;border-color:#b91c1c;color:#fff;"
+            :disabled="statusResetting"
+            @click="onResetAllStatusToDraft"
+          >
+            {{ statusResetting ? "處理中…" : "全部改回草稿" }}
+          </button>
+        </div>
       </div>
     </div>
   </section>
@@ -405,16 +505,51 @@ import {
   fetchAllUsers,
   updateUserDisplayName,
   updateUserRole,
+  updateUserDept,
   ROLES,
   listClientUploadErrors,
   listCompletionPhotoFolderCreations,
   migrateLegacyCompletionPhotosToNas,
   precheckLegacyCompletionPhotosToNas,
   repairWrongOrderFolder,
+  getRoutePermissionsConfig,
+  saveRoutePermissionsConfig,
 } from "../firebase";
 import { getUserByUid } from "../firebase";
+import { deleteTestOrders } from "../firebase";
+import { resetAllOrderStatusToDraft } from "../firebase";
+import { DEFAULT_ROUTE_PERMISSIONS, ALL_ROLES as PERM_ALL_ROLES } from "../config/routePermissions";
+import { invalidatePermissionsCache } from "../router/index";
 
 const users = ref([]);
+const testDataDeleting = ref(false);
+const statusResetting = ref(false);
+
+async function onClearTestData() {
+  if (!confirm("確定要刪除所有標記為「測試資料」的訂單嗎？此操作無法復原。")) return;
+  testDataDeleting.value = true;
+  try {
+    const count = await deleteTestOrders();
+    alert(`已刪除 ${count} 筆測試訂單。`);
+  } catch (e) {
+    alert("刪除失敗：" + (e?.message || e));
+  } finally {
+    testDataDeleting.value = false;
+  }
+}
+
+async function onResetAllStatusToDraft() {
+  if (!confirm("確定要把所有訂單的狀態全部改回「草稿」嗎？此操作無法復原。")) return;
+  statusResetting.value = true;
+  try {
+    const count = await resetAllOrderStatusToDraft();
+    alert(`已將 ${count} 筆訂單重設為草稿。`);
+  } catch (e) {
+    alert("操作失敗：" + (e?.message || e));
+  } finally {
+    statusResetting.value = false;
+  }
+}
 const loading = ref(true);
 const isAdmin = ref(false);
 const currentUid = ref(null);
@@ -447,20 +582,32 @@ const adminEmail = "linlilung@gmail.com";
 // 可用角色清單
 const roles = ROLES;
 
+// 部門選項
+const deptOptions = [
+  { value: '1', label: '1 辦公室' },
+  { value: '2', label: '2 安裝' },
+  { value: '3', label: '3 廠內' },
+  { value: '4', label: '4 外勞' },
+];
+
 async function loadUsers() {
   loading.value = true;
   const list = await fetchAllUsers();
   users.value = list.map((u) => ({
     ...u,
     role: u.role || "遊客",
+    dept: u.dept || "",
     _origRole: u.role || "遊客",
     _origName: u.displayName || "",
+    _origDept: u.dept || "",
   }));
   loading.value = false;
 }
 
 function changed(u) {
-  return u.role !== u._origRole || (u.displayName || "") !== u._origName;
+  return u.role !== u._origRole
+    || (u.displayName || "") !== u._origName
+    || (u.dept || "") !== u._origDept;
 }
 
 async function applyRole(u) {
@@ -477,6 +624,9 @@ async function applyRole(u) {
   }
   if ((u.displayName || "") !== u._origName) {
     await updateUserDisplayName(u.id, u.displayName || "");
+  }
+  if ((u.dept || "") !== u._origDept) {
+    await updateUserDept(u.id, u.dept || "");
   }
   await loadUsers();
 }
@@ -772,6 +922,77 @@ async function handleRepairFolder(item, userInputCorrectPath = "") {
   }
 }
 
+// ── 路由權限矩陣 ────────────────────────────────────────────────────────────
+const permAllRoles = PERM_ALL_ROLES;
+
+function deepCloneRoutes(routes) {
+  return routes.map((r) => ({ ...r, roles: [...(r.roles || [])], depts: r.depts ? [...r.depts] : undefined }));
+}
+
+// 立即以預設值初始化，確保頁面首次渲染就有資料；Firestore 有自訂設定時再覆蓋
+const permRoutes = ref(deepCloneRoutes(DEFAULT_ROUTE_PERMISSIONS));
+const permSaving = ref(false);
+const permSaveMsg = ref('');
+
+async function loadPermissions() {
+  const firestoreRoutes = await getRoutePermissionsConfig();
+  if (firestoreRoutes) {
+    permRoutes.value = deepCloneRoutes(firestoreRoutes);
+  }
+  // 若 Firestore 無資料，保留已顯示的預設值
+}
+
+const permGroups = computed(() => {
+  const groups = [];
+  const seen = new Map();
+  for (const perm of permRoutes.value) {
+    const g = perm.group || '其他';
+    if (!seen.has(g)) {
+      const entry = { name: g, items: [] };
+      seen.set(g, entry);
+      groups.push(entry);
+    }
+    seen.get(g).items.push(perm);
+  }
+  return groups;
+});
+
+function togglePermRole(perm, role, checked) {
+  if (checked) {
+    if (!perm.roles.includes(role)) perm.roles.push(role);
+  } else {
+    perm.roles = perm.roles.filter((r) => r !== role);
+  }
+}
+
+function updatePermDepts(perm, rawValue) {
+  const parts = String(rawValue || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  perm.depts = parts.length ? parts : undefined;
+}
+
+async function savePermissions() {
+  permSaving.value = true;
+  permSaveMsg.value = '';
+  try {
+    await saveRoutePermissionsConfig(permRoutes.value);
+    invalidatePermissionsCache();
+    permSaveMsg.value = '✅ 已儲存，設定立即生效';
+  } catch (e) {
+    console.error('savePermissions failed:', e);
+    permSaveMsg.value = `❌ 儲存失敗：${e?.message || e}`;
+  }
+  permSaving.value = false;
+}
+
+async function resetPermissions() {
+  if (!confirm('確定要還原所有頁面為預設權限嗎？')) return;
+  permRoutes.value = deepCloneRoutes(DEFAULT_ROUTE_PERMISSIONS);
+  permSaveMsg.value = '（已還原預設值，請按「儲存設定」使其生效）';
+}
+
 onMounted(() => {
   subscribeAuthState(async (u) => {
     if (!u) {
@@ -786,6 +1007,7 @@ onMounted(() => {
       await loadUsers();
       await loadUploadErrorLogs();
       await loadFolderCreationLogs();
+      await loadPermissions();
     }
   });
 });
