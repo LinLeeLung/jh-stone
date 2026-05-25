@@ -1932,29 +1932,40 @@ function _primaryMaterial(stones) {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
 }
 
-// 建立生產工單（發單後自動呼叫，orderId 重複時只更新 orderNo）
+// 建立或更新生產工單（發單時自動呼叫；orderId 重複時會同步更新顯示資料）
 export async function createProductionJob(orderId, orderData) {
   await authReadyPromise;
   const uid = auth.currentUser?.uid || null;
-
-  // 避免重複建立
-  const existing = await getDocs(
-    query(collection(db, "productionJobs"), where("orderId", "==", orderId))
-  );
-  if (!existing.empty) {
-    await updateDoc(doc(db, "productionJobs", existing.docs[0].id), {
-      orderNo: orderData.orderNo || "",
-      updatedAt: serverTimestamp(),
-      updatedByUid: uid,
-    });
-    return existing.docs[0].id;
-  }
 
   const stones = (orderData.stones || []).map((s) => ({
     brand: s.brand || "",
     color: s.color || "",
     materialType: s.materialType || "other",
   }));
+
+  // 金額：優先取 grandTotal（含稅）→ subtotal（未稅小計）→ total（舊欄位手動輸入）
+  const totalVal =
+    orderData.grandTotal ?? orderData.subtotal ?? orderData.total ?? null;
+
+  // 既有工單 → 同步更新基本顯示欄位
+  const existing = await getDocs(
+    query(collection(db, "productionJobs"), where("orderId", "==", orderId))
+  );
+  if (!existing.empty) {
+    await updateDoc(doc(db, "productionJobs", existing.docs[0].id), {
+      orderNo:      orderData.orderNo || "",
+      customerName: orderData.customerName || "",
+      siteAddress:  orderData.siteAddress || "",
+      stones,
+      countertop:   orderData.countertop || {},
+      promisedAt:   orderData.promisedAt || null,
+      total:        totalVal,
+      primaryMaterial: _primaryMaterial(stones),
+      updatedAt: serverTimestamp(),
+      updatedByUid: uid,
+    });
+    return existing.docs[0].id;
+  }
 
   const payload = {
     orderId,
@@ -1964,7 +1975,7 @@ export async function createProductionJob(orderId, orderData) {
     stones,
     countertop:   orderData.countertop || {},
     promisedAt:   orderData.promisedAt || null,
-    total:        orderData.total ?? null,
+    total:        totalVal,
     primaryMaterial: _primaryMaterial(stones),
     currentStage: "cut",
     stages: {
@@ -1989,15 +2000,11 @@ export async function listProductionJobs() {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-// 回填：為所有 confirmed / inProduction 訂單補建 productionJob（若尚未建立）
+// 回填：為所有 confirmed / inProduction 訂單 upsert productionJob
+// （既有工單也會被同步更新，用來補上金額/客戶/石材等欄位）
 export async function backfillProductionJobs(onProgress) {
   await authReadyPromise;
 
-  // 取得所有已有工單的 orderId
-  const existingSnap = await getDocs(collection(db, "productionJobs"));
-  const existingOrderIds = new Set(existingSnap.docs.map((d) => d.data().orderId).filter(Boolean));
-
-  // 查詢 confirmed + inProduction 訂單（不限筆數）
   const statuses = ["confirmed", "inProduction"];
   let orders = [];
   for (const status of statuses) {
@@ -2007,14 +2014,13 @@ export async function backfillProductionJobs(onProgress) {
     snap.docs.forEach((d) => orders.push({ id: d.id, ...d.data() }));
   }
 
-  const toCreate = orders.filter((o) => !existingOrderIds.has(o.id));
   let done = 0;
-  for (const order of toCreate) {
+  for (const order of orders) {
     await createProductionJob(order.id, order);
     done++;
-    onProgress?.(done, toCreate.length);
+    onProgress?.(done, orders.length);
   }
-  return { total: toCreate.length, done };
+  return { total: orders.length, done };
 }
 
 // 推進工序（完成目前關卡，currentStage 前進到下一關）
@@ -2123,18 +2129,36 @@ export async function getCustomerPricing(customerId) {
   return snap.exists() ? snap.data() : null;
 }
 
-export async function updateCustomerPricing(customerId, { customerName, stonePrices, defaultPricePerCm }) {
+// 更新客戶計價記憶
+// 各 *Prices 參數為「本次要新增/覆蓋的鍵值對」，會 merge 到既有 map 上
+// 不傳的 map 不會動到既有資料
+export async function updateCustomerPricing(customerId, {
+  customerName,
+  stonePrices,
+  sinkPrices,
+  stovePrices,
+  specialPrices,
+  defaultPricePerCm,
+  skipOversizeScaling,
+} = {}) {
   if (!customerId) return;
   await authReadyPromise;
-  await setDoc(
-    doc(db, "customerPricing", customerId),
-    {
-      customerId,
-      customerName: customerName || "",
-      stonePrices: stonePrices || {},
-      defaultPricePerCm: defaultPricePerCm || null,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  const ref = doc(db, "customerPricing", customerId);
+  const snap = await getDoc(ref);
+  const cur = snap.exists() ? snap.data() : {};
+  const merged = {
+    customerId,
+    customerName: customerName || cur.customerName || "",
+    stonePrices:   { ...(cur.stonePrices   || {}), ...(stonePrices   || {}) },
+    sinkPrices:    { ...(cur.sinkPrices    || {}), ...(sinkPrices    || {}) },
+    stovePrices:   { ...(cur.stovePrices   || {}), ...(stovePrices   || {}) },
+    specialPrices: { ...(cur.specialPrices || {}), ...(specialPrices || {}) },
+    defaultPricePerCm: defaultPricePerCm ?? cur.defaultPricePerCm ?? null,
+    skipOversizeScaling:
+      skipOversizeScaling === undefined
+        ? (cur.skipOversizeScaling ?? false)
+        : !!skipOversizeScaling,
+    updatedAt: serverTimestamp(),
+  };
+  await setDoc(ref, merged, { merge: true });
 }

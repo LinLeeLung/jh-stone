@@ -123,12 +123,8 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
-import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
-import { jsPDF } from "jspdf";
+import { PDFDocument, rgb } from "pdf-lib";
 import { listSalesOrders, batchMarkDispatched, downloadConfirmedPdfBytes } from "../firebase";
-
-GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 const STATIONS = ["裁切", "水刀", "黏合", "水磨", "套板", "驗收"];
 
@@ -343,35 +339,27 @@ async function onDispatchPrint() {
   }
 }
 
-// ── PDF generation: pdfjs-dist (render) → canvas watermark → jsPDF ─────────
+// ── PDF generation: pdf-lib 直接複製頁面（不走 canvas 渲染，避免掃描PDF空白問題）────
 
 /**
- * Mask the price area with a white rectangle.
- * Coordinates mirror SystemSettings/general defaults (xPct/yPct/wPct/hPct).
- * pdf-lib uses bottom-left origin; canvas uses top-left — converted here.
- *   xPct=0.2  yPct=0.04  wPct=0.45  hPct=0.13
+ * 用 canvas 產生站別浮水印 PNG（只畫文字，不涉及跨域，canvas 不會被汙染）
  */
-function maskPriceArea(ctx, w, h) {
-  const x    = 0.20 * w;
-  const mw   = 0.45 * w;
-  const mh   = 0.13 * h;
-  const y    = h - (0.04 + 0.13) * h;   // convert from bottom origin to top origin
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x, y, mw, mh);
-}
-
-/** Draw station name watermark at bottom-right in 標楷體 ~24pt */
-function drawWatermark(ctx, station, w, h) {
+async function createStationWatermarkPng(station) {
+  const W = 400, H = 160;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
   ctx.save();
-  // 24pt ≈ 4% of A4-landscape canvas height (595pt → 24/595 ≈ 4%)
-  const fontSize = Math.round(h * 0.04);
-  ctx.font = `bold ${fontSize}px "標楷體", "DFKai-SB", "BiauKai", serif`;
+  ctx.font = `bold 72px "標楷體", "DFKai-SB", "BiauKai", serif`;
   ctx.fillStyle = "rgba(0, 0, 200, 0.30)";
   ctx.textAlign = "right";
-  ctx.translate(w - 24, h - 20);
-  ctx.rotate(-Math.PI / 18);   // −10° slight tilt
+  ctx.translate(W - 30, H - 30);
+  ctx.rotate(-Math.PI / 18);
   ctx.fillText(station, 0, 0);
   ctx.restore();
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
 let _pdfDone = 0;
@@ -381,8 +369,17 @@ async function buildDispatchPdf(orders, stations) {
   _pdfDone = 0;
   _pdfTotal = orders.length * stations.length;
 
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  let firstPage = true;
+  const mergedDoc = await PDFDocument.create();
+
+  // 預先為每個站別產生浮水印 PNG，嵌入 mergedDoc
+  const watermarkImages = {};
+  for (const station of stations) {
+    const blob = await createStationWatermarkPng(station);
+    const buf = await blob.arrayBuffer();
+    watermarkImages[station] = await mergedDoc.embedPng(new Uint8Array(buf));
+  }
+
+  let pageCount = 0;
 
   for (const station of stations) {
     for (const order of orders) {
@@ -390,9 +387,7 @@ async function buildDispatchPdf(orders, stations) {
 
       let srcBytes;
       try {
-        // Use Firebase Storage SDK directly — avoids CORS restrictions (works on any LAN IP)
-        const arrayBuffer = await downloadConfirmedPdfBytes(order.id);
-        srcBytes = new Uint8Array(arrayBuffer);
+        srcBytes = await downloadConfirmedPdfBytes(order.id);
       } catch (e) {
         console.error(`無法取得 ${order.orderNo} 的PDF:`, e);
         errorMsg.value = (errorMsg.value ? errorMsg.value + "\n" : "") +
@@ -401,13 +396,9 @@ async function buildDispatchPdf(orders, stations) {
         continue;
       }
 
-      let pdfDoc;
+      let srcDoc;
       try {
-        const loadingTask = getDocument({ data: srcBytes });
-        const timeout = new Promise((_, rej) =>
-          setTimeout(() => { loadingTask.destroy(); rej(new Error("PDF解析逾時")); }, 20000)
-        );
-        pdfDoc = await Promise.race([loadingTask.promise, timeout]);
+        srcDoc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
       } catch (e) {
         console.error(`無法解析 ${order.orderNo} 的PDF:`, e);
         errorMsg.value = (errorMsg.value ? errorMsg.value + "\n" : "") +
@@ -416,37 +407,49 @@ async function buildDispatchPdf(orders, stations) {
         continue;
       }
 
-      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-        const page = await pdfDoc.getPage(pageNum);
-        // Render at scale=2 for quality
-        const viewport = page.getViewport({ scale: 2 });
-        const canvas = document.createElement("canvas");
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext("2d");
-        await page.render({ canvasContext: ctx, viewport }).promise;
+      const pageIndices = srcDoc.getPageIndices();
+      const copiedPages = await mergedDoc.copyPages(srcDoc, pageIndices);
 
-        // 1. Mask price area with white rectangle
-        maskPriceArea(ctx, canvas.width, canvas.height);
-        // 2. Overlay station watermark (bottom-right, 標楷體)
-        drawWatermark(ctx, station, canvas.width, canvas.height);
+      for (const page of copiedPages) {
+        mergedDoc.addPage(page);
+        const { width, height } = page.getSize();
 
-        // Add page to jsPDF
-        if (!firstPage) doc.addPage();
-        firstPage = false;
-        const imgData = canvas.toDataURL("image/jpeg", 0.92);
-        doc.addImage(imgData, "JPEG", 0, 0, 297, 210);
+        // 1. 遮蓋價格區域（白色矩形，pdf-lib 座標原點在左下）
+        page.drawRectangle({
+          x: 0.20 * width,
+          y: 0.04 * height,
+          width: 0.45 * width,
+          height: 0.13 * height,
+          color: rgb(1, 1, 1),
+          opacity: 1,
+          borderWidth: 0,
+        });
+
+        // 2. 站別浮水印圖片（右下角）
+        const wImg = watermarkImages[station];
+        const wW = width * 0.22;
+        const wH = wW * (160 / 400);
+        page.drawImage(wImg, {
+          x: width - wW - 15,
+          y: 15,
+          width: wW,
+          height: wH,
+          opacity: 0.85,
+        });
+
+        pageCount++;
       }
-      pdfDoc.destroy();
 
       _pdfDone++;
     }
   }
 
-  if (firstPage) {
+  if (pageCount === 0) {
     throw new Error("所有確定單PDF均無法下載，請檢查網路連線或重新登入後再試。");
   }
-  return doc.output("blob");
+
+  const bytes = await mergedDoc.save();
+  return new Blob([bytes], { type: "application/pdf" });
 }
 </script>
 

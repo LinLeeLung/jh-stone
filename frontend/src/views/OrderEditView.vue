@@ -201,6 +201,16 @@
             <button class="btn-mini" type="button" @click="form.pricePerCm = customerPricing.defaultPricePerCm">套用</button>
           </div>
           <div v-else class="muted small">尚無此客戶計價記錄</div>
+          <div class="pricing-sugg-item" style="margin-top:6px">
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+              <input
+                type="checkbox"
+                :checked="!!customerPricing.skipOversizeScaling"
+                @change="toggleSkipOversize($event.target.checked)"
+              />
+              <span class="muted small">此客戶不做大尺寸比例換算（sum&gt;68 不放大）</span>
+            </label>
+          </div>
         </div>
 
         <div class="row" style="margin-top:12px">
@@ -213,13 +223,80 @@
             </span>
           </div>
         </div>
+        <!-- 計價明細 lineItems -->
+        <div class="line-items-block">
+          <div class="line-items-head">
+            <strong>計價明細</strong>
+            <div class="line-items-actions">
+              <button class="btn-mini" type="button" @click="syncLineItemsFromForm('all')">以表單資料產生明細</button>
+              <button v-if="isEdit" class="btn-mini" type="button" @click="syncLineItemsFromDrawings">以繪圖資料產生明細（檯面/水槽/爐子）</button>
+              <button class="btn-mini" type="button" @click="addLineItem('other')">+ 新增一行</button>
+            </div>
+          </div>
+          <table class="line-items-table">
+            <thead>
+              <tr>
+                <th style="width:80px">類別</th>
+                <th>說明</th>
+                <th style="width:55px">單位</th>
+                <th style="width:75px">數量</th>
+                <th style="width:95px">單價</th>
+                <th style="width:110px">小計</th>
+                <th style="width:50px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!form.lineItems.length">
+                <td colspan="7" class="muted small" style="text-align:center;padding:10px">
+                  尚無明細。可按「以表單資料產生明細」自動帶入檯面/水槽/爐子/特殊作法。
+                </td>
+              </tr>
+              <tr v-for="(li, i) in form.lineItems" :key="li.id">
+                <td>
+                  <select v-model="li.category" class="li-input">
+                    <option value="countertop">檯面</option>
+                    <option value="sink">水槽</option>
+                    <option value="stove">爐子</option>
+                    <option value="special">特殊</option>
+                    <option value="other">其他</option>
+                  </select>
+                </td>
+                <td><input v-model="li.description" class="li-input" type="text" /></td>
+                <td><input v-model="li.unit" class="li-input" type="text" /></td>
+                <td><input v-model.number="li.qty" class="li-input" type="number" min="0" step="0.01" @input="recalcLineAmount(li)" /></td>
+                <td>
+                  <div class="li-price-cell">
+                    <input v-model.number="li.unitPrice" class="li-input" type="number" min="0" @input="recalcLineAmount(li)" />
+                    <button
+                      v-if="suggestionFor(li) != null && suggestionFor(li) !== li.unitPrice"
+                      class="btn-suggest"
+                      type="button"
+                      :title="`上次 ${suggestionFor(li).toLocaleString()} 元，點擊套用`"
+                      @click="applySuggestion(li)"
+                    >↑{{ suggestionFor(li).toLocaleString() }}</button>
+                  </div>
+                </td>
+                <td><input v-model.number="li.amount" class="li-input" type="number" min="0" /></td>
+                <td><button class="btn-mini btn-del-line" type="button" @click="removeLineItem(i)">×</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="row" v-if="form.lineItems.length">
+          <label>未稅小計</label>
+          <div class="inline">
+            <span class="price-display">{{ subtotalComputed.toLocaleString() }} 元</span>
+            <button class="btn-mini" type="button" @click="form.total = subtotalComputed">同步到未稅金額</button>
+          </div>
+        </div>
         <div class="row">
           <label>未稅金額</label>
           <div class="inline">
             <input v-model.number="form.total" type="number" min="0" style="width:140px" placeholder="0" />
             <span class="muted">元</span>
             <button
-              v-if="form.pricePerCm && form.countertop.totalCm"
+              v-if="form.pricePerCm && form.countertop.totalCm && !form.lineItems.length"
               class="btn-mini"
               type="button"
               @click="form.total = form.pricePerCm * form.countertop.totalCm"
@@ -227,9 +304,18 @@
           </div>
         </div>
         <div class="row">
-          <label>含稅金額 (5%)</label>
+          <label>開立發票</label>
           <div class="inline">
-            <span class="price-display">{{ form.total ? Math.round(form.total * 1.05).toLocaleString() : '—' }} 元</span>
+            <label class="inline-check">
+              <input type="checkbox" v-model="form.invoiceRequired" />
+              <span>需開發票（5% 營業稅）</span>
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <label>{{ form.invoiceRequired ? '含稅金額 (5%)' : '應收總額' }}</label>
+          <div class="inline">
+            <span class="price-display">{{ grandTotalComputed ? grandTotalComputed.toLocaleString() : '—' }} 元</span>
           </div>
         </div>
         <div class="row">
@@ -237,8 +323,8 @@
           <div class="inline">
             <input v-model.number="form.depositPaid" type="number" min="0" style="width:140px" placeholder="0" />
             <span class="muted">元</span>
-            <span v-if="form.total && form.depositPaid != null" class="muted small">
-              餘款 {{ Math.round(form.total * 1.05 - (form.depositPaid || 0)).toLocaleString() }} 元
+            <span v-if="grandTotalComputed && form.depositPaid != null" class="muted small">
+              餘款 {{ (grandTotalComputed - (form.depositPaid || 0)).toLocaleString() }} 元
             </span>
           </div>
         </div>
@@ -584,6 +670,7 @@ import {
   createProductionJob,
   getCustomerPricing,
   updateCustomerPricing,
+  listOrderDrawings,
 } from "../firebase";
 import IssuanceDialog from "../components/IssuanceDialog.vue";
 import { SINK_STATUS_LIST } from "../utils/sinkStatus";
@@ -606,8 +693,12 @@ const suggestedPrices = computed(() => {
   const prices = customerPricing.value.stonePrices || {};
   for (const s of form.value.stones || []) {
     const key = [s.brand, s.color].filter(Boolean).join('/');
-    if (key && prices[key] != null) {
-      result.push({ key, label: `${s.brand} ${s.color}`.trim(), price: prices[key] });
+    if (!key) continue;
+    const val = prices[key];
+    if (val == null) continue;
+    const price = typeof val === "number" ? val : (val.lastPrice ?? null);
+    if (price != null) {
+      result.push({ key, label: `${s.brand} ${s.color}`.trim(), price });
     }
   }
   return result;
@@ -705,13 +796,13 @@ const BRAND_MATERIAL_MAP = {
   // 石英石
   賽麗石: "quartz",
   silestone: "quartz",
-  帝通石: "quartz",
   廓石: "quartz",
   // 陶板 / 焝結石
   abk: "porcelain",
   耐麗石: "porcelain",
   neolith: "porcelain",
   鉈鋼石: "porcelain",
+  帝通石: "porcelain",
 };
 
 function materialTypeForBrand(brand) {
@@ -830,9 +921,517 @@ const form = ref({
   isTestData: false,
   pricePerCm: null,
   total: null,
+  lineItems: [],
+  invoiceRequired: true,
   depositPaid: null,
   paymentNotes: "",
 });
+
+// ── 計價明細 helpers ───────────────────────────────────
+function newLineItemId() {
+  return "li-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+}
+
+function makeLineItem(category, partial = {}) {
+  const defaults = {
+    countertop: { unit: "cm", qty: null, unitPrice: null },
+    sink:       { unit: "式", qty: 1,    unitPrice: null },
+    stove:      { unit: "式", qty: 1,    unitPrice: null },
+    special:    { unit: "式", qty: 1,    unitPrice: null },
+    other:      { unit: "式", qty: 1,    unitPrice: null },
+  };
+  const d = defaults[category] || defaults.other;
+  return {
+    id: newLineItemId(),
+    category,
+    description: "",
+    unit: d.unit,
+    qty: d.qty,
+    unitPrice: d.unitPrice,
+    amount: 0,
+    refId: null,
+    priceKey: null,
+    ...partial,
+  };
+}
+
+function recalcLineAmount(li) {
+  const q = Number(li.qty) || 0;
+  const p = Number(li.unitPrice) || 0;
+  li.amount = Math.round(q * p);
+}
+
+function addLineItem(category = "other") {
+  form.value.lineItems.push(makeLineItem(category));
+}
+
+function removeLineItem(i) {
+  form.value.lineItems.splice(i, 1);
+}
+
+const subtotalComputed = computed(() =>
+  (form.value.lineItems || []).reduce((s, li) => s + (Number(li.amount) || 0), 0)
+);
+
+const grandTotalComputed = computed(() => {
+  const base = form.value.lineItems.length
+    ? subtotalComputed.value
+    : (Number(form.value.total) || 0);
+  if (!base) return 0;
+  return form.value.invoiceRequired ? Math.round(base * 1.05) : base;
+});
+
+// 以表單現有資料產生 / 同步 lineItems
+function syncLineItemsFromForm(scope = "all") {
+  const items = [...form.value.lineItems];
+  const findIdx = (cat, refId) =>
+    items.findIndex((x) => x.category === cat && x.refId === refId);
+
+  // 檯面（只一筆）
+  if (scope === "all" || scope === "countertop") {
+    const cm = Number(form.value.countertop?.totalCm) || 0;
+    const ppc = Number(form.value.pricePerCm) || 0;
+    if (cm && ppc) {
+      const stoneStr = (form.value.stones || [])
+        .map((s) => [s.brand, s.color].filter(Boolean).join(" ")).filter(Boolean).join(" / ");
+      const firstStone = (form.value.stones || [])[0];
+      const priceKey = firstStone ? [firstStone.brand, firstStone.color].filter(Boolean).join("/") : null;
+      const desc = `${form.value.countertop?.type || "檯面"} ${cm}cm${stoneStr ? " " + stoneStr : ""}`;
+      const idx = findIdx("countertop", "main");
+      const li = {
+        id: idx >= 0 ? items[idx].id : newLineItemId(),
+        category: "countertop", refId: "main", priceKey,
+        description: desc, unit: "cm", qty: cm, unitPrice: ppc, amount: Math.round(cm * ppc),
+      };
+      if (idx >= 0) items[idx] = li; else items.push(li);
+    }
+  }
+
+  const matLabel = materialLabelFromStones(form.value.stones);
+
+  // 水槽
+  if (scope === "all" || scope === "sink") {
+    (form.value.sinks || []).forEach((s, i) => {
+      const refId = `sink-${i}`;
+      const desc = [s.method, matLabel, s.brand, s.model].filter(Boolean).join(" ") || `水槽${i + 1}`;
+      const idx = findIdx("sink", refId);
+      const existing = idx >= 0 ? items[idx] : null;
+      const li = {
+        id: existing?.id || newLineItemId(),
+        category: "sink", refId, priceKey: holePriceKey(s.method, matLabel),
+        description: desc, unit: "式",
+        qty: existing?.qty ?? 1,
+        unitPrice: existing?.unitPrice ?? null,
+        amount: existing?.amount ?? 0,
+      };
+      if (idx >= 0) items[idx] = li; else items.push(li);
+    });
+  }
+
+  // 爐子
+  if (scope === "all" || scope === "stove") {
+    (form.value.stoves || []).forEach((s, i) => {
+      const refId = `stove-${i}`;
+      const desc = [s.method, matLabel, s.brand, s.model].filter(Boolean).join(" ") || `爐子${i + 1}`;
+      const idx = findIdx("stove", refId);
+      const existing = idx >= 0 ? items[idx] : null;
+      const li = {
+        id: existing?.id || newLineItemId(),
+        category: "stove", refId, priceKey: holePriceKey(s.method, matLabel),
+        description: desc, unit: "式",
+        qty: existing?.qty ?? 1,
+        unitPrice: existing?.unitPrice ?? null,
+        amount: existing?.amount ?? 0,
+      };
+      if (idx >= 0) items[idx] = li; else items.push(li);
+    });
+  }
+
+  // 特殊作法
+  if (scope === "all" || scope === "special") {
+    (form.value.specialMethods || []).forEach((name) => {
+      const refId = `special-${name}`;
+      const idx = findIdx("special", refId);
+      const existing = idx >= 0 ? items[idx] : null;
+      const li = {
+        id: existing?.id || newLineItemId(),
+        category: "special", refId, priceKey: name,
+        description: name, unit: "式",
+        qty: existing?.qty ?? 1,
+        unitPrice: existing?.unitPrice ?? null,
+        amount: existing?.amount ?? 0,
+      };
+      if (idx >= 0) items[idx] = li; else items.push(li);
+    });
+  }
+
+  form.value.lineItems = items;
+}
+
+// 依訂單石材判斷主要材質標籤（用來組 priceKey 區分石英石 / 陶板價）
+function materialLabelFromStones(stones) {
+  const list = stones || form.value.stones || [];
+  if (!list.length) return "";
+  const counts = {};
+  for (const s of list) {
+    const t = s?.materialType || "other";
+    counts[t] = (counts[t] || 0) + 1;
+  }
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  return { quartz: "石英石", porcelain: "陶板", other: "其他" }[top] || "";
+}
+
+// 組水槽/爐子的 priceKey：工法 + 材質（例如「下嵌-陶板」「上掛-石英石」）
+function holePriceKey(method, materialLabel) {
+  if (!method) return null;
+  return materialLabel ? `${method}-${materialLabel}` : method;
+}
+
+// 大尺寸放大門檻：賽麗石 / silestone / 帝通石 = 68；其餘所有品牌 = 73
+function thresholdForStone(stone) {
+  const brand = String(stone?.brand || "").trim().toLowerCase();
+  const is68 =
+    brand.includes("賽麗石") ||
+    brand.includes("silestone") ||
+    brand.includes("帝通");
+  return is68 ? 68 : 73;
+}
+
+// 將石材依放大門檻分組（混合訂單時要分開計）
+function groupStonesByThreshold(stones) {
+  const list = stones || form.value.stones || [];
+  const groups = new Map();
+  for (const s of list) {
+    const th = thresholdForStone(s);
+    if (!groups.has(th)) groups.set(th, []);
+    groups.get(th).push(s);
+  }
+  if (!groups.size) groups.set(68, []);
+  return Array.from(groups, ([threshold, items]) => ({ threshold, stones: items }));
+}
+
+function oversizeThresholdFromStones(stones) {
+  const list = stones || form.value.stones || [];
+  if (!list.length) return 68;
+  for (const s of list) if (thresholdForStone(s) === 73) return 73;
+  return 68;
+}
+
+// 查詢某個 lineItem 的歷史價格建議（返回數字或 null）
+function suggestionFor(li) {
+  if (!customerPricing.value || !li?.priceKey) return null;
+  const mapName = {
+    countertop: "stonePrices",
+    sink: "sinkPrices",
+    stove: "stovePrices",
+    special: "specialPrices",
+  }[li.category];
+  if (!mapName) return null;
+  const map = customerPricing.value[mapName] || {};
+  // 先查完整 priceKey；若沒有，對水槽/爐子退回只用工法（向後相容舊資料）
+  let val = map[li.priceKey];
+  if (val == null && (li.category === "sink" || li.category === "stove")) {
+    const methodOnly = String(li.priceKey).split("-")[0];
+    if (methodOnly && methodOnly !== li.priceKey) val = map[methodOnly];
+  }
+  if (val == null) return null;
+  // 兼容舊格式（純數字）與新格式（{lastPrice, ...}）
+  return typeof val === "number" ? val : (val.lastPrice ?? null);
+}
+
+function applySuggestion(li) {
+  const p = suggestionFor(li);
+  if (p != null) {
+    li.unitPrice = p;
+    recalcLineAmount(li);
+  }
+}
+
+// ─── 從繪圖資料產生檯面明細 ──────────────────────────────
+// 回傳 { cm, formula }；formula 為人可讀的計算式（讓客戶看得到怎麼算）
+//   一字型：sum = 枱面厚 + 背牆 + 台面深度
+//           sum > 68 ⇒ 長度 × ((sum-8)/60)
+//           sum ≤ 40 ⇒ 長度 × 0.85
+//   L  型：左右兩段各自依自己深度比例換算後相加，再扣轉角
+//           轉角預設 30；若較淺一側 (厚+背牆+淺深) ≤ 40，改扣「淺深/2」
+function computeDrawingLengthCm(state, type, opts = {}) {
+  if (!state) return { cm: 0, formula: "" };
+  const skipOversize = !!opts.skipOversize;
+  const oversizeThreshold = Number(opts.threshold) || 68;
+  const thick = Number(state.counterThick) || 0;
+  const back = state.backstop ? (Number(state.backHeight) || 0) : 0;
+  const fmt = (n) => {
+    const r = Math.round(Number(n) * 100) / 100;
+    return Number.isInteger(r) ? String(r) : r.toFixed(2).replace(/\.?0+$/, "");
+  };
+  const sumArr = (arr) => {
+    let s = 0;
+    if (Array.isArray(arr)) {
+      for (const v of arr) {
+        const n = parseFloat(v);
+        if (!isNaN(n) && n > 0) s += n;
+      }
+    }
+    return s;
+  };
+  // 回傳 { v, note } — v 為換算後長度，note 為說明（無換算時為空字串）
+  const scale = (len, depth) => {
+    const d = Number(depth) || 0;
+    const sum = thick + back + d;
+    if (sum > oversizeThreshold) {
+      if (skipOversize) {
+        return { v: len, note: `${fmt(len)}(不換算)` };
+      }
+      const ratio = (sum - 8) / 60;
+      return {
+        v: len * ratio,
+        note: `${fmt(len)}×(${fmt(thick)}+${fmt(back)}+${fmt(d)}-8)/60`,
+      };
+    }
+    if (sum <= 40) {
+      return { v: len * 0.85, note: `${fmt(len)}×0.85` };
+    }
+    return { v: len, note: fmt(len) };
+  };
+
+  let total = 0;
+  let formula = "";
+  if (type === "straight") {
+    const len = sumArr(state.cabins);
+    const r = scale(len, state.depthVal);
+    total = r.v;
+    formula = `${r.note} = ${fmt(total)} cm`;
+  } else if (type === "l-shape") {
+    const lenA = sumArr(state.leftCabins);
+    const lenB = sumArr(state.rightCabins);
+    const a = scale(lenA, state.leftDepth);
+    const b = scale(lenB, state.rightDepth);
+    const ld = Number(state.leftDepth) || 0;
+    const rd = Number(state.rightDepth) || 0;
+    const shallow = Math.min(ld, rd);
+    const useShallow =
+      shallow > 0 && thick + back + shallow <= 40;
+    const cornerDeduct = useShallow ? shallow / 2 : 30;
+    total = a.v + b.v - cornerDeduct;
+    if (total < 0) total = 0;
+    const deductNote = useShallow
+      ? `-${fmt(cornerDeduct)}(淺深${fmt(shallow)}/2)`
+      : `-30(轉角)`;
+    formula = `${a.note} + ${b.note} ${deductNote} = ${fmt(total)} cm`;
+  } else {
+    // 其他類型（M 型、中島、…）暫不做比例換算
+    const arrays = [
+      state.cabins,
+      state.leftCabins,
+      state.rightCabins,
+      state.midCabins,
+      state.leftArmCabins,
+      state.rightArmCabins,
+    ];
+    const parts = [];
+    for (const arr of arrays) {
+      const s = sumArr(arr);
+      if (s > 0) {
+        total += s;
+        parts.push(fmt(s));
+      }
+    }
+    formula = parts.length
+      ? `${parts.join("+")} = ${fmt(total)} cm`
+      : `${fmt(total)} cm`;
+  }
+  return { cm: Math.round(total * 100) / 100, formula };
+}
+
+const DRAWING_TYPE_LABEL = {
+  straight: "一字型",
+  "l-shape": "L 型",
+  "m-shape": "M 型",
+  island: "中島",
+};
+
+// 從繪圖 state 抓出已啟用的水槽 / 爐子洞
+function collectHolesFromDrawing(state) {
+  const sinks = [];
+  const stoves = [];
+  if (!state) return { sinks, stoves };
+  // 一字型：sink1/sink2、stove1/stove2
+  for (const k of ["sink1", "sink2"]) {
+    const x = state[k];
+    if (x?.enabled) sinks.push({ length: x.sinkLength, depth: x.sinkDepth });
+  }
+  for (const k of ["stove1", "stove2"]) {
+    const x = state[k];
+    if (x?.enabled) stoves.push({ length: x.stoveLength, depth: x.stoveDepth });
+  }
+  // L/M 型：陣列
+  const sinkArrKeys = ["leftSinks", "rightSinks", "midSinks", "leftArmSinks", "rightArmSinks"];
+  const stoveArrKeys = ["leftStoves", "rightStoves", "midStoves", "leftArmStoves", "rightArmStoves"];
+  for (const k of sinkArrKeys) {
+    if (Array.isArray(state[k])) {
+      for (const x of state[k]) {
+        if (x?.enabled) sinks.push({ length: x.sinkLength, depth: x.sinkDepth });
+      }
+    }
+  }
+  for (const k of stoveArrKeys) {
+    if (Array.isArray(state[k])) {
+      for (const x of state[k]) {
+        if (x?.enabled) stoves.push({ length: x.stoveLength, depth: x.stoveDepth });
+      }
+    }
+  }
+  return { sinks, stoves };
+}
+
+async function syncLineItemsFromDrawings() {
+  if (!isEdit.value || !route.params.id) {
+    alert("此功能僅可在已建立訂單時使用");
+    return;
+  }
+  let drawings = [];
+  try {
+    drawings = await listOrderDrawings(route.params.id);
+  } catch (e) {
+    alert("讀取繪圖失敗：" + (e?.message || e));
+    return;
+  }
+  if (!drawings.length) {
+    alert("此訂單目前尚無繪圖資料");
+    return;
+  }
+
+  const firstStone = (form.value.stones || [])[0];
+  const stoneStr = (form.value.stones || [])
+    .map((s) => [s.brand, s.color].filter(Boolean).join(" "))
+    .filter(Boolean)
+    .join(" / ");
+  const priceKey = firstStone
+    ? [firstStone.brand, firstStone.color].filter(Boolean).join("/")
+    : null;
+  const defaultPpc = Number(form.value.pricePerCm) || 0;
+
+  // 移除所有「來自繪圖」的明細（檯面 / 水槽 / 爐子），其他類別保留
+  const items = (form.value.lineItems || []).filter(
+    (li) => !((li.refId || "").startsWith("drawing-")),
+  );
+
+  let cntCounter = 0;
+  let totalSinks = 0;
+  let totalStoves = 0;
+
+  // 一、檯面（每張繪圖一筆；若訂單混合不同門檻的石材，則「分開計」每組各一筆）
+  const skipOversize = !!customerPricing.value?.skipOversizeScaling;
+  const stoneGroups = groupStonesByThreshold(form.value.stones);
+  const isMixed = stoneGroups.length > 1;
+  for (const d of drawings) {
+    const label = DRAWING_TYPE_LABEL[d.type] || d.type;
+    for (const g of stoneGroups) {
+      const { cm, formula } = computeDrawingLengthCm(d.state, d.type, {
+        skipOversize,
+        threshold: g.threshold,
+      });
+      if (cm <= 0) continue;
+      const grpStr = g.stones
+        .map((s) => [s.brand, s.color].filter(Boolean).join(" "))
+        .filter(Boolean)
+        .join(" / ");
+      const stonePart = grpStr ? " " + grpStr : "";
+      const calc = formula ? `（${formula}）` : `${cm}cm`;
+      const desc = `${label}#${d.seq}${isMixed ? `[門檻${g.threshold}]` : ""} ${calc}${stonePart}`;
+      const grpPriceKey = g.stones[0]
+        ? [g.stones[0].brand, g.stones[0].color].filter(Boolean).join("/")
+        : priceKey;
+      const refSuffix = isMixed ? `-${g.threshold}` : "";
+      items.push({
+        id: newLineItemId(),
+        category: "countertop",
+        refId: `drawing-ct-${d.id}${refSuffix}`,
+        priceKey: grpPriceKey,
+        description: desc,
+        unit: "cm",
+        qty: cm,
+        unitPrice: defaultPpc,
+        amount: Math.round(cm * defaultPpc),
+      });
+      cntCounter++;
+    }
+  }
+
+  // 二、水槽（預設下嵌）/ 爐子（預設上掛）— 區分石材材質
+  const matLabel = materialLabelFromStones(form.value.stones);
+  const sinkMethod = "下嵌";
+  const stoveMethod = "上掛";
+  const matSuffix = matLabel ? `（${matLabel}）` : "";
+  let sinkIdx = 0;
+  let stoveIdx = 0;
+  for (const d of drawings) {
+    const { sinks, stoves } = collectHolesFromDrawing(d.state);
+    for (const s of sinks) {
+      sinkIdx++;
+      const dims = s.length && s.depth ? ` ${s.length}×${s.depth}cm` : "";
+      items.push({
+        id: newLineItemId(),
+        category: "sink",
+        refId: `drawing-sink-${d.id}-${sinkIdx}`,
+        priceKey: holePriceKey(sinkMethod, matLabel),
+        description: `水槽${sinkMethod}${matSuffix}${dims}`,
+        unit: "式",
+        qty: 1,
+        unitPrice: null,
+        amount: 0,
+      });
+      totalSinks++;
+    }
+    for (const t of stoves) {
+      stoveIdx++;
+      const dims = t.length && t.depth ? ` ${t.length}×${t.depth}cm` : "";
+      items.push({
+        id: newLineItemId(),
+        category: "stove",
+        refId: `drawing-stove-${d.id}-${stoveIdx}`,
+        priceKey: holePriceKey(stoveMethod, matLabel),
+        description: `爐子${stoveMethod}${matSuffix}${dims}`,
+        unit: "式",
+        qty: 1,
+        unitPrice: null,
+        amount: 0,
+      });
+      totalStoves++;
+    }
+  }
+
+  if (!cntCounter && !totalSinks && !totalStoves) {
+    alert("繪圖中沒有可用的桶身尺寸或水槽/爐子");
+    return;
+  }
+
+  // 自動套用客戶歷史單價（若有）
+  for (const li of items) {
+    if ((li.unitPrice == null || li.unitPrice === 0) && (li.refId || "").startsWith("drawing-")) {
+      const p = suggestionFor(li);
+      if (p != null) {
+        li.unitPrice = p;
+        recalcLineAmount(li);
+      }
+    }
+  }
+
+  form.value.lineItems = items;
+  // 同步更新表單檯面總長（所有繪圖合計）
+  const totalCm = items
+    .filter((li) => li.category === "countertop" && (li.refId || "").startsWith("drawing-"))
+    .reduce((s, li) => s + (Number(li.qty) || 0), 0);
+  if (totalCm > 0) form.value.countertop.totalCm = totalCm;
+
+  alert(
+    `已從 ${drawings.length} 張繪圖產生明細：\n` +
+      `‧檯面 ${cntCounter} 筆（合計 ${totalCm} cm）\n` +
+      `‧水槽下嵌 ${totalSinks} 個\n` +
+      `‧爐子上掛 ${totalStoves} 個\n` +
+      `（價格欄如為空，請手動填入或會自動依歷史價帶入）`,
+  );
+}
 
 const filteredCustomers = computed(() => {
   const kw = customerKeyword.value.trim().toLowerCase();
@@ -857,6 +1456,22 @@ async function pickCustomer(c) {
   // 如果尚未填價格，自動帶入上次預設
   if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {
     form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
+  }
+}
+
+async function toggleSkipOversize(checked) {
+  if (!form.value.customerId) return;
+  // 立即更新本地與遠端
+  if (!customerPricing.value) customerPricing.value = {};
+  customerPricing.value.skipOversizeScaling = !!checked;
+  try {
+    await updateCustomerPricing(form.value.customerId, {
+      customerName: form.value.customerName,
+      skipOversizeScaling: !!checked,
+    });
+  } catch (e) {
+    console.error(e);
+    alert("儲存設定失敗：" + (e?.message || e));
   }
 }
 
@@ -1021,6 +1636,10 @@ function toPayload() {
     isTestData: f.isTestData === true,
     pricePerCm: f.pricePerCm ?? null,
     total: f.total ?? null,
+    lineItems: (f.lineItems || []).map((li) => ({ ...li })),
+    subtotal: subtotalComputed.value || null,
+    invoiceRequired: f.invoiceRequired !== false,
+    grandTotal: grandTotalComputed.value || null,
     depositPaid: f.depositPaid ?? null,
     paymentNotes: f.paymentNotes || "",
   };
@@ -1042,19 +1661,61 @@ async function onSave() {
       alert(`已建立訂單 (id: ${id})`);
       router.replace({ name: "order-edit", params: { id } });
     }
-    // 儲存客戶計價記憑
-    if (form.value.customerId && form.value.pricePerCm) {
+    // 儲存客戶計價記憶：收集 lineItems 裡有 priceKey + unitPrice 的項目
+    if (form.value.customerId) {
       const stonePrices = {};
-      for (const s of form.value.stones || []) {
-        const key = [s.brand, s.color].filter(Boolean).join('/');
-        if (key) stonePrices[key] = form.value.pricePerCm;
+      const sinkPrices = {};
+      const stovePrices = {};
+      const specialPrices = {};
+      let defaultPpc = form.value.pricePerCm || null;
+      const today = new Date().toISOString().slice(0, 10);
+      const orderNo = form.value.orderNo || "";
+
+      const buckets = {
+        countertop: stonePrices,
+        sink: sinkPrices,
+        stove: stovePrices,
+        special: specialPrices,
+      };
+
+      for (const li of form.value.lineItems || []) {
+        if (!li.priceKey || !li.unitPrice) continue;
+        const bucket = buckets[li.category];
+        if (!bucket) continue;
+        bucket[li.priceKey] = {
+          lastPrice: Number(li.unitPrice),
+          lastDate: today,
+          lastOrderNo: orderNo,
+        };
+        if (li.category === "countertop") defaultPpc = Number(li.unitPrice);
       }
-      await updateCustomerPricing(form.value.customerId, {
-        customerName: form.value.customerName,
-        stonePrices,
-        defaultPricePerCm: form.value.pricePerCm,
-      });
-      customerPricing.value = await getCustomerPricing(form.value.customerId);
+
+      // 舊路徑：若未使用 lineItems，仍用 pricePerCm + stones 記一筆
+      if (!form.value.lineItems?.length && form.value.pricePerCm) {
+        for (const s of form.value.stones || []) {
+          const key = [s.brand, s.color].filter(Boolean).join('/');
+          if (key) stonePrices[key] = {
+            lastPrice: Number(form.value.pricePerCm),
+            lastDate: today,
+            lastOrderNo: orderNo,
+          };
+        }
+      }
+
+      const hasAny =
+        Object.keys(stonePrices).length ||
+        Object.keys(sinkPrices).length ||
+        Object.keys(stovePrices).length ||
+        Object.keys(specialPrices).length ||
+        defaultPpc;
+      if (hasAny) {
+        await updateCustomerPricing(form.value.customerId, {
+          customerName: form.value.customerName,
+          stonePrices, sinkPrices, stovePrices, specialPrices,
+          defaultPricePerCm: defaultPpc,
+        });
+        customerPricing.value = await getCustomerPricing(form.value.customerId);
+      }
     }
   } catch (e) {
     console.error(e);
@@ -1123,6 +1784,8 @@ async function loadAll() {
           installStaff: Array.isArray(doc.installStaff)
             ? doc.installStaff
             : (doc.installStaff ? [doc.installStaff] : []),
+          lineItems: Array.isArray(doc.lineItems) ? doc.lineItems.map((li) => ({ ...li })) : [],
+          invoiceRequired: doc.invoiceRequired !== false,
         });
         customerKeyword.value =
           `${doc.customerId || ""} ${doc.customerName || ""}`.trim();
@@ -1143,6 +1806,40 @@ async function loadAll() {
       ]);
       designFiles.value = df;
       samplePhotos.value = sp;
+    }
+
+    // 由估價單一鍵帶入（僅在新建時）
+    if (!isEdit.value && route.query.fromEstimate === "1") {
+      try {
+        const raw = sessionStorage.getItem("pendingOrderFromEstimate");
+        if (raw) {
+          const data = JSON.parse(raw);
+          Object.assign(form.value, {
+            customerId: data.customerId || form.value.customerId,
+            customerName: data.customerName || form.value.customerName,
+            customerContact: {
+              ...form.value.customerContact,
+              ...(data.customerContact || {}),
+            },
+            countertop: { ...form.value.countertop, ...(data.countertop || {}) },
+            stones: Array.isArray(data.stones) ? data.stones : form.value.stones,
+            pricePerCm: data.pricePerCm ?? form.value.pricePerCm,
+            lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
+            subtotal: data.subtotal ?? 0,
+            grandTotal: data.grandTotal ?? 0,
+            invoiceRequired: data.invoiceRequired !== false,
+          });
+          customerKeyword.value =
+            `${data.customerId || ""} ${data.customerName || ""}`.trim();
+          // 載入客戶歷史價
+          if (form.value.customerId) {
+            customerPricing.value = await getCustomerPricing(form.value.customerId);
+          }
+          sessionStorage.removeItem("pendingOrderFromEstimate");
+        }
+      } catch (e) {
+        console.warn("載入估價暫存失敗:", e);
+      }
     }
   } catch (e) {
     console.error(e);
@@ -1401,6 +2098,80 @@ onMounted(loadAll);
   font-weight: 700;
   color: #1565c0;
   letter-spacing: 0.5px;
+}
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.line-items-block {
+  margin: 12px 0;
+  padding: 10px;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+.line-items-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.line-items-actions {
+  display: flex;
+  gap: 6px;
+}
+.line-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.line-items-table th,
+.line-items-table td {
+  border-bottom: 1px solid #eee;
+  padding: 4px 4px;
+  vertical-align: middle;
+}
+.line-items-table th {
+  text-align: left;
+  background: #f0f0f0;
+  font-weight: 600;
+}
+.li-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.btn-del-line {
+  background: #ef5350;
+  color: #fff;
+  padding: 2px 8px;
+}
+.btn-del-line:hover {
+  background: #d32f2f;
+}
+.li-price-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-suggest {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  font-size: 11px;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffd966;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-suggest:hover {
+  background: #ffe896;
 }
 .pricing-history {
   margin-bottom: 12px;

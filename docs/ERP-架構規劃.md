@@ -59,6 +59,7 @@ flowchart LR
 | 欄位                                | 型別      | 說明                                                           |
 | ----------------------------------- | --------- | -------------------------------------------------------------- |
 | `id`                                | doc id    | 自動編號 `C` + yymm + 流水號,例 `C2505001`                     |
+| `shortCode`                         | string    | **客戶英文代號**(訂單號末段用,如 `ABC`);大寫英數,3~6 碼,系統內唯一 |
 | `companyId`                         | string    | 對應 Users.companyId(客戶登入用)                               |
 | `name`                              | string    | 公司/個人名稱                                                  |
 | `taxId`                             | string    | 統編(會計用)                                                   |
@@ -79,7 +80,12 @@ flowchart LR
 
 | 欄位                           | 型別                            | 說明                                                                                                                                                     |
 | ------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `orderNo`                      | string                          | 我方訂單號;**回簽前為空**,回簽時由 CF 產生                                                                                                               |
+| `orderNo`                      | string                          | 我方訂單號;**回簽前為空**,回簽時由 CF 產生(規則見 §3.2.1)                                                                                              |
+| `serial`                       | number                          | 5 位數流水號(冗餘,方便延伸/重做查 parent 取用);新案吃 counter,延伸/重做沿用 parent.serial                                                              |
+| `parentOrderId`                | string?                         | 若本單為「延伸」或「重做」,指向原始訂單;新訂單為 null                                                                                                   |
+| `orderType`                    | enum                            | `new`(新案)/`extension`(同案延伸)/`redo`(同案重做)                                                                                                       |
+| `extensionSeq`                 | number?                         | 延伸序號(`orderType='extension'` 時必填,例 2、3、4…)                                                                                                   |
+| `redoSeq`                      | number?                         | 重做序號(`orderType='redo'` 時必填;第 1 次=1 但編號省略不顯示,第 2 次起=2)                                                                            |
 | `customerOrderNo`              | string                          | 客戶自編單號(對帳用)                                                                                                                                     |
 | `category`                     | string                          | 訂單類別(新案/補做/工程案…)                                                                                                                              |
 | `customerId`                   | string                          | 下單方(設計師/建商/廚具廠)                                                                                                                               |
@@ -113,6 +119,99 @@ flowchart LR
 | `createdAt`/`lockedAt`         | timestamp                       | `lockedAt` 後禁改(會計鎖單)                                                                                                                              |
 | `createdByUid`                 | string                          | 建檔人                                                                                                                                                   |
 | `legacySheetRow`               | object                          | 舊 Sheet 匯入原始列備份                                                                                                                                  |
+
+#### 3.2.1 訂單號 `orderNo` 生成規則
+
+格式由三段組成:**`{流水號}{延伸/重做標記}{客戶代號}`**;`[ ]` 為占位符,實際輸出**不含方括號**。
+
+| 情境 | 格式 | 範例 |
+|------|------|------|
+| 新訂單 | `{流水號}{客戶代號}` | `12345ABC` |
+| 同案延伸(第 N 次) | `{原案流水號}-{extensionSeq}{客戶代號}` | `12345-2ABC`、`12345-3ABC` |
+| 同案重做(第 1 次) | `{原案流水號}重{客戶代號}` | `12345重ABC` |
+| 同案重做(第 2 次起) | `{原案流水號}重{redoSeq}{客戶代號}` | `12345重2ABC`、`12345重3ABC` |
+
+**欄位對應**
+
+- `orderType`、`extensionSeq`、`redoSeq`、`parentOrderId` 見 §3.2 表格
+- **客戶代號** 來自 `customers.shortCode`(大寫英數,3~6 碼,系統內唯一)
+  - **資料來源**:從舊 Sheet 既有訂單號末段擷取英文部份(以 regex `/[A-Z]+$/` 取尾段),migration 時批次寫入 `customers.shortCode`
+- **流水號**:
+  - 規則:**5 位數、永不重置**(延續舊 Sheet 編號)
+  - `counters/orderSerial.next` 初始值 = **28001**(舊資料累積至 28000)
+  - 新案 → 從 `counters/orderSerial` 取下一號(transaction +1)
+  - 延伸/重做 → **沿用 `parentOrderId` 的流水號**,不再吃 counter
+
+**CF `onOrderSigned`(回簽觸發)邏輯**
+
+```
+1. 讀 orderType:
+   - 'new'     → serial = nextSerial(); orderNo = `${pad5(serial)}${cust.shortCode}`
+   - 'extension'→ seq = (parent 的最大 extensionSeq)+1; orderNo = `${pad5(parent.serial)}-${seq}${cust.shortCode}`
+   - 'redo'    → seq = (parent 的最大 redoSeq)+1
+                 orderNo = seq===1
+                   ? `${pad5(parent.serial)}重${cust.shortCode}`
+                   : `${pad5(parent.serial)}重${seq}${cust.shortCode}`
+2. 寫入 orderNo + customerSignedAt(原本流程)
+3. 建立 productionJobs(原本流程)
+```
+
+**Migration 腳本需求**(待寫)
+
+| 腳本 | 動作 |
+|------|------|
+| `extract-customer-shortcodes.mjs` | 掃舊 Sheet/`Orders` 訂單號 → 對應客戶 → 寫入 `customers.shortCode`;衝突(同代號對到多客戶)輸出 `needs-review.json` |
+| `init-order-counter.mjs` | 建立 `counters/orderSerial` 文件,`next=28001` |
+
+#### 3.2.2 重做單(`orderType='redo'`)流程
+
+**完全由辦公室手動操作**,**不**從維修工單自動轉。維修若需要重新製作,維修組通知辦公室,由辦公室自行依下列流程處理:
+
+```
+1. 辦公室在訂單列表搜尋原單(輸入舊 orderNo / 客戶名 / 地址)
+2. 點「建立重做單」→ 系統 clone 原單為新 draft:
+   - orderType = 'redo'
+   - parentOrderId = 原單 id
+   - serial = 原單.serial(沿用)
+   - **drawingFileUrl 處理**:CF 將原圖檔**複製一份到新路徑**(例 `drawings/{newOrderId}/原檔名_重做1.dwg`),`drawingFileUrl` 指向新檔
+     - 好處:辦公室在新檔上修改,**不影響原單的歷史圖檔**(稽核保留)
+     - 修改完成存檔即可,不需重新上傳
+   - 複製 stones[] / sinks[] / stoves[] / siteAddress 等,但清空:
+     templating / cabinetReady / customerSignedAt
+     / installedAt / status='draft'
+3. 辦公室開啟新圖(已複製好)修改 → 直接存檔覆蓋自己的副本
+4. 計價(可選沿用原報價或重新計價)
+5. 傳客戶確認 → status='pendingSign'
+6. 客戶回簽 → CF onOrderSigned:
+   - redoSeq = (parent 已有 redo 子單最大 redoSeq) + 1
+   - orderNo = redoSeq===1
+       ? `${pad5(serial)}重${shortCode}`
+       : `${pad5(serial)}重${redoSeq}${shortCode}`
+   - 建生產工單(全新一條,不沿用舊工序狀態)
+```
+
+**UI 重點**
+
+- 訂單詳情頁顯示「家族樹」:原案 ─ 延伸N ─ 重做N,可一鍵切換瀏覽
+- 重做單頁面頂部紅色 banner:「⚠️ 此為 {原單號} 的第 N 次重做」
+- 原單狀態不改變,但顯示 `hasRedo=true` 標籤(視覺上一眼看出已有重做版本)
+
+#### 3.2.3 延伸單(`orderType='extension'`)流程
+
+延伸 = **同一案、追加部位**(例:廚房做完,客戶決定再加中島;或公設廚房做完再加洗手台)。
+
+```
+1. 辦公室搜尋原單 → 點「建立延伸單」
+2. 系統 clone 原單為 draft:
+   - orderType = 'extension'
+   - parentOrderId = 原單 id
+   - serial = 原單.serial(沿用)
+   - **drawingFileUrl**:CF 複製原圖到新路徑(例 `drawings/{newOrderId}/原檔名_延伸2.dwg`)當底圖,辦公室再決定大改或重畫
+   - 預設只帶 customerId/siteAddress/owner,其餘清空(因為是新部位、新石材)
+3. 辦公室填新部位資訊 → 繪圖 → 計價 → 客戶確認
+4. 回簽 → CF: extensionSeq = (parent 已有 extension 最大 seq)+1
+            orderNo = `${pad5(serial)}-${extensionSeq}${shortCode}`
+```
 
 ---
 
@@ -295,44 +394,241 @@ match /priceMaster/{id} {
 | `notes` / `photoUrls[]` | |
 | `qcResult` _(僅 qc)_ | `pass`/`fail` + `failReason` → 失敗自動退回指定關 |
 
-### 3.6 `dispatches` — 派車安裝單
+### 3.6 派車模組 — 任務本位 `installTasks`
 
 > 本公司「開車的人 = 安裝的人」,不分司機/安裝員。
+> **派車人員歸屬「維修組」**,負責每天彙整明日任務並分派給安裝小組。
+> **設計核心**:以「任務」為一等公民,「車次」只是任務的聚合屬性,不另立 collection。
 
-| 欄位                                  | 說明                                                   |
-| ------------------------------------- | ------------------------------------------------------ |
-| `orderId`                             |                                                        |
-| `scheduledAt`                         | 預定安裝時間                                           |
-| `vehicleId`                           | 車輛                                                   |
-| `leadInstallerUid`                    | 領班/負責人(通常是開車那位)                            |
-| `crew[]`                              | 全部安裝人員 uid 陣列(含 lead)                         |
-| `siteAddress` / `siteLat` / `siteLng` |                                                        |
-| `status`                              | `scheduled`/`enRoute`/`onSite`/`completed`/`cancelled` |
-| `completionPhotoIds[]`                | 串接現有 `completionPhotos` 子集合                     |
-| `customerSignatureUrl`                |                                                        |
+#### 角色與每日工作流
 
-### 3.7 `vehicles`
+```mermaid
+flowchart LR
+  A[salesOrders.promisedAt 到期] -->|CF 每晚產生| T[(installTasks<br/>明日任務池)]
+  S[serviceTickets 報修] -->|維修組手動建立| T
+  T -->|維修組分派<br/>assignedDate+crew+vehicle| T2[已派任務]
+  T2 -->|安裝組接單<br/>確認/調換誰負責| T3[今日任務列表]
+  T3 -->|安裝組到場執行| T4[完工回報+上傳照片]
+  T4 -->|維修組覆核登錄| C[結案/再排程]
+```
 
-- `vehicles`: `plate`、`type`(貨車/吊車)、`capacityKg`、`active`
-- (沒有獨立 `drivers` collection,安裝人員 = `Users` 內 `permissions.installer == true`)
+| 角色 | 權限 | 主要畫面 |
+|------|------|---------|
+| **維修組(派車人員)** `permissions.service=true` | 建立/分派/編輯/取消任務、覆核回報 | 「明日派工排程」+「待覆核回報」 |
+| **安裝人員** `permissions.installer=true` | 看自己今日任務、回報狀態、上傳照片、組內互調 | 「今日我的任務」(行動裝置) |
+| **辦公室** `permissions.office=true` | 唯讀全部任務(查訂單進度) | 訂單詳情頁顯示任務歷史 |
 
-### 3.8 `serviceTickets` — 維修工單
+#### 現實情境覆蓋
+
+| 情境 | 對應設計 |
+|------|---------|
+| 一車多單(2~4 張) | 多筆 `installTasks` 共享相同 `assignedDate` + `vehicleId` + `crew[]` |
+| 一單多次(直到完工) | 同一 `sourceRef` 可有多筆任務,`tripNo` 自動遞增;`partial` 結束會 CF 自動新建下一筆 `pending` 任務 |
+| 臨時取消重排 | `status='cancelled'` + 留檔;CF 自動 clone 一筆 `pending` 待重排(可由維修組決定是否) |
+| 安裝組內部換人 | 安裝人員可改 `assignedCrew[]`(限同車次成員互換),記 `crewChangeLog[]` |
+| 維修保固外收費 | 任務 `chargeable=true` + 結案時 CF 產生 `category='維修'` 的 `salesOrders` 連會計 |
+| 售後免費 / 保固內 | `chargeable=false`,直接結案不轉訂單 |
+
+---
+
+#### 3.6.1 `installTasks` — 安裝/維修任務
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| `taskNo` | string | `T` + yymmdd + 流水(`T2605260-01`) |
+| `sourceType` | enum | `install`(新訂單安裝) / `service`(售後免費) / `repair`(收費維修) |
+| `sourceRef` | object | install:`{kind:'salesOrders', id, no:orderNo}`<br>service/repair:`{kind:'serviceTickets', id, no:ticketNo}` |
+| `customerId` | string | 快照 |
+| `customerName` | string | 快照,行動端離線顯示 |
+| `siteAddress` | string | 快照 |
+| `siteLat` / `siteLng` | number? | 一鍵導航 |
+| `contactName` / `contactPhone` | string | 現場聯絡人 |
+| `purpose` | string | 任務說明(「首次安裝」/「補檯下水盆」/「抓水漏」) |
+| `tripNo` | number | 該 `sourceRef` 的第幾次出車(CF 自動算) |
+| `priority` | number | 排序用(維修組可標 1=急) |
+| `dueDate` | date | 期望完成日(install: `salesOrders.promisedAt`;service: 客戶要求日) |
+| **`assignedDate`** | date? | 預定執行日;`null` = 尚未排入 |
+| **`scheduledStartAt`** | timestamp? | 預定到場時間(排入甘特圖時填) |
+| **`estimatedDurationMin`** | number | 預估工時(分鐘);預設 install=120、service=60、repair=90 |
+| **`vehicleId`** | string? | 預定車輛 |
+| **`assignedCrew[]`** | string[] | 預定安裝人員 uid;以「同 `assignedDate`+`vehicleId`+`crew` 完全相同」視為同一車次 |
+| `leadInstallerUid` | string? | 該車次的領班 |
+| **`status`** | enum | `pending`(待派)→ `assigned`(已派)→ `inProgress`(到場中)→ `completed`/`partial`/`cancelled`/`noShow` |
+| `arrivedAt` / `leftAt` | timestamp | 實際到/離場(行動端打卡) |
+| `completionPhotoIds[]` | string[] | 串現有 `completionPhotos` 子集合 |
+| `customerSignatureUrl` | string? | 簽收圖 |
+| `reportNote` | string | 安裝組現場備註 |
+| `partialReason` | string? | 未完成原因(`partial` 必填) |
+| `followUpNote` | string? | clone 出的新任務帶上次未完事項,維修組聯絡客戶後填入「客戶說 6/3 之後可以」之類的備註 |
+| `cancelReason` | string? | 取消原因 |
+| `chargeable` | bool | 是否收費(`install`=false,`service`=false,`repair`=true) |
+| `estimatedCost` / `finalCost` | number? | 維修費 |
+| `convertedOrderId` | string? | `repair` 結案後產生的 `salesOrders` id |
+| `reviewedAt` / `reviewedByUid` | timestamp/string | 維修組覆核登錄時間/人 |
+| `crewChangeLog[]` | array | `[{at, byUid, before:[uids], after:[uids], reason}]` |
+| `createdAt` / `createdByUid` | | 任務建立來源(CF / 維修組手動) |
+| `updatedAt` / `updatedByUid` | | |
+
+#### 3.6.2 「車次」的隱含定義
+
+> **不另存 `dispatches` collection**。前端排程畫面以下列方式聚合視為同一車次:
+>
+> ```js
+> groupBy(installTasks, t => `${t.assignedDate}|${t.vehicleId}|${t.crew.sort().join(',')}`)
+> ```
+>
+> 好處:取消單一任務不影響其他;換車/換人直接改任務欄位即可。
+> 若實務上需要「車次出車/返廠時間」「整車路線備註」,將來再加 `tripPlans/{date}_{vehicleId}` 輕量集合即可,不影響 `installTasks` schema。
+
+#### 3.6.3 Cloud Functions
+
+| 觸發 | 動作 |
+|------|------|
+| **每晚 22:00 排程** | 掃描 `salesOrders WHERE status='done' AND promisedAt BETWEEN today AND today+7`,未對應 `installTasks` 者自動建立 `pending` 任務(`sourceType='install'`、`tripNo=1`) |
+| **維修組手動建單** | 從 `serviceTickets` 一鍵建立任務(預填地址、聯絡人、`chargeable=!inWarranty`) |
+| **task.status → `completed`** | 若 `sourceType='install'`:`salesOrders.installedAt=now`、`status='installed'`<br>若 `sourceType` 為 `service/repair`:`serviceTickets.status='resolved'` |
+| **task.status → `partial`** | 自動 clone 一筆 `status='pending'` 新任務(`tripNo+1`、繼承 `sourceRef`/地址/聯絡人),回到任務池等待維修組重排<br>**不自動帶日期**:`assignedDate=null`、`scheduledStartAt=null`、`vehicleId=null`、`assignedCrew=[]`<br>`purpose` 自動填入「續上次:{partialReason}」<br>`followUpNote` 帶上次回報內容,維修組需聯絡客戶確認日期後再排入甘特圖 |
+| **task.status → `cancelled`** | 若是當日取消(`assignedDate==today`),自動 clone `pending` 待重排;非當日不 clone(維修組決定) |
+| **task.status → `completed` 且 `chargeable=true`** | 自動建立 `salesOrders`(`category='維修'`、`sourceTicketId`、`subtotal=finalCost`),會計請款 |
+| **assignedCrew 異動** | 寫入 `crewChangeLog[]` |
+
+#### 3.6.4 安裝人員「今日我的任務」查詢
+
+```
+installTasks
+  WHERE assignedDate == today
+    AND assignedCrew array-contains <myUid>
+    AND status IN ['assigned','inProgress','partial']
+  ORDER BY priority, seq
+```
+
+##### 任務列表顯示欄位(安裝人員手機端)
+
+每筆任務除地址、聯絡人外,**並列顯示對應生產資訊**(僅 `sourceType='install'` 時),方便現場核對:
+
+| 顯示項 | 來源 |
+|--------|------|
+| 拆料單 PDF 連結 | `productionJobs.bomFileUrl`(透過 `salesOrders.productionJobId` 取得) |
+| 裁切負責人 + 日期 | `productionStages/cut.assigneeUid` → 員工姓名快照、`finishedAt` |
+| 水刀負責人 + 日期 | `productionStages/waterjet.assigneeUid` + `finishedAt` |
+| 驗收負責人 + 日期 | `productionStages/qc.assigneeUid` + `finishedAt` + `qcResult` |
+| (可選)套板/水磨/黏合 | 同上,可摺疊 |
+
+> **裁切日期回查拆料單**:點「裁切日 2026/05/24」→ 開啟當日所有 `productionJobs WHERE stages/cut.finishedAt 在該日` 的拆料單清單側欄(支援多單同日裁切時對照)。
+
+##### 任務文件快照欄位(寫入 `installTasks`,避免行動端反覆查多層 collection)
+
+CF 在「任務首次被排入甘特圖」(`assignedDate` 由 null → 有值)時填入:
+
+| 新增欄位 | 內容 |
+|---------|------|
+| `productionSnapshot` | `{ bomFileUrl, jobId, stages: { cut:{uid,name,finishedAt}, waterjet:{...}, qc:{...,result} } }` |
+| `productionSnapshotAt` | timestamp(快照當下時間;若後續生產資料變動,維修組可手動觸發重新快照) |
+
+> 寫入 `installTasks` 而非即時查詢,是因為:1) 行動端離線可用 2) 工序若日後修改不會影響歷史任務 3) 安裝人員只需讀單一文件即可。
+
+#### 3.6.5 維修組「明日派工」查詢
+
+```
+A. 待派池:installTasks WHERE status=='pending' ORDER BY dueDate, priority
+B. 明日已派:installTasks WHERE assignedDate==tomorrow AND status=='assigned'
+                          ORDER BY vehicleId, seq
+C. 待覆核回報:installTasks WHERE status IN ['completed','partial','cancelled']
+                            AND reviewedAt == null
+```
+
+UI 三欄:左「待派池」/ 中「明日車次甘特圖(按 vehicleId 分組)」/ 右「待覆核」。
+
+##### 甘特圖規格(維修組派工主畫面)
+
+```
+明日 (5/27) 派工表
+              08  09  10  11  12  13  14  15  16  17  18
+車1 (ABC-123) ████ 林口陳家 ████  ███ 三重張家 ███   ██ 板橋售後 ██
+  阿明、阿志
+車2 (DEF-456)      ██ 蘆洲李家(維修) ██  ████ 新莊王家 ████
+  小華、阿傑
+車3 (GHI-789) ████████ 桃園建商工地(整天) ████████
+  阿龍、小陳、阿凱
+```
+
+- **橫軸**:時間刻度(預設 07:00 ~ 19:00,30 分鐘格)
+- **縱軸**:每台 `vehicles` 一條 row,row 下方列出當日 `assignedCrew[]` 名字
+- **色塊** = 一筆 `installTasks`;長度 = `estimatedDurationMin`(欄位,預設 install=120、service=60、repair=90,可手調);起點 = `scheduledStartAt`(新欄位)
+- **色塊顏色**依 `sourceType`:藍=`install`、綠=`service`(免費)、橘=`repair`(收費)
+- **互動**:
+  - 從左側「待派池」拖入甘特圖 → 自動填 `assignedDate / vehicleId / scheduledStartAt`,`status='pending'→'assigned'`
+  - 色塊左右拖拉改時間、上下拖拉換車
+  - 點色塊開側欄看完整任務細節(歷史 tripNo、上次未完原因、聯絡電話)
+- **衝突檢測**:
+  - 同一車兩色塊重疊 → 紅框警示
+  - 同一 uid 出現在兩台車同時段 → 紅框警示(同人不能同時在兩處)
+- **延伸提示**:色塊超過 18:00 → 顯示「超時」紅標
+- **建議套件**:`@bryntum/gantt`(商用,功能完整)或 `vue-ganttastic` / `frappe-gantt`(免費,需自行擴充拖拉)
+
+> 對應新增 `installTasks` 欄位:`estimatedDurationMin` (number)、`scheduledStartAt` (timestamp,可空,僅在排入甘特圖時必填)。
+
+#### 3.6.6 `vehicles`
+
+- `plate`、`type`(貨車/吊車)、`capacityKg`、`maxCrew`、`active`
+
+#### 3.6.7 Firestore 規則
+
+```
+match /installTasks/{id} {
+  allow read: if isStaff();
+
+  // 建立/分派/覆核:維修組或主管
+  allow create: if isAdminOrManager() || hasPerm('service');
+  allow update: if isAdminOrManager() || hasPerm('service');
+
+  // 安裝人員:僅自己被指派的任務,且只能改特定欄位(回報 + 組內互換 crew)
+  allow update: if hasPerm('installer')
+    && request.auth.uid in resource.data.assignedCrew
+    && request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['status','arrivedAt','leftAt','completionPhotoIds',
+                  'customerSignatureUrl','reportNote','partialReason',
+                  'assignedCrew','crewChangeLog','updatedAt','updatedByUid']);
+
+  allow delete: if false;   // 取消用 status='cancelled'
+}
+
+match /vehicles/{id} {
+  allow read: if isStaff();
+  allow write: if isAdminOrManager();
+}
+```
+
+#### 3.6.8 索引建議
+
+- `(assignedDate, vehicleId)` — 排程甘特圖
+- `(assignedCrew, assignedDate, status)` — 安裝人員今日清單(需 array-contains)
+- `(status, dueDate)` — 待派池
+- `(sourceRef.id, tripNo)` — 訂單派車歷史
+
+### 3.7 `serviceTickets` — 維修工單
+
+> 維修工單**統一收口**所有「完工後客戶聯繫」需求,不論最後是否收費。
+> 是否變成「新訂單(請款)」,由結案時的 `chargeable` 判定。
 
 | 欄位                          | 說明                                                          |
 | ----------------------------- | ------------------------------------------------------------- |
 | `ticketNo`                    | `R` + yymm + 流水號                                           |
-| `orderId`                     | 原始訂單(查保固期)                                            |
+| `orderId`                     | 原始訂單(查保固期、查歷史尺寸)                                |
 | `customerId`                  |                                                               |
 | `reportedAt`                  | 客戶報修日                                                    |
-| `issueType`                   | `crack`(裂)/`stain`(污)/`gap`(縫)/`loose`(鬆動)/`other`       |
-| `description` / `photoUrls[]` |                                                               |
+| `issueType`                   | `crack`(裂)/`stain`(污)/`gap`(縫)/`loose`(鬆動)/`adjust`(調整)/`other` |
+| `description` / `photoUrls[]` | 客服收件時的描述/照片                                          |
 | `warrantyStatus`              | `inWarranty`/`outOfWarranty`(由系統依訂單完工日+保固天數判斷) |
-| `assigneeUid`                 |                                                               |
-| `dispatchId`                  | 若需派車到場                                                  |
-| `status`                      | `reported`/`scheduled`/`inProgress`/`resolved`/`closed`       |
-| `cost`                        | 維修費(超保固才有)                                            |
+| `chargeable`                  | bool — 預設 `!inWarranty`;但業務可改(優良客戶免費/人為破壞要收) |
+| `estimatedCost`               | number? 預估費用                                              |
+| `finalCost`                   | number? 結案實際費用(來自派車回填)                            |
+| `taskIds[]`                   | 此單已關聯的 `installTasks` id(同一單可多次出車)               |
+| `tripCount`                   | number 已出車次數(冗餘,清單顯示用)                            |
+| `status`                      | `reported`/`scheduled`/`inProgress`/`resolved`/`closed`/`cancelled` |
+| `convertedOrderId`            | string? 結案 + `chargeable=true` 時,系統建立的維修案 `salesOrders` id |
 
-### 3.9 `productModels` — 產品型號開孔主檔 ⭐
+### 3.8 `productModels` — 產品型號開孔主檔 ⭐
 
 > **目的:防止裁切錯誤** — 選型號 → 系統自動帶出開孔尺寸,訂單存快照。
 > 採**單一 collection** + `type` 欄位區分(爐子/水槽/油煙機/配件/其他),維護介面共用、權限相同、查詢比聯集兩個 collection 簡單。
@@ -433,8 +729,8 @@ match /productModels/{id} {
 Users.permissions = {
   office: true,       // 覆寫旗標:非 dept=1 但要能寫客戶/訂單(老闆/主管)
   production: true,   // 生產組長:可排程/更新工序
-  installer: true,    // 安裝人員(兼司機):看自己的派車單、回報完成
-  service: true,      // 維修:處理 serviceTickets
+  installer: true,    // 安裝人員(兼司機):看自己今日任務、回報完工/上傳照片
+  service: true,      // 維修組(兼派車人員):處理 serviceTickets、建立/分派/覆核 installTasks
 }
 ```
 
@@ -442,19 +738,69 @@ Users.permissions = {
 
 ---
 
-## 5. Firestore 規則骨架
+## 5. Firestore 規則骨架(Custom Claims 版)
 
-新增 helper:
+> **設計決策**:權限改用 Firebase Auth **Custom Claims**,規則內不再 `get(/Users/{uid})`,避免額外讀取費用與規則內的 10 個 `get()` 上限。
+>
+> **代價**:
+> - claims 改動後使用者要重新登入或前端呼叫 `getIdToken(true)` 強制刷新(預設 token 1 小時過期)
+> - 改 `Users` 文件時要透過 CF 同步 claims(見下方 `syncUserClaims`)
+
+#### Claims 結構(放入 JWT token)
+
+```js
+// 由 CF onWrite(Users/{uid}) 同步寫入
+{
+  role: 'admin' | '管理者' | '員工' | '客戶' | '遊客',
+  dept: '1' | '2' | '3',
+  office: bool,
+  production: bool,
+  installer: bool,
+  service: bool,
+  companyId: string,   // 客戶端用
+}
+```
+
+> 總大小限制 1000 bytes,目前欄位約 200 bytes,綽綽有餘。
+
+#### Helper
 
 ```
-function userDoc()  { return get(/databases/$(db)/documents/Users/$(request.auth.uid)); }
-function isOffice() {
-  return isStaff() && (
-    userDoc().data.dept == "1"
-    || userDoc().data.permissions.office == true
-  );
-}
-function hasPerm(p) { return isStaff() && userDoc().data.permissions[p] == true; }
+function isStaff()        { return request.auth != null && request.auth.token.role in ['admin','管理者','員工']; }
+function isAdmin()        { return request.auth.token.role == 'admin'; }
+function isAdminOrManager() { return request.auth.token.role in ['admin','管理者']; }
+function isOffice()       { return isStaff() && (request.auth.token.dept == '1' || request.auth.token.office == true); }
+function hasPerm(p)       { return isStaff() && request.auth.token[p] == true; }
+function isApprovedCustomer() { return request.auth.token.role == '客戶'; }
+function myCompanyId()    { return request.auth.token.companyId; }
+```
+
+> 注意:`token.permissions.X` 不能用巢狀,所以 claims 直接攤平成頂層 `office/production/installer/service` 而非 `permissions.{...}`。
+
+#### Cloud Functions 同步機制
+
+| Trigger | 動作 |
+|---------|------|
+| `onCreate(Users/{uid})` | 依文件內容呼叫 `admin.auth().setCustomUserClaims(uid, {...})` |
+| `onWrite(Users/{uid})` | 偵測 `role`/`dept`/`permissions`/`companyId` 變動 → 重新 setCustomUserClaims |
+| 任何 setCustomUserClaims 之後 | 寫一筆 `Users/{uid}.claimsVersion = serverTimestamp()`,前端監聽變動後 `getIdToken(true)` 強制刷新 |
+
+#### 前端配合(`frontend/src/firebase.js`)
+
+```js
+import { onSnapshot, doc } from 'firebase/firestore';
+
+onAuthStateChanged(auth, (user) => {
+  if (!user) return;
+  // 監聽 claims 版本,有變動就強制刷新 token
+  onSnapshot(doc(db, 'Users', user.uid), async (snap) => {
+    const newVersion = snap.data()?.claimsVersion?.toMillis();
+    if (newVersion && newVersion > (lastClaimsVersion ?? 0)) {
+      await user.getIdToken(true);
+      lastClaimsVersion = newVersion;
+    }
+  });
+});
 ```
 
 ```

@@ -244,6 +244,14 @@
           >
             匯出 Excel
           </button>
+          <button
+            v-if="isAdminUser"
+            @click="createOrderFromEstimate"
+            class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+            title="以目前估價資料建立销售訂單"
+          >
+            📝 建立訂單
+          </button>
 
           <label class="m-1" for="checkbox">工料分離</label>
           <input
@@ -694,6 +702,7 @@
 import Sortable from "sortablejs";
 
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
+import { useRouter } from "vue-router";
 import axios from "axios";
 import html2pdf from "html2pdf.js";
 import styleText from "../assets/style.css?raw";
@@ -1986,6 +1995,103 @@ const exportToExcel = () => {
     exportToExcel1();
   }
 };
+
+// ─── 一鍵建立銷售訂單 ─────────────────────────────────────
+const router = useRouter();
+
+function categorizeItemName(name) {
+  const n = String(name || "");
+  if (/水槽/.test(n)) return "sink";
+  if (/(火爐|爐子|爐台|爐口|瓦斯爐|電陶爐|IH)/.test(n)) return "stove";
+  if (/(轉角|崁入|斜接|背牆|加厚|包邊|加工|工資|圓弧|插座|側腳|側落腳|崁邊)/.test(n))
+    return "special";
+  return "other";
+}
+
+function buildOrderPayloadFromEstimate() {
+  const lineItems = [];
+  let totalCm = 0;
+  let firstUnitPrice = null;
+  const colorSet = new Map(); // key=color -> {brand,color}
+
+  // 一、檯面（每張卡片一筆）
+  for (const [idx, r] of Object.entries(orderedFilteredResults.value || {})) {
+    if (!r?.isEnabled) continue;
+    const cm = Number(r.roundedCentimeters) || 0;
+    const ppc = Number(r.unitPrice) || 0;
+    const color = String(r.color || "").trim();
+    if (color && !colorSet.has(color)) colorSet.set(color, { brand: "", color });
+    if (firstUnitPrice == null && ppc) firstUnitPrice = ppc;
+    totalCm += cm;
+    if (cm <= 0 && ppc <= 0) continue;
+    lineItems.push({
+      id: `est-c-${idx}-${Date.now()}`,
+      category: "countertop",
+      refId: `est-${idx}`,
+      priceKey: color || null,
+      description: `${r.sumary || idx} ${color}`.trim(),
+      unit: "cm",
+      qty: cm,
+      unitPrice: ppc,
+      amount: Math.round(cm * ppc),
+    });
+  }
+
+  // 二、附加項目（水槽/爐子/特殊/其他）
+  (filteredItems.value || []).forEach((it, i) => {
+    const cat = categorizeItemName(it.name);
+    const qty = Number(it.amount) || 1;
+    const price = Number(it.price) || 0;
+    lineItems.push({
+      id: `est-i-${i}-${Date.now()}`,
+      category: cat,
+      refId: `est-item-${i}`,
+      priceKey: it.name || null,
+      description: it.name || "",
+      unit: it.unit || "式",
+      qty,
+      unitPrice: price,
+      amount: Math.round(qty * price),
+    });
+  });
+
+  const sel = selectedCustomer.value || {};
+  const isObj = sel && typeof sel === "object";
+  return {
+    customerId: isObj ? (sel.id || sel.code || "") : "",
+    customerName: customer.value || (isObj ? sel.name : "") || "",
+    customerContact: {
+      tel: tel.value || (isObj ? sel.tel : "") || "",
+      fax: fax.value || (isObj ? sel.fax : "") || "",
+      address: add.value || (isObj ? sel.add : "") || "",
+      contact: contacter.value || (isObj ? sel.contacter : "") || "",
+    },
+    countertop: { totalCm },
+    pricePerCm: firstUnitPrice,
+    stones: Array.from(colorSet.values()),
+    lineItems,
+    subtotal: lineItems.reduce((s, li) => s + (li.amount || 0), 0),
+    grandTotal: lineItems.reduce((s, li) => s + (li.amount || 0), 0),
+    invoiceRequired: true,
+    fromEstimate: true,
+    estimateFileName: fileKeyWord.value || "",
+  };
+}
+
+function createOrderFromEstimate() {
+  if (!hasValidResults.value && (!filteredItems.value || !filteredItems.value.length)) {
+    alert("目前沒有任何估價內容可建立訂單");
+    return;
+  }
+  const payload = buildOrderPayloadFromEstimate();
+  try {
+    sessionStorage.setItem("pendingOrderFromEstimate", JSON.stringify(payload));
+  } catch (e) {
+    alert("暫存失敗：" + (e?.message || e));
+    return;
+  }
+  router.push({ name: "order-new", query: { fromEstimate: "1" } });
+}
 
 const currentDate = new Date().toISOString().split("T")[0];
 

@@ -446,6 +446,30 @@
               <div class="price-col">
                 <div class="price-lbl">未稅價</div>
               </div>
+              <div class="price-val-col">
+                <div v-if="priceBreakdown.left.length || priceBreakdown.right.length" class="price-grid">
+                  <table class="price-table">
+                    <tbody>
+                      <tr v-for="(ln, i) in priceBreakdown.left" :key="'l'+i">
+                        <td class="pt-desc">{{ ln.desc }}</td>
+                        <td class="pt-calc">{{ ln.calc }}</td>
+                        <td class="pt-amt">{{ ln.amt }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <table class="price-table">
+                    <tbody>
+                      <tr v-for="(ln, i) in priceBreakdown.right" :key="'r'+i">
+                        <td class="pt-desc">{{ ln.desc }}</td>
+                        <td class="pt-calc">{{ ln.calc }}</td>
+                        <td class="pt-amt">{{ ln.amt }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div class="price-sum">合計 <span>{{ priceBreakdown.total }}</span></div>
+                </div>
+                <span v-else class="price-val">{{ untaxedPriceDisplay }}</span>
+              </div>
               <div class="sig-col">
                 <div class="sig-lbl">客戶回簽</div>
                 <div class="sig-box"></div>
@@ -699,6 +723,73 @@ const route = useRoute();
 const orderId = computed(() => route.params.id);
 
 const order = ref(null);
+
+// 未稅價顯示：優先取 subtotal（lineItems 小計）→ total（手動輸入）→ lineItems 加總 → grandTotal
+const untaxedPriceDisplay = computed(() => {
+  const o = order.value;
+  if (!o) return "";
+  let v = o.subtotal;
+  if (v == null) v = o.total;
+  if (v == null && Array.isArray(o.lineItems) && o.lineItems.length) {
+    v = o.lineItems.reduce((s, li) => s + (Number(li.amount) || 0), 0);
+  }
+  if (v == null) v = o.grandTotal;
+  const n = Number(v);
+  return n > 0 ? n.toLocaleString() : "";
+});
+
+// 計價明細：讓客人看到「如何算出來的」
+// 按 (description-without-dims + unitPrice + unit) 聚合；例如「水槽下嵌（陶板） @3,500×3 = 10,500」
+const priceBreakdown = computed(() => {
+  const o = order.value;
+  const empty = { left: [], right: [], total: "" };
+  if (!o || !Array.isArray(o.lineItems)) return empty;
+
+  // 去掉描述尾部的「 尺寸」（例如 67.8×49cm）以便聚合
+  const normName = (s) =>
+    String(s || "")
+      .replace(/\s+\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?\s*cm?$/i, "")
+      .replace(/\s+\d+(?:\.\d+)?\s*cm$/i, "")
+      .trim();
+
+  const groups = new Map();
+  let total = 0;
+  for (const li of o.lineItems) {
+    const qty = Number(li.qty) || 0;
+    const up = Number(li.unitPrice) || 0;
+    const amt = Number(li.amount) || Math.round(qty * up);
+    if (!qty && !up && !amt) continue;
+    const name = normName(li.description) || li.priceKey || "項目";
+    const unit = li.unit || "";
+    const key = `${name}__${up}__${unit}`;
+    const g = groups.get(key) || { name, unit, unitPrice: up, qty: 0, amount: 0 };
+    g.qty += qty;
+    g.amount += amt;
+    groups.set(key, g);
+    total += amt;
+  }
+
+  const lines = [...groups.values()].map((g) => {
+    const qtyStr = Number.isInteger(g.qty) ? g.qty : Math.round(g.qty * 100) / 100;
+    const calc = g.unitPrice
+      ? `@${g.unitPrice.toLocaleString()}×${qtyStr}${g.unit}`
+      : `${qtyStr}${g.unit}`;
+    return {
+      desc: g.name,
+      calc,
+      amt: g.amount > 0 ? g.amount.toLocaleString() : "",
+    };
+  });
+
+  // 平均分為左 / 右兩欄
+  const mid = Math.ceil(lines.length / 2);
+  return {
+    left: lines.slice(0, mid),
+    right: lines.slice(mid),
+    total: total > 0 ? total.toLocaleString() : "",
+  };
+});
+
 const confirmedPdfUrl = ref(null);
 const pdfGenerating = ref(false);
 const pdfUploading = ref(false);
@@ -2029,6 +2120,71 @@ onUnmounted(() => {
   font-weight: 600;
   writing-mode: vertical-rl;
   letter-spacing: 2px;
+}
+.price-val-col {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid #aaa;
+  padding: 2px 6px;
+  overflow: hidden;
+}
+.price-val {
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 700;
+  color: #c0392b;
+  letter-spacing: 1px;
+}
+.price-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 8px;
+  row-gap: 0;
+  align-items: start;
+}
+.price-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9px;
+  line-height: 1.25;
+}
+.price-table td {
+  padding: 1px 2px;
+  vertical-align: middle;
+}
+.price-table .pt-desc {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+.price-table .pt-calc {
+  text-align: right;
+  color: #555;
+  white-space: nowrap;
+}
+.price-table .pt-amt {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.price-sum {
+  grid-column: 1 / -1;
+  border-top: 1px solid #999;
+  margin-top: 2px;
+  padding-top: 2px;
+  text-align: right;
+  font-weight: 700;
+  font-size: 12px;
+  color: #c0392b;
+}
+.price-sum span {
+  margin-left: 6px;
+  font-size: 14px;
 }
 
 .sig-col {
