@@ -4318,7 +4318,35 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       return;
     }
 
-    const orderDocId = String(form?.fields?.orderDocId || "").trim();
+    // 派車任務模式：若帶 taskId,自動從 installTasks 載入並推導 orderDocId
+    const taskId = String(form?.fields?.taskId || "").trim();
+    let taskData = null;
+    let orderDocId = String(form?.fields?.orderDocId || "").trim();
+    if (taskId) {
+      try {
+        const taskSnap = await admin
+          .firestore()
+          .collection("installTasks")
+          .doc(taskId)
+          .get();
+        if (!taskSnap.exists) {
+          sendJson(res, 404, { error: "找不到派車任務" });
+          return;
+        }
+        taskData = taskSnap.data() || {};
+        if (!orderDocId) {
+          const soId = String(taskData.salesOrderId || "").trim();
+          orderDocId = soId.startsWith("legacy_") ? soId.slice(7) : soId;
+        }
+      } catch (e) {
+        logger.warn("uploadCompletionPhotoToNasHttp: load task failed", {
+          taskId,
+          error: e?.message,
+        });
+        sendJson(res, 500, { error: "讀取派車任務失敗" });
+        return;
+      }
+    }
     if (!orderDocId) {
       sendJson(res, 400, { error: "缺少訂單識別碼" });
       return;
@@ -4363,10 +4391,13 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       ) || "application/octet-stream";
 
     const folderParts = await buildOrderNasFolderParts(orderDocId, {
-      orderNumber: form?.fields?.orderNumber,
-      customerName: form?.fields?.customerName,
-      color: form?.fields?.color,
-      installAddress: form?.fields?.installAddress,
+      orderNumber:
+        form?.fields?.orderNumber || taskData?.orderNumber || "",
+      customerName:
+        form?.fields?.customerName || taskData?.customerName || "",
+      color: form?.fields?.color || taskData?.color || "",
+      installAddress:
+        form?.fields?.installAddress || taskData?.siteAddress || "",
     });
 
     // 計算期望的資料夾名稱：年-月-日[原資料夾名稱][安裝人員1][安裝人員2][安裝人員3]
@@ -4732,19 +4763,30 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
 
     const nasPath = `${uploadFolder}/${targetName}`;
 
-    await photoRef.set({
+    const photoDocData = {
       orderDocId,
-      orderNumber: String(form?.fields?.orderNumber || ""),
-      customerName: String(form?.fields?.customerName || ""),
-      color: String(form?.fields?.color || ""),
-      installAddress: String(form?.fields?.installAddress || ""),
-      客戶名稱: String(form?.fields?.customerName || ""),
-      顏色: String(form?.fields?.color || ""),
-      安裝地點: String(form?.fields?.installAddress || ""),
+      orderNumber: String(
+        form?.fields?.orderNumber || taskData?.orderNumber || "",
+      ),
+      customerName: String(
+        form?.fields?.customerName || taskData?.customerName || "",
+      ),
+      color: String(form?.fields?.color || taskData?.color || ""),
+      installAddress: String(
+        form?.fields?.installAddress || taskData?.siteAddress || "",
+      ),
+      客戶名稱: String(
+        form?.fields?.customerName || taskData?.customerName || "",
+      ),
+      顏色: String(form?.fields?.color || taskData?.color || ""),
+      安裝地點: String(
+        form?.fields?.installAddress || taskData?.siteAddress || "",
+      ),
       fileName: logicalFileName,
       contentType,
       size: Number(uploadFile.buffer.length || 0),
       nasPath,
+      installTaskId: taskId || null,
       uploadedByUid: user.uid,
       uploadedByName: user.name,
       uploadedByEmail: user.email,
@@ -4761,7 +4803,28 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
         matchedFolderName: String(matchMeta.matchedFolderName || ""),
         matchScore: Number(matchMeta.matchScore || 0),
       },
-    });
+    };
+
+    await photoRef.set(photoDocData);
+
+    // 派車任務模式：同時鏡像寫入 installTasks/{taskId}/completionPhotos/{photoId}
+    // 方便 MyTodayTasksView 直接訂閱任務子集合,不必反查 Orders
+    if (taskId) {
+      try {
+        await admin
+          .firestore()
+          .collection("installTasks")
+          .doc(taskId)
+          .collection("completionPhotos")
+          .doc(photoRef.id)
+          .set(photoDocData);
+      } catch (mirrorErr) {
+        logger.warn(
+          "uploadCompletionPhotoToNasHttp: installTask mirror write failed",
+          { taskId, photoId: photoRef.id, error: mirrorErr?.message },
+        );
+      }
+    }
 
     sendJson(res, 200, {
       id: photoRef.id,
@@ -4769,6 +4832,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       size: Number(uploadFile.buffer.length || 0),
       fileName: logicalFileName,
       contentType,
+      installTaskId: taskId || null,
     });
   },
 );
@@ -9265,3 +9329,20 @@ exports.autoCalculatePayroll = onSchedule(
     }
   },
 );
+
+//  派車模組 (installTasks) 
+const _installTasks = require('./installTasks');
+exports.createInstallTask = _installTasks.createInstallTask;
+exports.nightlySyncInstallTasks = _installTasks.nightlySyncInstallTasks;
+exports.runNightlySyncNow = _installTasks.runNightlySyncNow;
+exports.onInstallTaskWritten = _installTasks.onInstallTaskWritten;
+
+
+// salesOrders 鏡像同步 (legacy Orders -> salesOrders)
+const _salesOrdersSync = require('./salesOrdersSync');
+// 2026-05-26 停用自動鏡像 trigger:OrdersView 改為前端直接讀 Orders + salesOrders 合併,
+// 不再需要鏡像。需要恢復時取消下行註解即可。
+// exports.onLegacyOrderWritten = _salesOrdersSync.onLegacyOrderWritten;
+exports.backfillSalesOrdersFromOrders = _salesOrdersSync.backfillSalesOrdersFromOrders;
+exports.purgeLegacyMirroredSalesOrders = _salesOrdersSync.purgeLegacyMirroredSalesOrders;
+

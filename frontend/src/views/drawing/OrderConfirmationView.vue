@@ -173,12 +173,6 @@
                               markDirty();
                             "
                           >
-                            <div class="edge-check">
-                              <span class="edge-sym">○</span>
-                              <span class="edge-chk">{{
-                                cf.edgeType === "round" ? "(✓)" : "(　)"
-                              }}</span>
-                            </div>
                             <svg width="44" height="26" viewBox="0 0 54 32">
                               <path
                                 d="M4,2 L40,2 Q50,2 50,12 L50,30 L4,30 Z"
@@ -197,12 +191,6 @@
                               markDirty();
                             "
                           >
-                            <div class="edge-check">
-                              <span class="edge-sym">△</span>
-                              <span class="edge-chk">{{
-                                cf.edgeType === "bevel" ? "(✓)" : "(　)"
-                              }}</span>
-                            </div>
                             <svg width="44" height="26" viewBox="0 0 54 32">
                               <path
                                 d="M4,2 L40,2 L50,12 L50,30 L4,30 Z"
@@ -221,12 +209,6 @@
                               markDirty();
                             "
                           >
-                            <div class="edge-check">
-                              <span class="edge-sym">□</span>
-                              <span class="edge-chk">{{
-                                cf.edgeType === "dull" ? "(✓)" : "(　)"
-                              }}</span>
-                            </div>
                             <svg width="44" height="26" viewBox="0 0 54 32">
                               <path
                                 d="M4,2 L48,2 L50,4 L50,30 L4,30 Z"
@@ -254,12 +236,6 @@
                           markDirty();
                         "
                       >
-                        <div class="panel-hdr">
-                          <span class="panel-sym">★</span
-                          ><span class="panel-chk">{{
-                            cf.panelType === "e" ? "(✓)" : "(　)"
-                          }}</span>
-                        </div>
                         <svg
                           width="56"
                           height="42"
@@ -334,26 +310,7 @@
                             stroke="#444"
                             stroke-width="1"
                           />
-                          <text
-                            x="14"
-                            y="13"
-                            font-size="7"
-                            fill="#444"
-                            font-family="Arial"
-                          >
-                            4
-                          </text>
-                          <text
-                            x="58"
-                            y="27"
-                            font-size="7"
-                            fill="#444"
-                            font-family="Arial"
-                          >
-                            4
-                          </text>
                         </svg>
-                        <div class="panel-lbl">套平 前4/背4</div>
                       </div>
                     </div>
                   </div>
@@ -1416,19 +1373,30 @@ async function generateConfirmedPdf() {  if (pdfGenerating.value || confirmedPdf
     const el = pageRef.value;
     if (!el) throw new Error("找不到頁面元素");
 
+    // 抓元素實際內容大小,避免右邊/底邊被切
+    const w = Math.max(el.scrollWidth, el.offsetWidth, 1123);
+    const h = Math.max(el.scrollHeight, el.offsetHeight, 794);
     const canvas = await html2canvas(el, {
-      scale: 2,
+      scale: 3,
       useCORS: true,
       allowTaint: true,
       logging: false,
       backgroundColor: "#fff",
-      width: 1123,
-      height: 794,
+      width: w,
+      height: h,
+      windowWidth: w,
+      windowHeight: h,
     });
 
-    const imgData = canvas.toDataURL("image/jpeg", 0.92);
-    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    pdf.addImage(imgData, "JPEG", 0, 0, 297, 210);
+    const imgData = canvas.toDataURL("image/jpeg", 0.96);
+    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+    // 依實際長寬比放入 A4 landscape (297x210),保持比例不變形,內容不會被裁切
+    const pageW = 297, pageH = 210;
+    const drawW = (w / h >= pageW / pageH) ? pageW : pageH * (w / h);
+    const drawH = (w / h >= pageW / pageH) ? pageW * (h / w) : pageH;
+    const offX = (pageW - drawW) / 2;
+    const offY = (pageH - drawH) / 2;
+    pdf.addImage(imgData, "JPEG", offX, offY, drawW, drawH, undefined, "FAST");
 
     const blob = pdf.output("blob");
     const url = await uploadConfirmedPdf(orderId.value, blob);
@@ -1975,6 +1943,27 @@ onUnmounted(() => {
   font-size: 7px;
   margin-top: 2px;
 }
+.panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  width: 100%;
+}
+.panel-opt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1.5px solid transparent;
+  user-select: none;
+}
+.panel-opt.checked {
+  border-color: #333;
+  background: #f0f0f0;
+}
 
 .section-head {
   display: flex;
@@ -2141,50 +2130,61 @@ onUnmounted(() => {
   width: 100%;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  column-gap: 8px;
+  column-gap: 14px;
   row-gap: 0;
   align-items: start;
+  padding: 2px 4px;
 }
 .price-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 9px;
-  line-height: 1.25;
+  font-size: 10px;
+  line-height: 1.3;
+  table-layout: fixed;
 }
 .price-table td {
-  padding: 1px 2px;
-  vertical-align: middle;
+  padding: 2px 3px;
+  vertical-align: top;
+  border-bottom: 1px dotted #ddd;
+}
+.price-table tr:last-child td {
+  border-bottom: none;
 }
 .price-table .pt-desc {
   text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 110px;
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  width: 52%;
 }
 .price-table .pt-calc {
   text-align: right;
-  color: #555;
+  color: #666;
   white-space: nowrap;
+  width: 28%;
+  font-variant-numeric: tabular-nums;
 }
 .price-table .pt-amt {
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  width: 20%;
+  font-weight: 600;
 }
 .price-sum {
   grid-column: 1 / -1;
-  border-top: 1px solid #999;
-  margin-top: 2px;
-  padding-top: 2px;
+  border-top: 2px solid #c0392b;
+  margin-top: 4px;
+  padding: 3px 6px 0 0;
   text-align: right;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 13px;
   color: #c0392b;
 }
 .price-sum span {
-  margin-left: 6px;
-  font-size: 14px;
+  margin-left: 8px;
+  font-size: 16px;
+  letter-spacing: 1px;
 }
 
 .sig-col {

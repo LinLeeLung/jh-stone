@@ -9,6 +9,8 @@
         <RouterLink v-if="isAdmin" class="btn-aux" to="/orders/import"
           >匯入</RouterLink
         >
+        <RouterLink class="btn-aux" to="/orders/repair">🔧 維修單</RouterLink>
+        <RouterLink class="btn-aux" to="/dispatch-sheet">🚚 派車表單</RouterLink>
         <RouterLink class="btn-primary" to="/orders/new"
           >＋ 新建訂單</RouterLink
         >
@@ -66,19 +68,22 @@
         <tbody>
           <tr v-for="o in filtered" :key="o.id">
             <td class="col-actions">
-              <RouterLink class="btn-mini" :to="`/orders/${o.id}/edit`"
-                >編輯</RouterLink
-              >
-              <RouterLink
-                class="btn-mini btn-draw"
-                :to="`/orders/${o.id}/drawing`"
-                >繪圖</RouterLink
-              >
-              <RouterLink
-                class="btn-mini btn-conf"
-                :to="`/orders/${o.id}/confirmation`"
-                >確定單</RouterLink
-              >
+              <template v-if="o._source !== 'Orders'">
+                <RouterLink class="btn-mini" :to="`/orders/${o.id}/edit`"
+                  >編輯</RouterLink
+                >
+                <RouterLink
+                  class="btn-mini btn-draw"
+                  :to="`/orders/${o.id}/drawing`"
+                  >繪圖</RouterLink
+                >
+                <RouterLink
+                  class="btn-mini btn-conf"
+                  :to="`/orders/${o.id}/confirmation`"
+                  >確定單</RouterLink
+                >
+              </template>
+              <span v-else class="dim" title="此為派車表匯入的舊訂單,僅供瀏覽;新流程訂單才支援編輯/繪圖">舊單</span>
             </td>
             <td class="col-date">{{ fmtDate(o.promisedAt) }}</td>
             <td>
@@ -151,7 +156,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
-import { listSalesOrders, updateSalesOrder, auth, getUserByUid } from "../firebase";
+import { listSalesOrders, listOrders, updateSalesOrder, auth, getUserByUid } from "../firebase";
 import { SINK_STATUS_LIST, getSinkStatus } from "../utils/sinkStatus";
 
 const STATUS_LABEL = {
@@ -164,7 +169,7 @@ const STATUS_LABEL = {
   cancelled: "已取消",
 };
 
-const loadLimit = 200;
+const loadLimit = 1000; // 拉大以避免被 legacy 鏡像佔滿前 N 名後過濾掉
 const loading = ref(true);
 const rows = ref([]);
 const filtered = ref([]);
@@ -223,7 +228,23 @@ onMounted(async () => {
       isAdmin.value = u?.role === "admin" || u?.role === "管理者";
       canDispatch.value = isAdmin.value || u?.dept === "1";
     }
-    rows.value = await listSalesOrders({ limit: loadLimit });
+    const [so, lo] = await Promise.all([
+      listSalesOrders({ limit: loadLimit }).catch(() => []),
+      listOrders({ limit: loadLimit }).catch(() => []),
+    ]);
+    // 合併:salesOrders 在前 (ERP 新訂單), Orders 在後 (legacy);
+    // 以 orderNo 去重,同一訂單號以 salesOrders 為主
+    const seenNo = new Set();
+    const merged = [];
+    for (const o of so) {
+      if (o.orderNo) seenNo.add(String(o.orderNo));
+      merged.push(o);
+    }
+    for (const o of lo) {
+      if (o.orderNo && seenNo.has(String(o.orderNo))) continue;
+      merged.push(o);
+    }
+    rows.value = merged;
   } finally {
     loading.value = false;
     applyFilter();
@@ -236,6 +257,7 @@ function applyFilter() {
   const sk = sinkStatusFilter.value;
 
   let result = rows.value.filter((o) => {
+
     if (st && o.status !== st) return false;
     if (sk && !hasSinkStatus(o, sk)) return false;
     if (kw) {
@@ -264,6 +286,10 @@ function applyFilter() {
 }
 
 async function onStatusChange(order, newStatus) {
+  if (order._source === "Orders") {
+    alert("此為派車表匯入的舊訂單,無法在此修改狀態。請至原系統調整。");
+    return;
+  }
   const old = order.status;
   order.status = newStatus; // optimistic update
   try {

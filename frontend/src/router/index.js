@@ -18,12 +18,19 @@ import OrderEditView from "../views/OrderEditView.vue";
 import OrderSettingsView from "../views/OrderSettingsView.vue";
 import OrdersView from "../views/OrdersView.vue";
 import OrderImportView from "../views/OrderImportView.vue";
+import RepairTicketView from "../views/RepairTicketView.vue";
+import RepairListView from "../views/RepairListView.vue";
+import RepairPrintView from "../views/RepairPrintView.vue";
 import DispatchView from "../views/DispatchView.vue";
 import ProductionView from "../views/ProductionView.vue";
 import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
 import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
 import CustomerMgmtView from "../views/CustomerMgmtView.vue";
 import QuotePageView from "../views/QuotePageView.vue";
+import InstallTasksView from "../views/InstallTasksView.vue";
+import DispatchSheetView from "../views/DispatchSheetView.vue";
+import MyTodayTasksView from "../views/MyTodayTasksView.vue";
+import VehiclesView from "../views/VehiclesView.vue";
 import { auth } from "../firebase";
 import { getUserByUid, authReadyPromise, getRoutePermissionsConfig } from "../firebase";
 import { DEFAULT_ROUTE_PERMISSIONS, findPermission } from "../config/routePermissions";
@@ -189,6 +196,30 @@ const router = createRouter({
       meta: { roles: ["admin", "管理者"], title: "匯入訂單" },
     },
     {
+      path: "/orders/repair",
+      name: "order-repair",
+      component: RepairListView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "維修單列表" },
+    },
+    {
+      path: "/orders/repair/new",
+      name: "order-repair-new",
+      component: RepairTicketView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "新建維修單" },
+    },
+    {
+      path: "/orders/repair/:id",
+      name: "order-repair-edit",
+      component: RepairTicketView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "編輯維修單" },
+    },
+    {
+      path: "/orders/repair/:id/print",
+      name: "order-repair-print",
+      component: RepairPrintView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "列印維修單" },
+    },
+    {
       path: "/production",
       name: "production",
       component: ProductionView,
@@ -217,6 +248,30 @@ const router = createRouter({
       name: "order-confirmation",
       component: OrderConfirmationView,
       meta: { roles: ["admin", "管理者"], depts: ["1"], title: "生產確定單" },
+    },
+    {
+      path: "/install-tasks",
+      name: "install-tasks",
+      component: InstallTasksView,
+      meta: { roles: ["admin"], title: "派車調度" },
+    },
+    {
+      path: "/dispatch-sheet",
+      name: "dispatch-sheet",
+      component: DispatchSheetView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "派車表單" },
+    },
+    {
+      path: "/install-tasks/my-today",
+      name: "install-tasks-my-today",
+      component: MyTodayTasksView,
+      meta: { roles: ["admin"], title: "今日我的任務" },
+    },
+    {
+      path: "/vehicles",
+      name: "vehicles",
+      component: VehiclesView,
+      meta: { roles: ["admin", "管理者"], title: "車輛管理" },
     },
   ],
 });

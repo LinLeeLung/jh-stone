@@ -408,6 +408,21 @@ export async function updateUserDept(uid, dept) {
   await updateDoc(userRef, { dept: value || null });
 }
 
+/**
+ * 更新使用者細粒度權限旗標(派車模組用)
+ * @param {string} uid
+ * @param {{ service?: boolean, installer?: boolean, office?: boolean }} flags
+ */
+export async function updateUserPermissions(uid, flags = {}) {
+  const userRef = doc(db, "Users", uid);
+  const patch = {};
+  if (typeof flags.service === "boolean") patch["permissions.service"] = flags.service;
+  if (typeof flags.installer === "boolean") patch["permissions.installer"] = flags.installer;
+  if (typeof flags.office === "boolean") patch["permissions.office"] = flags.office;
+  if (Object.keys(patch).length === 0) return;
+  await updateDoc(userRef, patch);
+}
+
 // fetch single user doc
 export async function getUserByUid(uid) {
   const userRef = doc(db, "Users", uid);
@@ -803,6 +818,7 @@ export async function uploadOrderCompletionPhotos(
             installer2: String(orderMeta?.installer2 || "").trim(),
             installer3: String(orderMeta?.installer3 || "").trim(),
             carNumber: String(orderMeta?.carNumber || "").trim(),
+            taskId: String(orderMeta?.taskId || "").trim(),
             fileName: file.name || "",
             contentType: file.type || "application/octet-stream",
           },
@@ -944,6 +960,89 @@ export async function uploadOrderCompletionPhotos(
     }
   }
   return { failedFiles };
+}
+
+// 派車任務完工照片：直接掛到 installTasks/{taskId}/completionPhotos 子集合
+// 內部仍走相同的 uploadCompletionPhotoToNasHttp,Cloud Function 會自動鏡像寫入
+export async function uploadInstallTaskCompletionPhotos(
+  task,
+  files = [],
+  onProgress,
+) {
+  if (!task || !task.id) throw new Error("缺少派車任務");
+  const salesOrderId = String(task.salesOrderId || "").trim();
+  const orderDocId = salesOrderId.startsWith("legacy_")
+    ? salesOrderId.slice(7)
+    : salesOrderId;
+  if (!orderDocId) throw new Error("派車任務缺少 salesOrderId,無法定位 NAS 資料夾");
+  return uploadOrderCompletionPhotos(
+    orderDocId,
+    String(task.orderNumber || ""),
+    files,
+    onProgress,
+    {
+      customerName: task.customerName || "",
+      color: task.color || "",
+      installAddress: task.siteAddress || "",
+      installDate: String(task.assignedDate || "").replace(
+        /^(\d{4})(\d{2})(\d{2})$/,
+        "$1-$2-$3",
+      ),
+      installer1: task.installer1 || "",
+      installer2: task.installer2 || "",
+      installer3: task.installer3 || "",
+      carNumber: task.carNumber || "",
+      taskId: task.id,
+    },
+  );
+}
+
+export async function listInstallTaskCompletionPhotos(taskId) {
+  if (!taskId) return [];
+  await authReadyPromise;
+  const photosRef = collection(
+    db,
+    "installTasks",
+    taskId,
+    "completionPhotos",
+  );
+  const q = query(photosRef, orderBy("uploadedAt", "desc"));
+  const snaps = await getDocs(q);
+  const rows = snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // 取 NAS 簽名連結（沿用既有 callable;以 orderDocId 為主鍵）
+  const byOrder = new Map();
+  for (const row of rows) {
+    if (!row.nasPath || !row.orderDocId) continue;
+    if (!byOrder.has(row.orderDocId)) byOrder.set(row.orderDocId, []);
+    byOrder.get(row.orderDocId).push(row.id);
+  }
+  if (!byOrder.size) return rows;
+
+  try {
+    const callable = httpsCallable(
+      functionsInstance,
+      "getCompletionPhotoAccessUrls",
+    );
+    const urlMap = {};
+    for (const [orderDocId, photoIds] of byOrder.entries()) {
+      const chunkSize = 50;
+      for (let i = 0; i < photoIds.length; i += chunkSize) {
+        const resp = await callable({
+          orderDocId,
+          photoIds: photoIds.slice(i, i + chunkSize),
+        });
+        Object.assign(urlMap, resp?.data || {});
+      }
+    }
+    return rows.map((row) => ({
+      ...row,
+      downloadURL: urlMap[row.id] || row.downloadURL || "",
+    }));
+  } catch (e) {
+    console.warn("取得派車任務 NAS 照片連結失敗", e);
+    return rows;
+  }
 }
 
 export async function replaceOrderCompletionPhoto(
@@ -1408,7 +1507,104 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-// 建立新銷售訂單（draft 狀態，回簽前無 orderNo）
+// ─── legacy Orders 直接列表 (給 OrdersView 合併顯示用) ──────────────────────
+// 從 Orders collection 讀出,映射成 salesOrders-like 的最小欄位
+// 不寫入 Firestore,純前端轉換;避免之前用 trigger 鏡像產生的 createdAt 污染
+function _ordersPickFirst(src, keys) {
+  for (const k of keys) {
+    const v = src?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+}
+function _ordersNormalizeYmd(input) {
+  if (!input) return null;
+  if (input?.toDate) {
+    try {
+      const dd = input.toDate();
+      const y = dd.getFullYear();
+      const m = String(dd.getMonth() + 1).padStart(2, "0");
+      const da = String(dd.getDate()).padStart(2, "0");
+      return `${y}-${m}-${da}`;
+    } catch (_) { /* ignore */ }
+  }
+  if (input instanceof Date) {
+    const y = input.getFullYear();
+    const m = String(input.getMonth() + 1).padStart(2, "0");
+    const da = String(input.getDate()).padStart(2, "0");
+    return `${y}-${m}-${da}`;
+  }
+  const s = String(input).trim();
+  if (!s) return null;
+  if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  m = s.match(/^(\d{2,3})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) {
+    const y = parseInt(m[1], 10) + 1911;
+    return `${y}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  }
+  return null;
+}
+function _ordersMapStatus(raw, promisedAt) {
+  const s = String(raw || "").trim();
+  if (!s) return promisedAt ? "confirmed" : "draft";
+  if (/完工|已完|完成|done|installed|completed/i.test(s)) return "done";
+  if (/取消|作廢|cancel/i.test(s)) return "cancelled";
+  if (/派工|派車|安裝中|生產|inProduction/i.test(s)) return "inProduction";
+  if (/確認|已下單|confirmed/i.test(s)) return "confirmed";
+  if (/草稿|draft/i.test(s)) return "draft";
+  if (/回簽|pendingSign/i.test(s)) return "pendingSign";
+  if (/delivered|交付/i.test(s)) return "delivered";
+  return promisedAt ? "confirmed" : "draft";
+}
+function _ordersMapDoc(id, d) {
+  const customerName = String(_ordersPickFirst(d, ["customerName", "客戶名稱", "客戶"]) || "").trim();
+  const orderNo = String(_ordersPickFirst(d, ["orderNumber", "訂單號碼", "訂單編號", "orderNo"]) || "").trim();
+  const siteAddress = String(_ordersPickFirst(d, ["installAddress", "安裝地點", "安裝地址", "地址", "siteAddress"]) || "").trim();
+  const promisedAtRaw = _ordersPickFirst(d, ["installDate", "安裝日", "預定安裝日", "promisedAt", "預定日"]);
+  const promisedAt = _ordersNormalizeYmd(promisedAtRaw);
+  const rawStatus = String(_ordersPickFirst(d, ["status", "狀態", "施工狀態"]) || "").trim();
+  const status = _ordersMapStatus(rawStatus, promisedAt);
+  const color = String(_ordersPickFirst(d, ["顏色", "color", "stoneColor"]) || "").trim();
+  const totalCmRaw = _ordersPickFirst(d, ["公分數", "totalCm"]);
+  const totalCm = Number(totalCmRaw) || 0;
+  const totalRaw = _ordersPickFirst(d, ["銷售額", "total", "金額"]);
+  const total = Number(totalRaw) || 0;
+  return {
+    id,
+    _source: "Orders",
+    orderNo: orderNo || null,
+    customerName,
+    siteAddress,
+    promisedAt: promisedAt || null,
+    status,
+    rawStatus: rawStatus || null,
+    stones: color ? [{ brand: "", color }] : [],
+    countertop: totalCm ? { totalCm } : null,
+    total,
+    category: String(_ordersPickFirst(d, ["category", "類別", "工程類別"]) || "") || null,
+    templatingStaff: String(_ordersPickFirst(d, ["templatingStaff", "打板", "打板人員"]) || "") || null,
+    drawingStaff: String(_ordersPickFirst(d, ["drawingStaff", "對圖", "繪圖人員"]) || "") || null,
+    isTestData: !!d?.isTestData,
+  };
+}
+
+// 列出 legacy Orders;預設依 安裝日 倒序 (失敗 fallback 純取最近 N 筆不排序)
+export async function listOrders({ limit: lim = 500 } = {}) {
+  await authReadyPromise;
+  const ref = collection(db, "Orders");
+  let snap;
+  try {
+    snap = await getDocs(query(ref, orderBy("安裝日", "desc"), limit(lim)));
+  } catch (e) {
+    // 沒索引 / 欄位不存在 → 退而求其次直接取 limit 筆
+    snap = await getDocs(query(ref, limit(lim)));
+  }
+  return snap.docs.map((d) => _ordersMapDoc(d.id, d.data() || {}));
+}
+
+
 // 刪除所有標記為測試資料的訂單
 export async function deleteTestOrders() {
   await authReadyPromise;
@@ -1452,6 +1648,256 @@ export async function createSalesOrder(data) {
   };
   const ref = await addDoc(collection(db, "salesOrders"), payload);
   return ref.id;
+}
+
+// ─── 維修單 ────────────────────────────────────────────────────────────────
+// repairTickets 集合
+// source: { id, source: "salesOrders"|"Orders", orderNo, customerName, siteAddress }
+// 若 chargeable=true,會另外建立一筆 salesOrder(category=維修),並把 newOrderId 寫回 ticket
+export async function createRepairTicket({
+  source,
+  repairDate,
+  reason,
+  chargeable,
+}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  if (!source?.id) throw new Error("請選擇來源訂單");
+  if (!repairDate) throw new Error("請填寫維修日");
+
+  let newOrderId = null;
+  if (chargeable) {
+    newOrderId = await createSalesOrder({
+      category: "維修",
+      customerName: source.customerName || "",
+      siteAddress: source.siteAddress || "",
+      promisedAt: repairDate,
+      specialNotes: `維修來源訂單:${source.orderNo || source.id}\n原因:${reason || ""}`,
+      repairSourceOrderId: source.id,
+      repairSourceOrderNo: source.orderNo || "",
+      repairSource: source.source || "salesOrders",
+    });
+  }
+
+  const ticket = {
+    sourceOrderId: source.id,
+    sourceOrderNo: source.orderNo || "",
+    sourceCustomerName: source.customerName || "",
+    sourceSiteAddress: source.siteAddress || "",
+    sourceCollection: source.source || "salesOrders",
+    repairDate,
+    reason: reason || "",
+    chargeable: !!chargeable,
+    newOrderId,
+    status: chargeable ? "convertedToOrder" : "open",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    createdByUid: uid,
+    updatedByUid: uid,
+  };
+  const ref = await addDoc(collection(db, "repairTickets"), ticket);
+  return { ticketId: ref.id, newOrderId };
+}
+
+export async function listRepairTickets({ limit: lim = 100 } = {}) {
+  await authReadyPromise;
+  const snap = await getDocs(
+    query(collection(db, "repairTickets"), orderBy("createdAt", "desc"), limit(lim)),
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function getRepairTicket(id) {
+  await authReadyPromise;
+  const snap = await getDoc(doc(db, "repairTickets", id));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+export async function updateRepairTicket(id, patch) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  await updateDoc(doc(db, "repairTickets", id), {
+    ...patch,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+export async function deleteRepairTicket(id) {
+  await authReadyPromise;
+  await deleteDoc(doc(db, "repairTickets", id));
+}
+
+// ─── 派車表單 (dispatchEntries) ───────────────────────────────────────────────
+// 每筆 = 某日期一張派車工單。doc id = `${date}_${kind}_${sourceId}`(避免重複)
+// kind: "install" (來自 salesOrders) | "repair" (來自 repairTickets)
+function _dispatchEntryId(date, kind, sourceId) {
+  return `${date}_${kind}_${sourceId}`;
+}
+
+/**
+ * 依日期載入派車明細
+ * 1) 找 salesOrders 中 promisedAt === date 的訂單
+ * 2) 找 repairTickets 中 repairDate === date 的維修單
+ * 3) 與 dispatchEntries (該日期) 合併
+ * 回傳合併後的 rows,前端可直接編輯
+ */
+export async function loadDispatchByDate(date) {
+  await authReadyPromise;
+  if (!date) return [];
+
+  // 並行載入
+  const [salesSnap, repairSnap, entriesSnap] = await Promise.all([
+    getDocs(query(collection(db, "salesOrders"), where("promisedAt", "==", date))),
+    getDocs(query(collection(db, "repairTickets"), where("repairDate", "==", date))),
+    getDocs(query(collection(db, "dispatchEntries"), where("date", "==", date))),
+  ]);
+
+  const entryMap = new Map();
+  entriesSnap.docs.forEach((d) => entryMap.set(d.id, { id: d.id, ...d.data() }));
+
+  const rows = [];
+
+  salesSnap.docs.forEach((d) => {
+    const o = { id: d.id, ...d.data() };
+    const eid = _dispatchEntryId(date, "install", o.id);
+    const ent = entryMap.get(eid) || {};
+    rows.push({
+      entryId: eid,
+      date,
+      kind: "install",
+      sourceCollection: "salesOrders",
+      sourceId: o.id,
+      sourceOrderNo: o.orderNo || "",
+      customerName: o.customerName || "",
+      siteAddress: o.siteAddress || "",
+      stoneLabel: [o.stones?.[0]?.brand, o.stones?.[0]?.color].filter(Boolean).join(" "),
+      reason: ent.reason || "",
+      installerUids: ent.installerUids || [],
+      installerNames: ent.installerNames || [],
+      etaTime: ent.etaTime || "",
+      completed: !!ent.completed,
+      completedAt: ent.completedAt || null,
+      notes: ent.notes || "",
+      _persisted: !!entryMap.get(eid),
+    });
+    entryMap.delete(eid);
+  });
+
+  repairSnap.docs.forEach((d) => {
+    const r = { id: d.id, ...d.data() };
+    const eid = _dispatchEntryId(date, "repair", r.id);
+    const ent = entryMap.get(eid) || {};
+    rows.push({
+      entryId: eid,
+      date,
+      kind: "repair",
+      sourceCollection: "repairTickets",
+      sourceId: r.id,
+      sourceOrderNo: r.sourceOrderNo || "",
+      customerName: r.sourceCustomerName || "",
+      siteAddress: r.sourceSiteAddress || "",
+      stoneLabel: "",
+      reason: ent.reason !== undefined && ent.reason !== null && ent.reason !== "" ? ent.reason : (r.reason || ""),
+      installerUids: ent.installerUids || [],
+      installerNames: ent.installerNames || [],
+      etaTime: ent.etaTime || "",
+      completed: !!ent.completed,
+      completedAt: ent.completedAt || null,
+      notes: ent.notes || "",
+      _persisted: !!entryMap.get(eid),
+    });
+    entryMap.delete(eid);
+  });
+
+  // 殘留的 entries(來源已被刪/改日期)也呈現,但標 orphan
+  entryMap.forEach((e) => {
+    rows.push({
+      entryId: e.id,
+      date,
+      kind: e.kind || "install",
+      sourceCollection: e.sourceCollection || "",
+      sourceId: e.sourceId || "",
+      sourceOrderNo: e.sourceOrderNo || "",
+      customerName: e.customerName || "",
+      siteAddress: e.siteAddress || "",
+      stoneLabel: "",
+      reason: e.reason || "",
+      installerUids: e.installerUids || [],
+      installerNames: e.installerNames || [],
+      etaTime: e.etaTime || "",
+      completed: !!e.completed,
+      completedAt: e.completedAt || null,
+      notes: e.notes || "",
+      _persisted: true,
+      _orphan: true,
+    });
+  });
+
+  // 排序:未完工 在前,再依 etaTime
+  rows.sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    return String(a.etaTime || "").localeCompare(String(b.etaTime || ""));
+  });
+  return rows;
+}
+
+/**
+ * 儲存(upsert)單筆派車紀錄
+ */
+export async function saveDispatchEntry(row) {
+  await authReadyPromise;
+  if (!row?.entryId) throw new Error("缺少 entryId");
+  const uid = auth.currentUser?.uid || null;
+  const ref = doc(db, "dispatchEntries", row.entryId);
+  const payload = {
+    date: row.date,
+    kind: row.kind,
+    sourceCollection: row.sourceCollection,
+    sourceId: row.sourceId,
+    sourceOrderNo: row.sourceOrderNo || "",
+    customerName: row.customerName || "",
+    siteAddress: row.siteAddress || "",
+    reason: row.reason || "",
+    installerUids: Array.isArray(row.installerUids) ? row.installerUids : [],
+    installerNames: Array.isArray(row.installerNames) ? row.installerNames : [],
+    etaTime: row.etaTime || "",
+    completed: !!row.completed,
+    completedAt: row.completed
+      ? (row.completedAt || serverTimestamp())
+      : null,
+    notes: row.notes || "",
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  };
+  // 嘗試 update,若不存在則建立(用 setDoc merge)
+  await setDoc(
+    ref,
+    { ...payload, createdAt: payload.createdAt || serverTimestamp(), createdByUid: uid },
+    { merge: true }
+  );
+}
+
+/**
+ * 刪除派車紀錄(約不到客人)。同時可選擇清除來源訂單/維修單的日期。
+ */
+export async function deleteDispatchEntry(entryId, opts = {}) {
+  await authReadyPromise;
+  const { clearSourceDate = false, sourceCollection = "", sourceId = "" } = opts;
+  await deleteDoc(doc(db, "dispatchEntries", entryId));
+  if (clearSourceDate && sourceCollection && sourceId) {
+    if (sourceCollection === "salesOrders") {
+      await updateDoc(doc(db, "salesOrders", sourceId), {
+        promisedAt: null,
+        updatedAt: serverTimestamp(),
+      });
+    } else if (sourceCollection === "repairTickets") {
+      await updateDoc(doc(db, "repairTickets", sourceId), {
+        repairDate: "",
+        updatedAt: serverTimestamp(),
+      });
+    }
+  }
 }
 
 // ─── 繪圖截圖覆層上傳 ────────────────────────────────────────────────────────

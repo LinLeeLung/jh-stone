@@ -1,0 +1,11 @@
+﻿non-import / non-mirror count: 10
+- 0pQFkfvQbghgLlB5EN1k | orderNo= undefined | customer= ??樴?88ACC | status= draft | createdAt= 2026-05-25T13:50:33.290Z
+- ASZvjWCNbz1TSvkGagPl | orderNo= 28001ANB | customer= ?孵?撅????拇?340ANB | status= draft | createdAt= 2026-05-24T11:26:34.549Z
+- H2BV4oAgetTPKhrQaHhE | orderNo= undefined | customer= ?典?蟡??扳?摨?05-01 | status= pendingSign | createdAt= 2026-05-25T13:06:50.670Z
+- VL236IIN5pbPe7Lx8TcC | orderNo= undefined | customer= ?孵?撅????拇?340ANB | status= draft | createdAt= 2026-05-23T07:05:24.303Z
+- WoQQghPtGTvxsbPOCsD0 | orderNo= 28000ACC | customer= ??樴?88ACC | status= draft | createdAt= 2026-05-23T09:39:27.739Z
+- jdNNXXD4805jTYSjfFWJ | orderNo= 28008ADW | customer= 樴汙-101ADW | status= inProduction | createdAt= 2026-05-25T01:45:18.558Z
+- nYufzZSEgWYwcFf6XDQ7 | orderNo= 28007ACC | customer= ??樴?88ACC | status= delivered | createdAt= 2026-05-25T03:15:57.458Z
+- pe6sGNHwaFnBeKqCPWUr | orderNo= 28005AFM | customer= "?祝撱箄身23???黎) | status= inProduction | createdAt= 2026-05-25T03:11:03.492Z
+- qduz5LaUlnfuRdtTHxNX | orderNo= 28009ACU | customer= 撘?-073-004??ACU | status= inProduction | createdAt= 2026-05-25T09:53:26.489Z
+- vW7mxyypnDqXV5LnaKL9 | orderNo= 28006ACC | customer= ??樴?88ACC | status= inProduction | createdAt= 2026-05-25T03:26:06.525Z

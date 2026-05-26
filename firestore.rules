@@ -278,6 +278,23 @@ service cloud.firestore {
       }
     }
 
+    // repairTickets（維修單）：員工可讀，建立者需為自己；管理者可修改/刪除
+    match /repairTickets/{docId} {
+      allow read: if isStaff();
+      allow create: if isStaff()
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update: if isAdminOrManager()
+        || (isStaff() && request.resource.data.updatedByUid == request.auth.uid);
+      allow delete: if isAdminOrManager();
+    }
+
+    // dispatchEntries（派車表單）：員工可讀寫；管理者可刪除
+    match /dispatchEntries/{docId} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+      allow delete: if isStaff();
+    }
+
     // productionJobs（生產流程管理）：廠內員工（dept=3）或一般員工以上皆可讀寫；admin/manager 可刪除
     match /productionJobs/{docId} {
       allow read: if isFactoryOrStaff();
@@ -298,6 +315,55 @@ service cloud.firestore {
     match /Config/{docId} {
       allow read: if isStaff() || isMobileStaff();
       allow write: if isAdminOrManager();
+    }
+
+    // 派車任務（installTasks）：員工皆可讀；2 裝安部門（dept == '2'）為維修+安裝同一群人,
+    // 可建立/排程；被指派的 assignedCrew 可更新自己任務的狀態與完工資料
+    function isService() {
+      return signedIn()
+        && (myRole() == 'admin'
+            || myRole() == '管理者'
+            || ((myRole() == '員工' || myRole() == '行動')
+                && userDoc().data.get('dept', '') == '2'));
+    }
+    function isInstaller() {
+      return isService();
+    }
+    match /installTasks/{taskId} {
+      allow read: if isStaff() || isMobileStaff();
+      allow create: if isService()
+        && request.resource.data.createdByUid == request.auth.uid;
+      // 維修組可任意更新；被指派的安裝人員（assignedCrew 含 uid）可更新完工/狀態相關欄位
+      allow update: if isService()
+        || (
+          isInstaller()
+          && request.auth.uid in resource.data.assignedCrew
+          && request.resource.data.updatedByUid == request.auth.uid
+        );
+      allow delete: if isAdminOrManager();
+
+      // 完工照片 metadata（細節）
+      match /completionPhotos/{photoId} {
+        allow read: if isStaff() || isMobileStaff();
+        allow create: if (isService() || isInstaller())
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow update: if (isService() || isInstaller())
+          && request.resource.data.updatedByUid == request.auth.uid
+          && request.resource.data.uploadedByUid == resource.data.uploadedByUid;
+        allow delete: if isService() || isAdminOrManager();
+      }
+    }
+
+    // 派車車輛（vehicles）：員工可讀；admin/manager 維護
+    match /vehicles/{vehicleId} {
+      allow read: if isStaff() || isMobileStaff();
+      allow write: if isAdminOrManager();
+    }
+
+    // 序號計數器（installTasks 用；其他模組亦可共用）：員工可讀；Cloud Function 才能寫
+    match /counters/{counterId} {
+      allow read: if isStaff();
+      allow write: if false;
     }
 
     // Deny everything else by default - lock down the DB

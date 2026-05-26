@@ -17,9 +17,14 @@
     <!-- 篩選列 -->
     <div class="filter-bar">
       <select v-model="statusFilter" @change="applyFilter">
+        <option value="">全部狀態</option>
+        <option value="draft">草稿</option>
+        <option value="pendingSign">待回簽</option>
         <option value="confirmed">已確認</option>
         <option value="inProduction">生產中</option>
-        <option value="">全部狀態</option>
+        <option value="delivered">已出貨</option>
+        <option value="done">完工</option>
+        <option value="cancelled">已取消</option>
       </select>
       <select v-model="showDispatched" @change="applyFilter">
         <option value="undispatched">未發單</option>

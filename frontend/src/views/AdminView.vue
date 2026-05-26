@@ -171,6 +171,80 @@
           </div>
         </template>
 
+        <!-- 派車任務工具 -->
+        <div class="toolbar-row" style="margin-top: 28px">
+          <h2 style="margin: 0">派車任務工具</h2>
+        </div>
+        <div class="field-row" style="margin-top: 10px; gap: 12px; flex-wrap: wrap;">
+          <button
+            class="btn-aux"
+            :disabled="dispatchTools.loading"
+            @click="runBackfillOrders(true)"
+            title="不寫入,只統計會建立/更新幾筆"
+          >
+            {{ dispatchTools.loading && dispatchTools.action === 'backfill-dry' ? '檢查中…' : '回填預覽 (dryRun)' }}
+          </button>
+          <button
+            class="btn-manage"
+            :disabled="dispatchTools.loading"
+            @click="runBackfillOrders(false)"
+          >
+            {{ dispatchTools.loading && dispatchTools.action === 'backfill' ? '回填中…' : '執行回填 (Orders→salesOrders)' }}
+          </button>
+          <button
+            class="btn-aux"
+            :disabled="dispatchTools.loading"
+            @click="runNightlySync(true)"
+          >
+            {{ dispatchTools.loading && dispatchTools.action === 'sync-dry' ? '檢查中…' : '夜班同步預覽 (dryRun)' }}
+          </button>
+          <button
+            class="btn-manage"
+            :disabled="dispatchTools.loading"
+            @click="runNightlySync(false)"
+          >
+            {{ dispatchTools.loading && dispatchTools.action === 'sync' ? '同步中…' : '立即執行夜班同步' }}
+          </button>
+          <button
+            class="btn-aux"
+            :disabled="dispatchTools.loading"
+            @click="runPurgeLegacy(true)"
+            title="不實際刪除,只統計會刪掉幾筆"
+          >
+            {{ dispatchTools.loading && dispatchTools.action === 'purge-dry' ? '檢查中…' : '清除 legacy 鏡像 (dryRun)' }}
+          </button>
+          <button
+            class="btn-manage"
+            :disabled="dispatchTools.loading"
+            style="background:#dc2626;color:#fff;"
+            @click="runPurgeLegacy(false)"
+          >
+            {{ dispatchTools.loading && dispatchTools.action === 'purge' ? '刪除中…' : '危險: 刪除所有 legacy 鏡像' }}
+          </button>
+        </div>
+        <div class="field-row" style="margin-top: 8px; gap: 12px;">
+          <div class="field-item tight">
+            <label>回填筆數上限:</label>
+            <input type="number" min="1" max="5000" v-model.number="dispatchTools.backfillLimit" />
+          </div>
+          <div class="field-item tight">
+            <label>夜班掃描未來天數:</label>
+            <input type="number" min="1" max="30" v-model.number="dispatchTools.syncDaysAhead" />
+          </div>
+          <div class="field-item tight">
+            <label title="勾選後會重寫已存在的鏡像並用來源日期覆寫 createdAt">
+              <input type="checkbox" v-model="dispatchTools.forceCreatedAt" />
+              強制覆寫 createdAt
+            </label>
+          </div>
+        </div>
+        <div v-if="dispatchTools.error" class="muted-text" style="color: #dc2626; margin-top: 8px;">
+          {{ dispatchTools.error }}
+        </div>
+        <div v-if="dispatchTools.result" class="summary-row" style="margin-top: 8px">
+          <pre style="margin: 0; white-space: pre-wrap; font-size: 12px; max-height: 240px; overflow: auto;">{{ JSON.stringify(dispatchTools.result, null, 2) }}</pre>
+        </div>
+
         <div class="toolbar-row" style="margin-top: 20px">
           <h2 style="margin: 0">上傳錯誤日誌</h2>
           <button class="btn-manage" @click="loadUploadErrorLogs">
@@ -518,12 +592,92 @@ import {
 import { getUserByUid } from "../firebase";
 import { deleteTestOrders } from "../firebase";
 import { resetAllOrderStatusToDraft } from "../firebase";
+import { functionsInstance } from "../firebase";
+import { httpsCallable } from "firebase/functions";
 import { DEFAULT_ROUTE_PERMISSIONS, ALL_ROLES as PERM_ALL_ROLES } from "../config/routePermissions";
 import { invalidatePermissionsCache } from "../router/index";
 
 const users = ref([]);
 const testDataDeleting = ref(false);
 const statusResetting = ref(false);
+
+// 派車任務工具
+const dispatchTools = ref({
+  loading: false,
+  action: "",
+  backfillLimit: 500,
+  syncDaysAhead: 7,
+  forceCreatedAt: false,
+  result: null,
+  error: "",
+});
+
+async function runBackfillOrders(dryRun) {
+  if (dispatchTools.value.loading) return;
+  if (!dryRun && !confirm("確定要執行 Orders→salesOrders 全量回填?")) return;
+  dispatchTools.value.loading = true;
+  dispatchTools.value.action = dryRun ? "backfill-dry" : "backfill";
+  dispatchTools.value.error = "";
+  dispatchTools.value.result = null;
+  try {
+    const call = httpsCallable(functionsInstance, "backfillSalesOrdersFromOrders", { timeout: 540000 });
+    const res = await call({
+      dryRun,
+      limit: Math.min(5000, Math.max(1, Number(dispatchTools.value.backfillLimit) || 1000)),
+      forceCreatedAt: !!dispatchTools.value.forceCreatedAt,
+    });
+    dispatchTools.value.result = res.data;
+  } catch (e) {
+    dispatchTools.value.error = e?.message || String(e);
+  } finally {
+    dispatchTools.value.loading = false;
+    dispatchTools.value.action = "";
+  }
+}
+
+async function runNightlySync(dryRun) {
+  if (dispatchTools.value.loading) return;
+  if (!dryRun && !confirm("確定要立即執行夜班同步 (建立 installTasks)?")) return;
+  dispatchTools.value.loading = true;
+  dispatchTools.value.action = dryRun ? "sync-dry" : "sync";
+  dispatchTools.value.error = "";
+  dispatchTools.value.result = null;
+  try {
+    const call = httpsCallable(functionsInstance, "runNightlySyncNow", { timeout: 540000 });
+    const res = await call({
+      dryRun,
+      daysAhead: Math.min(30, Math.max(1, Number(dispatchTools.value.syncDaysAhead) || 7)),
+    });
+    dispatchTools.value.result = res.data;
+  } catch (e) {
+    dispatchTools.value.error = e?.message || String(e);
+  } finally {
+    dispatchTools.value.loading = false;
+    dispatchTools.value.action = "";
+  }
+}
+
+async function runPurgeLegacy(dryRun) {
+  if (dispatchTools.value.loading) return;
+  if (!dryRun && !confirm("確定要刪除 salesOrders 中所有 mirrorSource='Orders' 的鏡像文件?\n\n之後 installTasks 在夜班同步時可重新建立,但指到 legacy_* 的舊 installTasks 參照會斷裂。")) return;
+  dispatchTools.value.loading = true;
+  dispatchTools.value.action = dryRun ? "purge-dry" : "purge";
+  dispatchTools.value.error = "";
+  dispatchTools.value.result = null;
+  try {
+    const call = httpsCallable(functionsInstance, "purgeLegacyMirroredSalesOrders", { timeout: 540000 });
+    const res = await call({
+      dryRun,
+      limit: Math.min(10000, Math.max(1, Number(dispatchTools.value.backfillLimit) || 5000)),
+    });
+    dispatchTools.value.result = res.data;
+  } catch (e) {
+    dispatchTools.value.error = e?.message || String(e);
+  } finally {
+    dispatchTools.value.loading = false;
+    dispatchTools.value.action = "";
+  }
+}
 
 async function onClearTestData() {
   if (!confirm("確定要刪除所有標記為「測試資料」的訂單嗎？此操作無法復原。")) return;
@@ -585,7 +739,7 @@ const roles = ROLES;
 // 部門選項
 const deptOptions = [
   { value: '1', label: '1 辦公室' },
-  { value: '2', label: '2 安裝' },
+  { value: '2', label: '2 裝安' },
   { value: '3', label: '3 廠內' },
   { value: '4', label: '4 外勞' },
 ];

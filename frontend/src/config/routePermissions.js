@@ -47,6 +47,12 @@ export const DEFAULT_ROUTE_PERMISSIONS = [
   // ── 庫存 ──────────────────────────────────────────────────────────────
   { path: '/inventory',         title: '庫存查詢',       group: '庫存',     roles: ['員工', 'admin', '管理者'] },
 
+  // ── 派車 ──────────────────────────────────────────────────────────────
+  // 2 裝安部門:dept '2' 即可進(維修=安裝同一群);admin/管理者 全可進
+  // 冷藏中:只 admin 可看見,未來邏輯完成再釋出給 管理者 + dept '2'
+  { path: '/install-tasks',          title: '派車調度',     group: '派車', roles: ['admin'] },
+  { path: '/install-tasks/my-today', title: '今日我的任務', group: '派車', roles: ['admin'] },
+  { path: '/vehicles',               title: '車輛管理',     group: '派車', roles: ['admin', '管理者'] },
   // ── 繪圖 ──────────────────────────────────────────────────────────────
   { path: '/drawing/straight',  title: '一字型繪圖',     group: '繪圖',     roles: ['員工', 'admin', '管理者'] },
   { path: '/drawing/l-shape',   title: 'L 型繪圖',       group: '繪圖',     roles: ['員工', 'admin', '管理者'] },

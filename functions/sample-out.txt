@@ -1,0 +1,207 @@
+﻿=== id: 03XW4WxNukHWlx1jvAQR
+{
+  "orderDate": "45058",
+  "promisedAt": "45061",
+  "amount": 67000,
+  "templatingDate": "",
+  "templatingPerson": "",
+  "category": "?踵?",
+  "customerOrderNo": "21013ACC",
+  "customerId": "ACC055-288",
+  "customerName": "?嗥?055-288ACC",
+  "customerContact": {
+    "name": "",
+    "phone": "02-26006950"
+  },
+  "owner": {
+    "name": "",
+    "phone": ""
+  },
+  "siteAddress": "?芸?CS-535*1",
+  "countertop": {
+    "type": "",
+    "totalCm": null
+  },
+  "rearTreatment": "flush",
+  "specialMethods": [],
+  "stones": [
+    {
+      "brand": "鞈賡???.2",
+      "color": "CS-535",
+      "modelCode": "",
+      "materialType": "quartz",
+      "freeInput": true
+    }
+  ],
+  "sinks": [],
+  "stoves": [],
+  "warrantyApplyDate": "",
+  "specialNotes": "",
+  "createdByUid": "bzDkiIKD8lOeFh8n9WJMCvfPnBB3",
+  "updatedByUid": "bzDkiIKD8lOeFh8n9WJMCvfPnBB3",
+  "importedFromExcel": true,
+  "createdAt": {
+    "_seconds": 1779523271,
+    "_nanoseconds": 420000000
+  },
+  "updatedAt": {
+    "_seconds": 1779523271,
+    "_nanoseconds": 420000000
+  },
+  "status": "draft"
+}
+=== id: 088kzavpCH55sKtq6X9V
+{
+  "orderDate": "",
+  "promisedAt": "",
+  "amount": null,
+  "templatingDate": "37069",
+  "templatingPerson": "",
+  "category": "?嗅",
+  "customerOrderNo": "",
+  "customerId": "ABY051-03",
+  "customerName": "?-鈭典楊-051(瘞?)ABY",
+  "customerContact": {
+    "name": "",
+    "phone": "02-25094906"
+  },
+  "owner": {
+    "name": "?∪?憪n??瞉?,
+    "phone": "0965-100-885\n0987-568-033"
+  },
+  "siteAddress": "?啣?撣璈?銝剖控頝臭?畾?68銋???9璅?,
+  "countertop": {
+    "type": "",
+    "totalCm": null
+  },
+  "rearTreatment": "flush",
+  "specialMethods": [],
+  "stones": [
+    {
+      "brand": "鞈賡???.2",
+      "color": "CS-536",
+      "modelCode": "",
+      "materialType": "quartz",
+      "freeInput": true
+    }
+  ],
+  "sinks": [
+    {
+      "modelId": "",
+      "brand": "",
+      "model": "800U",
+      "bowlCount": 1,
+      "holeWidthMm": null,
+      "holeDepthMm": null,
+      "holeRadiusMm": null,
+      "method": "",
+      "arrival": "notArrived",
+      "hasAccessory": false,
+      "deliveryNote": ""
+    },
+    {
+      "modelId": "",
+      "brand": "",
+      "model": "400U",
+      "bowlCount": 1,
+      "holeWidthMm": null,
+      "holeDepthMm": null,
+      "holeRadiusMm": null,
+      "method": "",
+      "arrival": "notArrived",
+      "hasAccessory": false,
+      "deliveryNote": ""
+    }
+  ],
+  "stoves": [],
+  "warrantyApplyDate": "",
+  "specialNotes": "",
+  "createdByUid": "bzDkiIKD8lOeFh8n9WJMCvfPnBB3",
+  "updatedByUid": "bzDkiIKD8lOeFh8n9WJMCvfPnBB3",
+  "importedFromExcel": true,
+  "createdAt": {
+    "_seconds": 1779528762,
+    "_nanoseconds": 553000000
+  },
+  "updatedAt": {
+    "_seconds": 1779528762,
+    "_nanoseconds": 553000000
+  },
+  "status": "draft"
+}
+=== id: 0IWae2DMz8paLV40Qg2J
+{
+  "orderDate": "44265",
+  "promisedAt": "44273",
+  "amount": 11580,
+  "templatingDate": "",
+  "templatingPerson": "",
+  "category": "?孵?撅?,
+  "customerOrderNo": "16035ANB",
+  "customerId": "ANB340",
+  "customerName": "?孵?撅????拇?340ANB",
+  "customerContact": {
+    "name": "",
+    "phone": "02-26799615"
+  },
+  "owner": {
+    "name": "擐格???,
+    "phone": "0937-912-212"
+  },
+  "siteAddress": "???控??脰銵?7??璅?,
+  "countertop": {
+    "type": "銝摮?,
+    "totalCm": 194
+  },
+  "rearTreatment": "flush",
+  "specialMethods": [],
+  "stones": [
+    {
+      "brand": "撖蔑??.5",
+      "color": "S-1001",
+      "modelCode": "",
+      "materialType": "quartz",
+      "freeInput": true
+    }
+  ],
+  "sinks": [
+    {
+      "modelId": "",
+      "brand": "",
+      "model": "KL-301",
+      "bowlCount": 1,
+      "holeWidthMm": null,
+      "holeDepthMm": null,
+      "holeRadiusMm": null,
+      "method": "銝?",
+      "arrival": "notArrived",
+      "hasAccessory": false,
+      "deliveryNote": "??
+    }
+  ],
+  "stoves": [
+    {
+      "modelId": "",
+      "brand": "",
+      "model": "G-2522",
+      "holeWidthMm": 670,
+      "holeDepthMm": 350,
+      "holeRadiusMm": 85,
+      "method": "銝?"
+    }
+  ],
+  "warrantyApplyDate": "",
+  "specialNotes": "",
+  "createdByUid": "bzDkiIKD8lOeFh8n9WJMCvfPnBB3",
+  "updatedByUid": "bzDkiIKD8lOeFh8n9WJMCvfPnBB3",
+  "importedFromExcel": true,
+  "createdAt": {
+    "_seconds": 1779523271,
+    "_nanoseconds": 420000000
+  },
+  "updatedAt": {
+    "_seconds": 1779523271,
+    "_nanoseconds": 420000000
+  },
+  "status": "draft"
+}

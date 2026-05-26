@@ -62,6 +62,55 @@
         { "fieldPath": "authorUid", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "installTasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "dueDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "installTasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "priority", "order": "ASCENDING" },
+        { "fieldPath": "dueDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "installTasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "assignedDate", "order": "ASCENDING" },
+        { "fieldPath": "priority", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "installTasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "assignedCrew", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "assignedDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "installTasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "salesOrderId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "promisedAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

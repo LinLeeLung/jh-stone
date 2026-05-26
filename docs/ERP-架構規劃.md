@@ -45,7 +45,7 @@ flowchart LR
 | 2   | **訂單管理** | `salesOrders`(新)、`orderDrafts`(打板/繪圖階段) | `/sales-orders` | P1                |
 | 2.5 | **計價模組** | `quotes`(頂層)、`priceMaster`                   | `/quote`、嵌入訂單頁 | P1.5 — 回簽前必須 |
 | 3   | **生產管理** | `productionJobs`、`productionStages`            | `/production`   | P2                |
-| 4   | **派車管理** | `dispatches`、`vehicles`                        | `/dispatch`     | P3                |
+| 4   | **派車管理** | `installTasks`、`vehicles`(任務本位,見 §3.6;不另存 `dispatches`) | `/dispatch`     | P3                |
 | 5   | **維修管理** | `serviceTickets`                                | `/service`      | P4                |
 
 > 舊 `Orders`(Sheet 同步)保留唯讀,新模組以 `salesOrders` 為主檔。
@@ -58,7 +58,7 @@ flowchart LR
 
 | 欄位                                | 型別      | 說明                                                           |
 | ----------------------------------- | --------- | -------------------------------------------------------------- |
-| `id`                                | doc id    | 自動編號 `C` + yymm + 流水號,例 `C2505001`                     |
+| `id`                                | doc id    | 自動編號 `C` + yymm + 流水號,例 `C2605001`                     |
 | `shortCode`                         | string    | **客戶英文代號**(訂單號末段用,如 `ABC`);大寫英數,3~6 碼,系統內唯一 |
 | `companyId`                         | string    | 對應 Users.companyId(客戶登入用)                               |
 | `name`                              | string    | 公司/個人名稱                                                  |
@@ -83,9 +83,11 @@ flowchart LR
 | `orderNo`                      | string                          | 我方訂單號;**回簽前為空**,回簽時由 CF 產生(規則見 §3.2.1)                                                                                              |
 | `serial`                       | number                          | 5 位數流水號(冗餘,方便延伸/重做查 parent 取用);新案吃 counter,延伸/重做沿用 parent.serial                                                              |
 | `parentOrderId`                | string?                         | 若本單為「延伸」或「重做」,指向原始訂單;新訂單為 null                                                                                                   |
-| `orderType`                    | enum                            | `new`(新案)/`extension`(同案延伸)/`redo`(同案重做)                                                                                                       |
-| `extensionSeq`                 | number?                         | 延伸序號(`orderType='extension'` 時必填,例 2、3、4…)                                                                                                   |
-| `redoSeq`                      | number?                         | 重做序號(`orderType='redo'` 時必填;第 1 次=1 但編號省略不顯示,第 2 次起=2)                                                                            |
+| `orderType`                    | enum                            | `new`(新案) / `extension`(同案延伸,收費) / `redo`(同案重做,收費) / `chase`(追加東西,不收費) / `patch`(帶回修補,不收費) / `modify`(修改,不收費)<br>**使用者在「建立子訂單」時手動選擇類型**;子訂單都沿用 parent.serial 只是標記字元不同       |
+| `extensionSeq`                 | number?                         | 延伸序號(`orderType='extension'` 時必填,**從 1 起算**;原案隱含 seq=0)                                                                                       |
+| `redoSeq`                      | number?                         | 重做序號(`orderType='redo'` 時必填,**從 1 起算**,不省略;原案隱含 seq=0)                                                                          |
+| `chaseSeq` / `patchSeq` / `modifySeq` | number?              | 追加/修補/修改序號(對應 `orderType='chase' / 'patch' / 'modify'` 時必填,都從 1 起算,不省略)                                                  |
+| `chargeable`                   | bool                            | 本訂單是否收費;`new`/`extension`/`redo`=true,`chase`/`patch`/`modify`=false<br>`false` 時 `subtotal/tax/total` 預設為 0,會計可不出發票                          |
 | `customerOrderNo`              | string                          | 客戶自編單號(對帳用)                                                                                                                                     |
 | `category`                     | string                          | 訂單類別(新案/補做/工程案…)                                                                                                                              |
 | `customerId`                   | string                          | 下單方(設計師/建商/廚具廠)                                                                                                                               |
@@ -108,13 +110,13 @@ flowchart LR
 | `customerSignedAt`             | date                            | 客戶回簽日(觸發產生訂單號 + 工單)                                                                                                                        |
 | `promisedAt`                   | date                            | 預計交貨日                                                                                                                                               |
 | `installedAt`                  | date                            | 實際安裝日                                                                                                                                               |
-| `warrantyStartedAt`            | date                            | 保證書申請日(保固起算)                                                                                                                                   |
+| `warrantyStartedAt`            | date                            | 保證書申請日(保固起算);**保固期全公司固定 12 個月**,到期日 = `warrantyStartedAt + 12mo`,不另存欄位<br>維修任務建立時 CF 用此判定 `chargeable`:`now > warrantyStartedAt + 12mo` → 收費 |
 | `sourceQuoteId`                | string?                         | 來源報價單 id（`quotes/{id}`）；有值代表金額鎖定於該報價，不隨市場價變動                                                                                  |
 | `priceLocked`                  | bool                            | `true` = 使用舊報價快照價格；`false` = 訂單內重新計價                                                                                                    |
 | `subtotal`/`tax`/`total`       | number                          | 金額(會計用，從 sourceQuote 複製或計價後填入)                                                                                                            |
 | `invoiceNo`                    | string                          | 發票號(會計回填)                                                                                                                                         |
 | `paymentStatus`                | enum                            | `unpaid`/`partial`/`paid`                                                                                                                                |
-| `status`                       | enum                            | `draft`→`pendingSign`→`confirmed`→`inProduction`→`done`→`scheduled`→`installed`→`closed` / `cancelled`                                                   |
+| `status`                       | enum                            | `draft`→`pendingSign`→`confirmed`→`inProduction`→`done`→`installed`→`closed` / `cancelled`<br>**狀態切換點**:<br>• `confirmed`:客戶回簽、工單建立、待裁切<br>• `inProduction`:第一關 `cut` 由 pending→inProgress 時 CF 同步切換<br>• `done`:qc 通過、工單結案,等派車<br>• `installed`:`installTasks.status='completed'` 時 CF 同步切換 |
 | `productionJobId`/`dispatchId` | string                          | 關聯                                                                                                                                                     |
 | `createdAt`/`lockedAt`         | timestamp                       | `lockedAt` 後禁改(會計鎖單)                                                                                                                              |
 | `createdByUid`                 | string                          | 建檔人                                                                                                                                                   |
@@ -122,14 +124,29 @@ flowchart LR
 
 #### 3.2.1 訂單號 `orderNo` 生成規則
 
-格式由三段組成:**`{流水號}{延伸/重做標記}{客戶代號}`**;`[ ]` 為占位符,實際輸出**不含方括號**。
+格式由三段組成:**`{流水號}{子訂單標記}{客戶代號}`**;原案無標記。
 
-| 情境 | 格式 | 範例 |
-|------|------|------|
-| 新訂單 | `{流水號}{客戶代號}` | `12345ABC` |
-| 同案延伸(第 N 次) | `{原案流水號}-{extensionSeq}{客戶代號}` | `12345-2ABC`、`12345-3ABC` |
-| 同案重做(第 1 次) | `{原案流水號}重{客戶代號}` | `12345重ABC` |
-| 同案重做(第 2 次起) | `{原案流水號}重{redoSeq}{客戶代號}` | `12345重2ABC`、`12345重3ABC` |
+**子訂單標記字元對照**
+
+| `orderType` | 中文 | 標記格式 | 對應 seq 欄 | 是否收費 |
+|---|---|---|---|---|
+| `new` | 新案 | (無) | — | ✅ |
+| `extension` | 延伸 | `-{seq}` | `extensionSeq` | ✅ |
+| `redo` | 重做 | `重{seq}` | `redoSeq` | ✅ |
+| `chase` | 追加 | `追{seq}` | `chaseSeq` | ❌ |
+| `patch` | 帶回修補 | `補{seq}` | `patchSeq` | ❌ |
+| `modify` | 修改 | `改{seq}` | `modifySeq` | ❌ |
+
+**範例**
+
+| 情境 | 範例 |
+|------|------|
+| 新訂單(原案,隱含 seq=0) | `12345ABC` |
+| 同案延伸第 1 / 2 次 | `12345-1ABC`、`12345-2ABC` |
+| 同案重做第 1 / 2 次 | `12345重1ABC`、`12345重2ABC` |
+| 追加第 1 / 2 次(免費) | `12345追1ABC`、`12345追2ABC` |
+| 修補第 1 / 2 次(免費) | `12345補1ABC`、`12345補2ABC` |
+| 修改第 1 / 2 次(免費) | `12345改1ABC`、`12345改2ABC` |
 
 **欄位對應**
 
@@ -145,15 +162,15 @@ flowchart LR
 **CF `onOrderSigned`(回簽觸發)邏輯**
 
 ```
+0. 約定:原案隱含所有 *Seq=0(不寫入欄位);子訂單各類型 seq 獨立計數,都從 1 起
+   marker 對照表: extension='-', redo='重', chase='追', patch='補', modify='改'
+   seqField 對照表: extension=extensionSeq, redo=redoSeq, chase=chaseSeq, patch=patchSeq, modify=modifySeq
 1. 讀 orderType:
-   - 'new'     → serial = nextSerial(); orderNo = `${pad5(serial)}${cust.shortCode}`
-   - 'extension'→ seq = (parent 的最大 extensionSeq)+1; orderNo = `${pad5(parent.serial)}-${seq}${cust.shortCode}`
-   - 'redo'    → seq = (parent 的最大 redoSeq)+1
-                 orderNo = seq===1
-                   ? `${pad5(parent.serial)}重${cust.shortCode}`
-                   : `${pad5(parent.serial)}重${seq}${cust.shortCode}`
+   - 'new' → serial = nextSerial(); orderNo = `${pad5(serial)}${cust.shortCode}`
+   - 其他 → seq = (parent 同類型子單的 max(seqField) ▷無則視為 0) + 1
+           orderNo = `${pad5(parent.serial)}${marker}${seq}${cust.shortCode}`
 2. 寫入 orderNo + customerSignedAt(原本流程)
-3. 建立 productionJobs(原本流程)
+3. 建立 productionJobs(原本流程);但若 chargeable=false 且 該類型不需進廠(見 §3.2.4),則跳過
 ```
 
 **Migration 腳本需求**(待寫)
@@ -183,10 +200,8 @@ flowchart LR
 4. 計價(可選沿用原報價或重新計價)
 5. 傳客戶確認 → status='pendingSign'
 6. 客戶回簽 → CF onOrderSigned:
-   - redoSeq = (parent 已有 redo 子單最大 redoSeq) + 1
-   - orderNo = redoSeq===1
-       ? `${pad5(serial)}重${shortCode}`
-       : `${pad5(serial)}重${redoSeq}${shortCode}`
+   - redoSeq = (parent 已有 redo 子單最大 redoSeq ▷無則視為 0) + 1
+   - orderNo = `${pad5(serial)}重${redoSeq}${shortCode}`
    - 建生產工單(全新一條,不沿用舊工序狀態)
 ```
 
@@ -209,9 +224,23 @@ flowchart LR
    - **drawingFileUrl**:CF 複製原圖到新路徑(例 `drawings/{newOrderId}/原檔名_延伸2.dwg`)當底圖,辦公室再決定大改或重畫
    - 預設只帶 customerId/siteAddress/owner,其餘清空(因為是新部位、新石材)
 3. 辦公室填新部位資訊 → 繪圖 → 計價 → 客戶確認
-4. 回簽 → CF: extensionSeq = (parent 已有 extension 最大 seq)+1
+4. 回簽 → CF: extensionSeq = (parent 已有 extension 最大 seq ▷無則視為 0) + 1
             orderNo = `${pad5(serial)}-${extensionSeq}${shortCode}`
 ```
+
+#### 3.2.4 免費子訂單:追 / 補 / 改(`chase` / `patch` / `modify`)
+
+這三類與 `extension` / `redo` 共用同一個 clone 流程,只差:
+
+- **`chargeable=false`**:不交給會計,`subtotal/tax/total=0`,不走報價流程(也不需客戶回簽金額)
+- **使用時機**(由辦公室由使用者自行判斷,建立子訂單時下拉選類型):
+  - `chase`(追) — 追加東西(例:送漏訂的送件、加送一块小料),不另收費
+  - `patch`(補) — 帶回廠修補(例:零件損傷重做一块小部位),免費
+  - `modify`(改) — 已製作但需指正修改(例:开孔位置略調),免費
+- **生產流程**:`patch` / `modify` 通常需入廠(有裁切/加工),仍建 `productionJobs`;
+  `chase` 若只是追送現成品可手動在建立時不建工單(UI 提供「不需進廠」勾選)
+- **代號對應**:同 §3.2.1 表格;`chaseSeq` / `patchSeq` / `modifySeq` 與 `extensionSeq` / `redoSeq` 同樣獨立計數
+- **家族樹顯示**:訂單詳情頁【原案】下方依類型分組顯示延伸1/2、重做1、追1、補1、改2 並標記是否收費
 
 ---
 
@@ -306,12 +335,19 @@ flowchart LR
 
 #### Cloud Function `onQuoteAccepted`
 
+> 報價 `status: sent → accepted` 時觸發,**依 `orderId` 是否存在分流**:
+
 ```
 quotes/{id} status: sent → accepted
-  ├─ 更新 salesOrders.subtotal / tax / total
-  ├─ 更新 salesOrders.customerSignedAt = acceptedAt
-  ├─ 若有同 orderId 其他 active quote → 標為 superseded
-  └─ 觸發 onOrderSigned（產生訂單號 + 建生產工單）
+  ├─ orderId == null  → 獨立報價接受
+  │     僅標 acceptedAt;不動訂單(訂單還沒生)
+  │     之後客戶要下單時走「報價比對流程」連到新訂單
+  │
+  └─ orderId != null  → 訂單內計價的報價接受
+        ├─ 更新 salesOrders.subtotal / tax / total
+        ├─ 更新 salesOrders.customerSignedAt = acceptedAt
+        ├─ 若有同 orderId 其他 active quote → 標為 superseded
+        └─ 觸發 onOrderSigned(產生訂單號 + 建生產工單)
 ```
 
 #### `priceMaster` — 工作項目單價主檔（獨立集合，讓管理者維護）
@@ -364,7 +400,7 @@ match /priceMaster/{id} {
 > 工單於客戶**回簽**後自動建立,同時產生訂單號碼。
 
 | 欄位 | 說明 |
-|------|——|
+|------|------|
 | `orderId` / `orderNo` | |
 | `bomFileUrl` | 拆料單(可上傳 PDF/Excel) |
 | `stages` | 子集合 `productionStages`,**最多 6 關**:見下方 |
@@ -378,7 +414,7 @@ match /priceMaster/{id} {
 
 | stageKey   | 中文 | 說明                                                                                                                      |
 | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------- |
-| `cut`      | 裁切 | 依圖面裁石                                                                                                                |
+| `cut`      | 裁切 | **含拆料**:裁切員接到工單後第一件事就是依圖面拆料、將拆料單(`bomFileUrl`)上傳至工單、再進行裁石<br>**不另列 `breakdown` 關卡**;拆料視為裁切關卡的序曲 |
 | `waterjet` | 水刀 | 開孔(爆牡/水槽/形狀)                                                                                                      |
 | `bond`     | 黏合 | 拼接點跟/補塗                                                                                                             |
 | `grind`    | 水磨 | 倒角/光滑處理                                                                                                             |
@@ -386,13 +422,28 @@ match /priceMaster/{id} {
 | `qc`       | 驗收 | 最終品質檢查;失敗可退回對應關                                                                                             |
 
 | 欄位 | 說明 |
-|------|——|
+|------|------|
 | `stage` | 同上表 stageKey |
 | `assigneeUid` | 負責員工 |
 | `startedAt` / `finishedAt` | |
 | `status` | `pending`/`inProgress`/`done`/`rejected` |
-| `notes` / `photoUrls[]` | |
+| `notes` | 工序備註 |
+| `photoLinkUrl` | **照片上傳/檢視連結**(見下方說明) |
 | `qcResult` _(僅 qc)_ | `pass`/`fail` + `failReason` → 失敗自動退回指定關 |
+
+##### 工序照片上傳機制
+
+**不在系統內存照片檔**,改為串接既有 NAS 上傳 API。員工下班前拍照後,用手機開啟對應日期的上傳頁。
+
+- **API**:`https://junchengstone.synology.me/upload/pic/?date=YYYY-MM-DD`
+- **上傳者**:該關卡負責人員(如 `cut` 由裁切員,下班後拍照上傳當日完工照)
+- **系統職責**:依工序的 `finishedAt`(或 `startedAt`)日期自動生成 `photoLinkUrl`
+  - 例:`cut.finishedAt = 2026-05-25` → `photoLinkUrl = https://junchengstone.synology.me/upload/pic/?date=2026-05-25`
+- **顯示**:工序列以及安裝端「今日我的任務」均提供此連結,點開即看當日所有上傳照片
+- **不需 Firestore Storage 規則**:照片所有權與保存由 NAS 端控管
+- **下班前未上傳提醒**:裁切/水刀/驗收人員常忘記下班前上傳照片
+  - CF 每日 17:30 掃描當日 `productionStages WHERE status='inProgress' OR finishedAt==today`,對 `assigneeUid` 推播 LINE/Web Push:「請記得拍照上傳今日「{關卡}」完工照:{photoLinkUrl}」
+  - 隱含設計:系統不檢查照片是否真的上傳(不拉 NAS API 查),僅負責提醒;業務主管事後可手動到 NAS 查看
 
 ### 3.6 派車模組 — 任務本位 `installTasks`
 
@@ -426,7 +477,8 @@ flowchart LR
 | 一單多次(直到完工) | 同一 `sourceRef` 可有多筆任務,`tripNo` 自動遞增;`partial` 結束會 CF 自動新建下一筆 `pending` 任務 |
 | 臨時取消重排 | `status='cancelled'` + 留檔;CF 自動 clone 一筆 `pending` 待重排(可由維修組決定是否) |
 | 安裝組內部換人 | 安裝人員可改 `assignedCrew[]`(限同車次成員互換),記 `crewChangeLog[]` |
-| 維修保固外收費 | 任務 `chargeable=true` + 結案時 CF 產生 `category='維修'` 的 `salesOrders` 連會計 |
+| 維修保固外收費 | 任務 `chargeable=true` + 結案時 CF 產生 `category='維修'` 的 `salesOrders` 連會計;**預設僅產生會計用訂單,不建 `productionJobs`**(現場修補/補矽利康/補膠/局部研磨等不需進廠) |
+| 維修需重新製作石材 | 屬於少數情境;**不由維修任務自動轉**,改由維修組通知辦公室,辦公室依 §3.2.2「重做單」流程手動建立 `orderType='redo'` 的新訂單(會跑完整生產流程) |
 | 售後免費 / 保固內 | `chargeable=false`,直接結案不轉訂單 |
 
 ---
@@ -435,7 +487,7 @@ flowchart LR
 
 | 欄位 | 型別 | 說明 |
 |------|------|------|
-| `taskNo` | string | `T` + yymmdd + 流水(`T2605260-01`) |
+| `taskNo` | string | `T` + yymmdd + `-` + 2 位流水(`T260526-01` = 2026/05/26 當日第 1 筆) |
 | `sourceType` | enum | `install`(新訂單安裝) / `service`(售後免費) / `repair`(收費維修) |
 | `sourceRef` | object | install:`{kind:'salesOrders', id, no:orderNo}`<br>service/repair:`{kind:'serviceTickets', id, no:ticketNo}` |
 | `customerId` | string | 快照 |
@@ -455,7 +507,7 @@ flowchart LR
 | `leadInstallerUid` | string? | 該車次的領班 |
 | **`status`** | enum | `pending`(待派)→ `assigned`(已派)→ `inProgress`(到場中)→ `completed`/`partial`/`cancelled`/`noShow` |
 | `arrivedAt` / `leftAt` | timestamp | 實際到/離場(行動端打卡) |
-| `completionPhotoIds[]` | string[] | 串現有 `completionPhotos` 子集合 |
+| `completionPhotoIds[]` | string[] | 串現有 `completionPhotos` 子集合(沿用既有員工完工照片管理 UI,見下方說明) |
 | `customerSignatureUrl` | string? | 簽收圖 |
 | `reportNote` | string | 安裝組現場備註 |
 | `partialReason` | string? | 未完成原因(`partial` 必填) |
@@ -468,6 +520,28 @@ flowchart LR
 | `crewChangeLog[]` | array | `[{at, byUid, before:[uids], after:[uids], reason}]` |
 | `createdAt` / `createdByUid` | | 任務建立來源(CF / 維修組手動) |
 | `updatedAt` / `updatedByUid` | | |
+
+##### 安裝完工照片管理(沿用既有系統)
+
+**與工序照片(NAS 連結模式)不同**:安裝完工照片由本系統內建模組管理,**直接複用 jh-stone 既有「員工完工照片」功能**,不另開新 UI。
+
+- **既有 UI**:`Orders/{orderDocId}/completionPhotos` 子集合 + Cloud Functions
+  - 列表/瀏覽:`listOrderCompletionPhotos(orderDocId)`
+  - 上傳:`uploadOrderCompletionPhotos` → `uploadCompletionPhotoToNasHttp`
+  - 替換:`replaceOrderCompletionPhoto` → `replaceCompletionPhotoInNasHttp`
+  - 刪除:`deleteOrderCompletionPhoto` → `deleteCompletionPhotoInNas`
+  - 客戶分享相簿:`createCompletionPhotoShareAlbum`(24h 臨時連結)
+  - 操作介面參考:[員工完工照片上傳說明.md](../員工完工照片上傳說明.md)
+- **儲存**:檔案存 NAS,Firestore 只記 metadata(檔名、上傳者、時間戳、NAS 路徑)
+- **與舊系統的差異 — 資料夾建立邏輯**:
+  - 舊流程:上傳前先在 NAS 找對應的「訂單 PDF」資料夾,找到才放
+  - 新流程:**不再回 NAS 找舊資料夾**,任務首次上傳照片時 CF 直接以 `installTasks` 欄位建立新資料夾(命名規則見下);找不到舊資料夾也不報錯
+  - 好處:擺脫對舊 NAS 訂單檔結構的依賴,新訂單一律乾淨開新資料夾
+- **新增 collection 設計**:由於本次重構主檔從舊 `Orders` 切換到 `salesOrders`,需把 `completionPhotos` 子集合掛到 `installTasks/{taskId}/completionPhotos`(以「任務」為單位,一單多次出車各自獨立)
+  - 顯示時:訂單詳情頁聚合該訂單所有 `installTasks` 的照片
+- **資料夾命名**(沿用):`年-月-日 訂單號碼 石材型號 安裝人員1 安裝人員2 +車號`
+- **單檔上限**:120 MB(沿用既有限制)
+- **權限**:`isStaff()` 可讀;只有被指派的 `assignedCrew[]` 或 service/admin 可上傳/刪除
 
 #### 3.6.2 「車次」的隱含定義
 
@@ -484,12 +558,14 @@ flowchart LR
 
 | 觸發 | 動作 |
 |------|------|
+| **`productionStages/cut.status` → `inProgress`** | `salesOrders.status` 從 `confirmed` → `inProduction`(裁切實際開工才切換) |
+| **`productionStages/qc.status` → `done`(pass)** | `salesOrders.status` → `done`、`productionJobs.currentStage='done'`(工單結案,等派車) |
 | **每晚 22:00 排程** | 掃描 `salesOrders WHERE status='done' AND promisedAt BETWEEN today AND today+7`,未對應 `installTasks` 者自動建立 `pending` 任務(`sourceType='install'`、`tripNo=1`) |
 | **維修組手動建單** | 從 `serviceTickets` 一鍵建立任務(預填地址、聯絡人、`chargeable=!inWarranty`) |
 | **task.status → `completed`** | 若 `sourceType='install'`:`salesOrders.installedAt=now`、`status='installed'`<br>若 `sourceType` 為 `service/repair`:`serviceTickets.status='resolved'` |
 | **task.status → `partial`** | 自動 clone 一筆 `status='pending'` 新任務(`tripNo+1`、繼承 `sourceRef`/地址/聯絡人),回到任務池等待維修組重排<br>**不自動帶日期**:`assignedDate=null`、`scheduledStartAt=null`、`vehicleId=null`、`assignedCrew=[]`<br>`purpose` 自動填入「續上次:{partialReason}」<br>`followUpNote` 帶上次回報內容,維修組需聯絡客戶確認日期後再排入甘特圖 |
 | **task.status → `cancelled`** | 若是當日取消(`assignedDate==today`),自動 clone `pending` 待重排;非當日不 clone(維修組決定) |
-| **task.status → `completed` 且 `chargeable=true`** | 自動建立 `salesOrders`(`category='維修'`、`sourceTicketId`、`subtotal=finalCost`),會計請款 |
+| **task.status → `completed` 且 `chargeable=true`** | 自動建立 `salesOrders`(`category='維修'`、`sourceTicketId`、`subtotal=finalCost`、**`productionJobId=null`**),僅供會計請款,**不觸發 `productionJobs` 建立**(現場修補類維修不需進廠裁切)<br>若該維修實際需重做石材,應由辦公室另行依 §3.2.2 建立 `orderType='redo'` 訂單,不走此路徑 |
 | **assignedCrew 異動** | 寫入 `crewChangeLog[]` |
 
 #### 3.6.4 安裝人員「今日我的任務」查詢
