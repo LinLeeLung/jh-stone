@@ -119,6 +119,60 @@
       </button>
     </div>
 
+    <div v-if="completedSearchJobs.length" class="completed-search-panel">
+      <div class="completed-search-head">
+        <h3>已完成工單搜尋結果</h3>
+        <span>共 {{ completedSearchJobs.length }} 筆，可直接退回</span>
+      </div>
+      <div class="table-wrap">
+        <table class="jobs-table completed-table">
+          <thead>
+            <tr>
+              <th>完成日期</th>
+              <th>訂單號</th>
+              <th>客戶</th>
+              <th>施工地址</th>
+              <th>石材</th>
+              <th>金額</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="job in completedSearchJobs" :key="job.id">
+              <td class="col-date">
+                <span class="date-badge badge-completed">
+                  {{ fmtStageDoneDate(job.stages?.qc?.doneAt) || '—' }}
+                </span>
+              </td>
+              <td class="col-no">
+                <RouterLink :to="`/orders/${job.orderId}/edit`" class="order-link">
+                  {{ job.orderNo || '—' }}
+                </RouterLink>
+              </td>
+              <td class="col-customer">{{ job.customerName || '—' }}</td>
+              <td class="col-addr">{{ job.siteAddress || '—' }}</td>
+              <td class="col-stone">
+                <span
+                  v-for="(s, i) in job.stones"
+                  :key="i"
+                  class="stone-tag"
+                  :class="'mat-' + s.materialType"
+                >
+                  {{ s.color || s.brand || s.materialType }}
+                </span>
+              </td>
+              <td class="col-money">{{ job.total ? fmtMoney(job.total) : '—' }}</td>
+              <td class="col-actions">
+                <button class="btn-reject" @click="openReject(job)">
+                  ↩ 退回
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <p v-if="loading" class="hint">載入中…</p>
     <p v-else-if="!filteredJobs.length" class="hint">目前無待{{ stageName }}訂單。</p>
 
@@ -210,7 +264,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { PRODUCTION_STAGES, listProductionJobs, advanceProductionStage, rejectProductionQc, resetProductionJob, backfillProductionJobs, getUserByUid } from "../firebase";
+import { PRODUCTION_STAGES, listProductionJobs, advanceProductionStage, rejectProductionQc, resetProductionJob, backfillProductionJobs, backfillLegacyOrderProductionFields, getUserByUid } from "../firebase";
 import { auth } from "../firebase";
 
 const STAGES = PRODUCTION_STAGES;
@@ -267,6 +321,29 @@ function isToday(ts) {
   return d.getFullYear() === now.getFullYear() &&
          d.getMonth()    === now.getMonth() &&
          d.getDate()     === now.getDate();
+}
+
+function matchJobKeyword(job, kw) {
+  if (!kw) return true;
+  return (
+    (job.orderNo || "").toLowerCase().includes(kw) ||
+    (job.customerName || "").toLowerCase().includes(kw) ||
+    (job.siteAddress || "").toLowerCase().includes(kw) ||
+    (job.stones || []).some(
+      (s) =>
+        (s.color || "").toLowerCase().includes(kw) ||
+        (s.brand || "").toLowerCase().includes(kw),
+    )
+  );
+}
+
+function fmtStageDoneDate(value) {
+  const d = tsToDate(value);
+  if (!d) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function isDateToday(dateStr) {
@@ -344,21 +421,23 @@ const allByDate = computed(() =>
 );
 const pendingByDate = computed(() => groupByDate(pendingJobs.value));
 
+const completedSearchJobs = computed(() => {
+  const kw = keyword.value.trim().toLowerCase();
+  if (!kw) return [];
+  return allJobs.value
+    .filter((j) => j.currentStage === "done" && matchJobKeyword(j, kw))
+    .sort((a, b) => {
+      const aTs = tsToDate(a.stages?.qc?.doneAt)?.getTime() || 0;
+      const bTs = tsToDate(b.stages?.qc?.doneAt)?.getTime() || 0;
+      return bTs - aTs;
+    })
+    .slice(0, 20);
+});
+
 const filteredJobs = computed(() => {
   let jobs = [...pendingJobs.value];
   const kw = keyword.value.trim().toLowerCase();
-  if (kw) {
-    jobs = jobs.filter((j) =>
-      (j.orderNo || "").toLowerCase().includes(kw) ||
-      (j.customerName || "").toLowerCase().includes(kw) ||
-      (j.siteAddress || "").toLowerCase().includes(kw) ||
-      (j.stones || []).some(
-        (s) =>
-          (s.color || "").toLowerCase().includes(kw) ||
-          (s.brand || "").toLowerCase().includes(kw)
-      )
-    );
-  }
+  if (kw) jobs = jobs.filter((j) => matchJobKeyword(j, kw));
   // sort
   jobs = [...jobs].sort((a, b) => {
     const da = a.promisedAt || "9999";
@@ -431,7 +510,7 @@ async function confirmReject() {
 }
 
 async function onBackfill() {
-  if (!confirm("將為所有「已確認」和「生產中」的訂單補建生產工單，是否繼續？")) return;
+  if (!confirm("將為所有「已確認」和「生產中」的訂單補建生產工單，並回填員工查詢的裁切/水刀/驗收欄位，是否繼續？")) return;
   backfilling.value = true;
   backfillDone.value = 0;
   backfillTotal.value = 0;
@@ -440,7 +519,13 @@ async function onBackfill() {
       backfillDone.value = d;
       backfillTotal.value = t;
     });
-    alert(`補建完成：共 ${done}/${total} 筆工單`);
+    backfillDone.value = 0;
+    backfillTotal.value = 0;
+    const productionSync = await backfillLegacyOrderProductionFields((d, t) => {
+      backfillDone.value = d;
+      backfillTotal.value = t;
+    });
+    alert(`補建完成：工單 ${done}/${total} 筆，Orders 欄位回填 ${productionSync.done}/${productionSync.total} 筆`);
     await reload();
   } catch (e) {
     console.error(e);
@@ -626,6 +711,33 @@ onMounted(async () => {
 .btn-sort:hover  { background: #f0f0f0; }
 .btn-sort.active { background: #1976d2; color: #fff; border-color: #1976d2; }
 
+.completed-search-panel {
+  margin-bottom: 14px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+}
+.completed-search-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.completed-search-head h3 {
+  margin: 0;
+  font-size: .95rem;
+  color: #334155;
+}
+.completed-search-head span {
+  font-size: .82rem;
+  color: #64748b;
+}
+.completed-table {
+  background: #fff;
+}
+
 /* ── Table ── */
 .table-wrap { overflow-x: auto; }
 .jobs-table {
@@ -663,6 +775,7 @@ onMounted(async () => {
 }
 .date-badge.badge-today   { background: #ff6f00; color: #fff; }
 .date-badge.badge-overdue { background: #b71c1c; color: #fff; }
+.date-badge.badge-completed { background: #455a64; color: #fff; }
 
 .stone-tag {
   display: inline-block;

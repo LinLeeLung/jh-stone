@@ -416,9 +416,12 @@ export async function updateUserDept(uid, dept) {
 export async function updateUserPermissions(uid, flags = {}) {
   const userRef = doc(db, "Users", uid);
   const patch = {};
-  if (typeof flags.service === "boolean") patch["permissions.service"] = flags.service;
-  if (typeof flags.installer === "boolean") patch["permissions.installer"] = flags.installer;
-  if (typeof flags.office === "boolean") patch["permissions.office"] = flags.office;
+  if (typeof flags.service === "boolean")
+    patch["permissions.service"] = flags.service;
+  if (typeof flags.installer === "boolean")
+    patch["permissions.installer"] = flags.installer;
+  if (typeof flags.office === "boolean")
+    patch["permissions.office"] = flags.office;
   if (Object.keys(patch).length === 0) return;
   await updateDoc(userRef, patch);
 }
@@ -454,7 +457,12 @@ export async function saveRoutePermissionsConfig(routes) {
   if (!Array.isArray(routes)) throw new Error("routes 必須為陣列");
   // Firestore 不接受 undefined，將每筆資料中 undefined 的欄位移除
   const sanitized = routes.map((r) => {
-    const entry = { path: r.path, title: r.title, roles: Array.isArray(r.roles) ? r.roles : [], group: r.group || '' };
+    const entry = {
+      path: r.path,
+      title: r.title,
+      roles: Array.isArray(r.roles) ? r.roles : [],
+      group: r.group || "",
+    };
     if (Array.isArray(r.depts) && r.depts.length > 0) entry.depts = r.depts;
     return entry;
   });
@@ -974,7 +982,8 @@ export async function uploadInstallTaskCompletionPhotos(
   const orderDocId = salesOrderId.startsWith("legacy_")
     ? salesOrderId.slice(7)
     : salesOrderId;
-  if (!orderDocId) throw new Error("派車任務缺少 salesOrderId,無法定位 NAS 資料夾");
+  if (!orderDocId)
+    throw new Error("派車任務缺少 salesOrderId,無法定位 NAS 資料夾");
   return uploadOrderCompletionPhotos(
     orderDocId,
     String(task.orderNumber || ""),
@@ -1000,12 +1009,7 @@ export async function uploadInstallTaskCompletionPhotos(
 export async function listInstallTaskCompletionPhotos(taskId) {
   if (!taskId) return [];
   await authReadyPromise;
-  const photosRef = collection(
-    db,
-    "installTasks",
-    taskId,
-    "completionPhotos",
-  );
+  const photosRef = collection(db, "installTasks", taskId, "completionPhotos");
   const q = query(photosRef, orderBy("uploadedAt", "desc"));
   const snaps = await getDocs(q);
   const rows = snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -1477,8 +1481,14 @@ export async function listStaffByDept(dept) {
   const snap = await getDocs(collection(db, "staff"));
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((s) => String(s.dept ?? "") === String(dept) && String(s.status || "") !== "離職")
-    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"));
+    .filter(
+      (s) =>
+        String(s.dept ?? "") === String(dept) &&
+        String(s.status || "") !== "離職",
+    )
+    .sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"),
+    );
 }
 
 // 取所有產品型號（可指定 type 過濾：sink / stove / hood / accessory）
@@ -1526,7 +1536,9 @@ function _ordersNormalizeYmd(input) {
       const m = String(dd.getMonth() + 1).padStart(2, "0");
       const da = String(dd.getDate()).padStart(2, "0");
       return `${y}-${m}-${da}`;
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      /* ignore */
+    }
   }
   if (input instanceof Date) {
     const y = input.getFullYear();
@@ -1536,13 +1548,14 @@ function _ordersNormalizeYmd(input) {
   }
   const s = String(input).trim();
   if (!s) return null;
-  if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  if (/^\d{8}$/.test(s))
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
   let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
-  if (m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
   m = s.match(/^(\d{2,3})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (m) {
     const y = parseInt(m[1], 10) + 1911;
-    return `${y}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+    return `${y}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
   }
   return null;
 }
@@ -1559,14 +1572,37 @@ function _ordersMapStatus(raw, promisedAt) {
   return promisedAt ? "confirmed" : "draft";
 }
 function _ordersMapDoc(id, d) {
-  const customerName = String(_ordersPickFirst(d, ["customerName", "客戶名稱", "客戶"]) || "").trim();
-  const orderNo = String(_ordersPickFirst(d, ["orderNumber", "訂單號碼", "訂單編號", "orderNo"]) || "").trim();
-  const siteAddress = String(_ordersPickFirst(d, ["installAddress", "安裝地點", "安裝地址", "地址", "siteAddress"]) || "").trim();
-  const promisedAtRaw = _ordersPickFirst(d, ["installDate", "安裝日", "預定安裝日", "promisedAt", "預定日"]);
+  const customerName = String(
+    _ordersPickFirst(d, ["customerName", "客戶名稱", "客戶"]) || "",
+  ).trim();
+  const orderNo = String(
+    _ordersPickFirst(d, ["orderNumber", "訂單號碼", "訂單編號", "orderNo"]) ||
+      "",
+  ).trim();
+  const siteAddress = String(
+    _ordersPickFirst(d, [
+      "installAddress",
+      "安裝地點",
+      "安裝地址",
+      "地址",
+      "siteAddress",
+    ]) || "",
+  ).trim();
+  const promisedAtRaw = _ordersPickFirst(d, [
+    "installDate",
+    "安裝日",
+    "預定安裝日",
+    "promisedAt",
+    "預定日",
+  ]);
   const promisedAt = _ordersNormalizeYmd(promisedAtRaw);
-  const rawStatus = String(_ordersPickFirst(d, ["status", "狀態", "施工狀態"]) || "").trim();
+  const rawStatus = String(
+    _ordersPickFirst(d, ["status", "狀態", "施工狀態"]) || "",
+  ).trim();
   const status = _ordersMapStatus(rawStatus, promisedAt);
-  const color = String(_ordersPickFirst(d, ["顏色", "color", "stoneColor"]) || "").trim();
+  const color = String(
+    _ordersPickFirst(d, ["顏色", "color", "stoneColor"]) || "",
+  ).trim();
   const totalCmRaw = _ordersPickFirst(d, ["公分數", "totalCm"]);
   const totalCm = Number(totalCmRaw) || 0;
   const totalRaw = _ordersPickFirst(d, ["銷售額", "total", "金額"]);
@@ -1583,9 +1619,16 @@ function _ordersMapDoc(id, d) {
     stones: color ? [{ brand: "", color }] : [],
     countertop: totalCm ? { totalCm } : null,
     total,
-    category: String(_ordersPickFirst(d, ["category", "類別", "工程類別"]) || "") || null,
-    templatingStaff: String(_ordersPickFirst(d, ["templatingStaff", "打板", "打板人員"]) || "") || null,
-    drawingStaff: String(_ordersPickFirst(d, ["drawingStaff", "對圖", "繪圖人員"]) || "") || null,
+    category:
+      String(_ordersPickFirst(d, ["category", "類別", "工程類別"]) || "") ||
+      null,
+    templatingStaff:
+      String(
+        _ordersPickFirst(d, ["templatingStaff", "打板", "打板人員"]) || "",
+      ) || null,
+    drawingStaff:
+      String(_ordersPickFirst(d, ["drawingStaff", "對圖", "繪圖人員"]) || "") ||
+      null,
     isTestData: !!d?.isTestData,
   };
 }
@@ -1604,17 +1647,21 @@ export async function listOrders({ limit: lim = 500 } = {}) {
   return snap.docs.map((d) => _ordersMapDoc(d.id, d.data() || {}));
 }
 
-
 // 刪除所有標記為測試資料的訂單
 export async function deleteTestOrders() {
   await authReadyPromise;
-  const q = query(collection(db, "salesOrders"), where("isTestData", "==", true));
+  const q = query(
+    collection(db, "salesOrders"),
+    where("isTestData", "==", true),
+  );
   const snap = await getDocs(q);
   const ids = snap.docs.map((d) => d.id);
   const CHUNK = 499;
   for (let i = 0; i < ids.length; i += CHUNK) {
     const batch = writeBatch(db);
-    ids.slice(i, i + CHUNK).forEach((id) => batch.delete(doc(db, "salesOrders", id)));
+    ids
+      .slice(i, i + CHUNK)
+      .forEach((id) => batch.delete(doc(db, "salesOrders", id)));
     await batch.commit();
   }
   return ids.length;
@@ -1628,9 +1675,14 @@ export async function resetAllOrderStatusToDraft() {
   const CHUNK = 499;
   for (let i = 0; i < ids.length; i += CHUNK) {
     const batch = writeBatch(db);
-    ids.slice(i, i + CHUNK).forEach((id) =>
-      batch.update(doc(db, "salesOrders", id), { status: "draft", updatedByUid: uid })
-    );
+    ids
+      .slice(i, i + CHUNK)
+      .forEach((id) =>
+        batch.update(doc(db, "salesOrders", id), {
+          status: "draft",
+          updatedByUid: uid,
+        }),
+      );
     await batch.commit();
   }
   return ids.length;
@@ -1702,7 +1754,11 @@ export async function createRepairTicket({
 export async function listRepairTickets({ limit: lim = 100 } = {}) {
   await authReadyPromise;
   const snap = await getDocs(
-    query(collection(db, "repairTickets"), orderBy("createdAt", "desc"), limit(lim)),
+    query(
+      collection(db, "repairTickets"),
+      orderBy("createdAt", "desc"),
+      limit(lim),
+    ),
   );
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
@@ -1748,13 +1804,21 @@ export async function loadDispatchByDate(date) {
 
   // 並行載入
   const [salesSnap, repairSnap, entriesSnap] = await Promise.all([
-    getDocs(query(collection(db, "salesOrders"), where("promisedAt", "==", date))),
-    getDocs(query(collection(db, "repairTickets"), where("repairDate", "==", date))),
-    getDocs(query(collection(db, "dispatchEntries"), where("date", "==", date))),
+    getDocs(
+      query(collection(db, "salesOrders"), where("promisedAt", "==", date)),
+    ),
+    getDocs(
+      query(collection(db, "repairTickets"), where("repairDate", "==", date)),
+    ),
+    getDocs(
+      query(collection(db, "dispatchEntries"), where("date", "==", date)),
+    ),
   ]);
 
   const entryMap = new Map();
-  entriesSnap.docs.forEach((d) => entryMap.set(d.id, { id: d.id, ...d.data() }));
+  entriesSnap.docs.forEach((d) =>
+    entryMap.set(d.id, { id: d.id, ...d.data() }),
+  );
 
   const rows = [];
 
@@ -1771,10 +1835,13 @@ export async function loadDispatchByDate(date) {
       sourceOrderNo: o.orderNo || "",
       customerName: o.customerName || "",
       siteAddress: o.siteAddress || "",
-      stoneLabel: [o.stones?.[0]?.brand, o.stones?.[0]?.color].filter(Boolean).join(" "),
+      stoneLabel: [o.stones?.[0]?.brand, o.stones?.[0]?.color]
+        .filter(Boolean)
+        .join(" "),
       reason: ent.reason || "",
       installerUids: ent.installerUids || [],
       installerNames: ent.installerNames || [],
+      vehiclePlate: ent.vehiclePlate || "",
       etaTime: ent.etaTime || "",
       completed: !!ent.completed,
       completedAt: ent.completedAt || null,
@@ -1798,9 +1865,13 @@ export async function loadDispatchByDate(date) {
       customerName: r.sourceCustomerName || "",
       siteAddress: r.sourceSiteAddress || "",
       stoneLabel: "",
-      reason: ent.reason !== undefined && ent.reason !== null && ent.reason !== "" ? ent.reason : (r.reason || ""),
+      reason:
+        ent.reason !== undefined && ent.reason !== null && ent.reason !== ""
+          ? ent.reason
+          : r.reason || "",
       installerUids: ent.installerUids || [],
       installerNames: ent.installerNames || [],
+      vehiclePlate: ent.vehiclePlate || "",
       etaTime: ent.etaTime || "",
       completed: !!ent.completed,
       completedAt: ent.completedAt || null,
@@ -1825,6 +1896,7 @@ export async function loadDispatchByDate(date) {
       reason: e.reason || "",
       installerUids: e.installerUids || [],
       installerNames: e.installerNames || [],
+      vehiclePlate: e.vehiclePlate || "",
       etaTime: e.etaTime || "",
       completed: !!e.completed,
       completedAt: e.completedAt || null,
@@ -1861,11 +1933,10 @@ export async function saveDispatchEntry(row) {
     reason: row.reason || "",
     installerUids: Array.isArray(row.installerUids) ? row.installerUids : [],
     installerNames: Array.isArray(row.installerNames) ? row.installerNames : [],
+    vehiclePlate: row.vehiclePlate || "",
     etaTime: row.etaTime || "",
     completed: !!row.completed,
-    completedAt: row.completed
-      ? (row.completedAt || serverTimestamp())
-      : null,
+    completedAt: row.completed ? row.completedAt || serverTimestamp() : null,
     notes: row.notes || "",
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
@@ -1873,9 +1944,50 @@ export async function saveDispatchEntry(row) {
   // 嘗試 update,若不存在則建立(用 setDoc merge)
   await setDoc(
     ref,
-    { ...payload, createdAt: payload.createdAt || serverTimestamp(), createdByUid: uid },
-    { merge: true }
+    {
+      ...payload,
+      createdAt: payload.createdAt || serverTimestamp(),
+      createdByUid: uid,
+    },
+    { merge: true },
   );
+}
+
+function _formatDispatchOrderInstallDate(date) {
+  const raw = String(date || "").trim();
+  if (!raw) return "";
+  return raw.replace(/-/g, "/");
+}
+
+function _dispatchOrderDocId(row) {
+  const orderNo = String(row?.sourceOrderNo || "").trim();
+  const date = String(row?.date || "").trim();
+  if (!orderNo || !date) return "";
+  return `${orderNo}_${date}`;
+}
+
+/**
+ * 手動將派車表 rows 匯入 Orders。
+ * 目的是讓員工查詢能立即讀到派車資料；使用與 Apps Script 相同的 doc id 規則。
+ */
+export async function importDispatchRowsToOrders(rows = []) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  if (!uid) throw new Error("請先登入");
+
+  const validRows = (rows || []).filter((row) => {
+    if (row?._orphan) return false;
+    return !!_dispatchOrderDocId(row);
+  });
+  if (!validRows.length) return { imported: 0, skipped: rows.length || 0 };
+  const call = httpsCallable(functionsInstance, "importDispatchRowsToOrders", {
+    timeout: 540000,
+  });
+  const res = await call({ rows: validRows });
+  return res.data || {
+    imported: 0,
+    skipped: Math.max(0, (rows?.length || 0) - validRows.length),
+  };
 }
 
 /**
@@ -1883,7 +1995,11 @@ export async function saveDispatchEntry(row) {
  */
 export async function deleteDispatchEntry(entryId, opts = {}) {
   await authReadyPromise;
-  const { clearSourceDate = false, sourceCollection = "", sourceId = "" } = opts;
+  const {
+    clearSourceDate = false,
+    sourceCollection = "",
+    sourceId = "",
+  } = opts;
   await deleteDoc(doc(db, "dispatchEntries", entryId));
   if (clearSourceDate && sourceCollection && sourceId) {
     if (sourceCollection === "salesOrders") {
@@ -1934,7 +2050,9 @@ export async function uploadOrderAttachment(orderId, category, file) {
   const safeName = sanitizeFilename(file.name || "file");
   const storagePath = `orderFiles/${orderId}/${category}/${Date.now()}_${safeName}`;
   const ref = storageRef(storage, storagePath);
-  await uploadBytes(ref, file, { contentType: file.type || "application/octet-stream" });
+  await uploadBytes(ref, file, {
+    contentType: file.type || "application/octet-stream",
+  });
   const url = await getDownloadURL(ref);
   const docRef = await addDoc(
     collection(db, "salesOrders", orderId, category),
@@ -1960,7 +2078,12 @@ export async function listOrderAttachments(orderId, category) {
   return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function deleteOrderAttachment(orderId, category, fileId, storagePath) {
+export async function deleteOrderAttachment(
+  orderId,
+  category,
+  fileId,
+  storagePath,
+) {
   await authReadyPromise;
   if (storagePath) {
     try {
@@ -2018,7 +2141,9 @@ export async function batchMarkDispatched(orderIds) {
 export async function sendConfirmation(orderId, snapshot) {
   const uid = auth.currentUser?.uid || null;
   // 記錄每張圖的 updatedAt（秒），供發單時比對是否有圖在傳確定單後被修改
-  const drawSnap = await getDocs(collection(db, "salesOrders", orderId, "drawings"));
+  const drawSnap = await getDocs(
+    collection(db, "salesOrders", orderId, "drawings"),
+  );
   const drawingVersions = {};
   drawSnap.docs.forEach((d) => {
     const ts = d.data().updatedAt;
@@ -2071,7 +2196,10 @@ export async function refreshConfirmedPdfDownloadUrl(orderId) {
       updatedByUid: auth.currentUser?.uid ?? null,
     });
   } catch (e) {
-    console.warn("refreshConfirmedPdfDownloadUrl: could not save to Firestore", e);
+    console.warn(
+      "refreshConfirmedPdfDownloadUrl: could not save to Firestore",
+      e,
+    );
   }
   return url;
 }
@@ -2080,7 +2208,7 @@ export async function refreshConfirmedPdfDownloadUrl(orderId) {
 // orderNo: 手動指定時直接用；autoIncrement=true 時從 SystemSettings/orderCounter 取下一號
 export async function getOrderCounter() {
   const snap = await getDoc(doc(db, "SystemSettings", "orderCounter"));
-  return snap.exists() ? (Number(snap.data().seq) || 0) : 0;
+  return snap.exists() ? Number(snap.data().seq) || 0 : 0;
 }
 
 export async function saveOrderCounter(seq) {
@@ -2091,7 +2219,13 @@ export async function saveOrderCounter(seq) {
   );
 }
 
-export async function issueOrder(orderId, updatedData, signedScanUrl, orderNo, autoIncrement = true) {
+export async function issueOrder(
+  orderId,
+  updatedData,
+  signedScanUrl,
+  orderNo,
+  autoIncrement = true,
+) {
   await authReadyPromise;
   const uid = auth.currentUser?.uid || null;
   let finalOrderNo = orderNo || "";
@@ -2102,7 +2236,9 @@ export async function issueOrder(orderId, updatedData, signedScanUrl, orderNo, a
       const snap = await tx.get(counterRef);
       const seq = (snap.exists() ? Number(snap.data().seq) : 0) + 1;
       const rawCode = String(updatedData.customerId || "").trim();
-      const alpha3 = (rawCode.match(/[A-Za-z]+/) || [""])[0].slice(0, 3).toUpperCase();
+      const alpha3 = (rawCode.match(/[A-Za-z]+/) || [""])[0]
+        .slice(0, 3)
+        .toUpperCase();
       finalOrderNo = `${String(seq).padStart(3, "0")}${alpha3}`;
       tx.set(counterRef, { seq }, { merge: true });
     }
@@ -2119,7 +2255,6 @@ export async function issueOrder(orderId, updatedData, signedScanUrl, orderNo, a
   });
   return finalOrderNo;
 }
-
 
 // onProgress(done, total) 可選的進度回呼
 export async function batchImportSalesOrders(records, onProgress) {
@@ -2284,16 +2419,24 @@ export async function listStamps() {
   if (!uid) return [];
   const col = collection(db, "stamps");
   const [sharedSnap, mySnap] = await Promise.all([
-    getDocs(query(col, where("shared", "==", true), orderBy("createdAt", "desc"))),
-    getDocs(query(col, where("authorUid", "==", uid), orderBy("createdAt", "desc"))),
+    getDocs(
+      query(col, where("shared", "==", true), orderBy("createdAt", "desc")),
+    ),
+    getDocs(
+      query(col, where("authorUid", "==", uid), orderBy("createdAt", "desc")),
+    ),
   ]);
   const map = new Map();
   for (const d of mySnap.docs) map.set(d.id, { id: d.id, ...d.data() });
-  for (const d of sharedSnap.docs) if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() });
+  for (const d of sharedSnap.docs)
+    if (!map.has(d.id)) map.set(d.id, { id: d.id, ...d.data() });
   return Array.from(map.values());
 }
 
-export async function createStamp({ name, shared, textConfig = null }, imageBlob) {
+export async function createStamp(
+  { name, shared, textConfig = null },
+  imageBlob,
+) {
   const user = await getSignedInUser();
   const col = collection(db, "stamps");
   const docRef = await addDoc(col, {
@@ -2317,7 +2460,8 @@ export async function toggleStampShared(stampId, shared) {
   const user = await getSignedInUser();
   const ref = doc(db, "stamps", stampId);
   const snap = await getDoc(ref);
-  if (!snap.exists() || snap.data().authorUid !== user.uid) throw new Error("無權限");
+  if (!snap.exists() || snap.data().authorUid !== user.uid)
+    throw new Error("無權限");
   await updateDoc(ref, { shared });
 }
 
@@ -2327,7 +2471,11 @@ export async function deleteStamp(stampId) {
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
   if (snap.data().authorUid !== user.uid) throw new Error("無權限刪除此圖章");
-  try { await deleteObject(storageRef(storage, `stamps/${stampId}/image.png`)); } catch (e) { /* ignore */ }
+  try {
+    await deleteObject(storageRef(storage, `stamps/${stampId}/image.png`));
+  } catch (e) {
+    /* ignore */
+  }
   await deleteDoc(ref);
 }
 
@@ -2345,7 +2493,9 @@ export async function removeStampFromLibrary(stampId) {
   const ref = doc(db, "Users", user.uid);
   const snap = await getDoc(ref);
   const existing = snap.data()?.savedStampIds || [];
-  await updateDoc(ref, { savedStampIds: existing.filter((id) => id !== stampId) });
+  await updateDoc(ref, {
+    savedStampIds: existing.filter((id) => id !== stampId),
+  });
 }
 
 export async function getMySavedStampIds() {
@@ -2362,10 +2512,10 @@ export async function getMySavedStampIds() {
 // ============================================================================
 
 export const PRODUCTION_STAGES = [
-  { key: "cut",      label: "裁切", next: "waterjet" },
+  { key: "cut", label: "裁切", next: "waterjet" },
   { key: "waterjet", label: "水刀", next: "template" },
   { key: "template", label: "套板", next: "qc" },
-  { key: "qc",       label: "驗收", next: "done" },
+  { key: "qc", label: "驗收", next: "done" },
 ];
 
 function _primaryMaterial(stones) {
@@ -2395,17 +2545,17 @@ export async function createProductionJob(orderId, orderData) {
 
   // 既有工單 → 同步更新基本顯示欄位
   const existing = await getDocs(
-    query(collection(db, "productionJobs"), where("orderId", "==", orderId))
+    query(collection(db, "productionJobs"), where("orderId", "==", orderId)),
   );
   if (!existing.empty) {
     await updateDoc(doc(db, "productionJobs", existing.docs[0].id), {
-      orderNo:      orderData.orderNo || "",
+      orderNo: orderData.orderNo || "",
       customerName: orderData.customerName || "",
-      siteAddress:  orderData.siteAddress || "",
+      siteAddress: orderData.siteAddress || "",
       stones,
-      countertop:   orderData.countertop || {},
-      promisedAt:   orderData.promisedAt || null,
-      total:        totalVal,
+      countertop: orderData.countertop || {},
+      promisedAt: orderData.promisedAt || null,
+      total: totalVal,
       primaryMaterial: _primaryMaterial(stones),
       updatedAt: serverTimestamp(),
       updatedByUid: uid,
@@ -2415,23 +2565,23 @@ export async function createProductionJob(orderId, orderData) {
 
   const payload = {
     orderId,
-    orderNo:      orderData.orderNo || "",
+    orderNo: orderData.orderNo || "",
     customerName: orderData.customerName || "",
-    siteAddress:  orderData.siteAddress || "",
+    siteAddress: orderData.siteAddress || "",
     stones,
-    countertop:   orderData.countertop || {},
-    promisedAt:   orderData.promisedAt || null,
-    total:        totalVal,
+    countertop: orderData.countertop || {},
+    promisedAt: orderData.promisedAt || null,
+    total: totalVal,
     primaryMaterial: _primaryMaterial(stones),
     currentStage: "cut",
     stages: {
-      cut:      { status: "pending" },
+      cut: { status: "pending" },
       waterjet: { status: "pending" },
       template: { status: "pending" },
-      qc:       { status: "pending" },
+      qc: { status: "pending" },
     },
-    createdAt:    serverTimestamp(),
-    updatedAt:    serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
     createdByUid: uid,
   };
 
@@ -2455,7 +2605,7 @@ export async function backfillProductionJobs(onProgress) {
   let orders = [];
   for (const status of statuses) {
     const snap = await getDocs(
-      query(collection(db, "salesOrders"), where("status", "==", status))
+      query(collection(db, "salesOrders"), where("status", "==", status)),
     );
     snap.docs.forEach((d) => orders.push({ id: d.id, ...d.data() }));
   }
@@ -2469,19 +2619,106 @@ export async function backfillProductionJobs(onProgress) {
   return { total: orders.length, done };
 }
 
+async function _findLegacyOrderRefsByOrderNo(orderNo) {
+  const clean = String(orderNo || "").trim();
+  if (!clean) return [];
+
+  const refs = new Map();
+  const directRef = doc(db, "Orders", clean);
+  const directSnap = await getDoc(directRef);
+  if (directSnap.exists()) refs.set(directSnap.id, directRef);
+
+  const [orderNoSnap, orderNumberSnap] = await Promise.all([
+    getDocs(query(collection(db, "Orders"), where("orderNo", "==", clean))),
+    getDocs(
+      query(collection(db, "Orders"), where("訂單號碼", "==", clean)),
+    ),
+  ]);
+
+  for (const snap of [orderNoSnap, orderNumberSnap]) {
+    snap.docs.forEach((d) => refs.set(d.id, d.ref));
+  }
+  return [...refs.values()];
+}
+
+function _productionStageMirror(stage) {
+  const isDone = stage?.status === "done";
+  return {
+    time: isDone ? stage.doneAt || null : null,
+    by: isDone ? String(stage.doneByName || "").trim() : "",
+  };
+}
+
+function _legacyOrderProductionUpdates(jobData) {
+  const cut = _productionStageMirror(jobData?.stages?.cut);
+  const waterjet = _productionStageMirror(jobData?.stages?.waterjet);
+  const qc = _productionStageMirror(jobData?.stages?.qc);
+
+  return {
+    cutBoardTime: cut.time,
+    "裁切時間": cut.time,
+    "裁板時間": cut.time,
+    cutBoardBy: cut.by,
+    "裁切者": cut.by,
+    "裁板者": cut.by,
+    waterjetTime: waterjet.time,
+    "水刀時間": waterjet.time,
+    waterjetBy: waterjet.by,
+    "水刀者": waterjet.by,
+    "水刀手": waterjet.by,
+    acceptanceTime: qc.time,
+    "驗收時間": qc.time,
+    acceptanceBy: qc.by,
+    "驗收者": qc.by,
+  };
+}
+
+async function _syncProductionJobToLegacyOrders(jobInput) {
+  await authReadyPromise;
+  const payload =
+    jobInput && typeof jobInput === "object"
+      ? { job: jobInput }
+      : { jobId: String(jobInput || "").trim() };
+  if (!payload.job && !payload.jobId) return 0;
+
+  const callable = httpsCallable(
+    functionsInstance,
+    "syncProductionJobToLegacyOrders",
+    { timeout: 540000 },
+  );
+  const res = await callable(payload);
+  return Number(res.data?.updated || 0);
+}
+
+export async function backfillLegacyOrderProductionFields(onProgress) {
+  await authReadyPromise;
+  const snap = await getDocs(collection(db, "productionJobs"));
+  const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const total = rows.length;
+  let done = 0;
+
+  for (const row of rows) {
+    await _syncProductionJobToLegacyOrders(row);
+    done += 1;
+    onProgress?.(done, total);
+  }
+  return { total, done };
+}
+
 // 推進工序（完成目前關卡，currentStage 前進到下一關）
 export async function advanceProductionStage(jobId, stageKey, doneByName) {
   await authReadyPromise;
   const uid = auth.currentUser?.uid || null;
   const idx = PRODUCTION_STAGES.findIndex((s) => s.key === stageKey);
-  const nextStage = idx >= 0 && idx < PRODUCTION_STAGES.length - 1
-    ? PRODUCTION_STAGES[idx + 1].key
-    : "done";
+  const nextStage =
+    idx >= 0 && idx < PRODUCTION_STAGES.length - 1
+      ? PRODUCTION_STAGES[idx + 1].key
+      : "done";
 
   const updates = {
-    [`stages.${stageKey}.status`]:     "done",
-    [`stages.${stageKey}.doneAt`]:     serverTimestamp(),
-    [`stages.${stageKey}.doneByUid`]:  uid,
+    [`stages.${stageKey}.status`]: "done",
+    [`stages.${stageKey}.doneAt`]: serverTimestamp(),
+    [`stages.${stageKey}.doneByUid`]: uid,
     [`stages.${stageKey}.doneByName`]: doneByName || "",
     currentStage: nextStage,
     updatedAt: serverTimestamp(),
@@ -2489,18 +2726,20 @@ export async function advanceProductionStage(jobId, stageKey, doneByName) {
   };
   await updateDoc(doc(db, "productionJobs", jobId), updates);
 
-  // 驗收完成 → 訂單狀態改為 done
+  // 驗收完成 → 訂單狀態改為 delivered
   if (nextStage === "done") {
     const jobSnap = await getDoc(doc(db, "productionJobs", jobId));
     const orderId = jobSnap.exists() ? jobSnap.data().orderId : null;
     if (orderId) {
       await updateDoc(doc(db, "salesOrders", orderId), {
-        status: "done",
+        status: "delivered",
         updatedAt: serverTimestamp(),
         updatedByUid: uid,
       });
     }
   }
+
+  await _syncProductionJobToLegacyOrders(jobId);
 }
 
 // 驗收退回指定工序
@@ -2521,12 +2760,13 @@ export async function rejectProductionQc(jobId, targetStage, notes) {
   };
   // 清空目標關卡（含）到 qc 之前的 done 狀態
   for (let i = targetIdx; i < stageKeys.length - 1; i++) {
-    updates[`stages.${stageKeys[i]}.status`]    = "pending";
-    updates[`stages.${stageKeys[i]}.doneAt`]    = null;
+    updates[`stages.${stageKeys[i]}.status`] = "pending";
+    updates[`stages.${stageKeys[i]}.doneAt`] = null;
     updates[`stages.${stageKeys[i]}.doneByUid`] = null;
     updates[`stages.${stageKeys[i]}.doneByName`] = null;
   }
   await updateDoc(doc(db, "productionJobs", jobId), updates);
+  await _syncProductionJobToLegacyOrders(jobId);
 }
 
 // 通用退回／重設：從任何狀態（含 done）退回指定關卡
@@ -2544,12 +2784,12 @@ export async function resetProductionJob(jobId, toStage, notes) {
   };
   // 清空目標關卡（含）之後的所有工序狀態
   for (let i = targetIdx; i < stageKeys.length; i++) {
-    updates[`stages.${stageKeys[i]}.status`]      = "pending";
-    updates[`stages.${stageKeys[i]}.doneAt`]      = null;
-    updates[`stages.${stageKeys[i]}.doneByUid`]   = null;
-    updates[`stages.${stageKeys[i]}.doneByName`]  = null;
-    updates[`stages.${stageKeys[i]}.rejectedAt`]  = null;
-    updates[`stages.${stageKeys[i]}.notes`]       = notes || null;
+    updates[`stages.${stageKeys[i]}.status`] = "pending";
+    updates[`stages.${stageKeys[i]}.doneAt`] = null;
+    updates[`stages.${stageKeys[i]}.doneByUid`] = null;
+    updates[`stages.${stageKeys[i]}.doneByName`] = null;
+    updates[`stages.${stageKeys[i]}.rejectedAt`] = null;
+    updates[`stages.${stageKeys[i]}.notes`] = notes || null;
   }
   // 若從 done 退回，同步還原訂單狀態為 inProduction
   const jobSnap = await getDoc(doc(db, "productionJobs", jobId));
@@ -2565,6 +2805,7 @@ export async function resetProductionJob(jobId, toStage, notes) {
     }
   }
   await updateDoc(doc(db, "productionJobs", jobId), updates);
+  await _syncProductionJobToLegacyOrders(jobId);
 }
 
 // ─── 客戶計價記憶 ─────────────────────────────────────────────
@@ -2578,15 +2819,18 @@ export async function getCustomerPricing(customerId) {
 // 更新客戶計價記憶
 // 各 *Prices 參數為「本次要新增/覆蓋的鍵值對」，會 merge 到既有 map 上
 // 不傳的 map 不會動到既有資料
-export async function updateCustomerPricing(customerId, {
-  customerName,
-  stonePrices,
-  sinkPrices,
-  stovePrices,
-  specialPrices,
-  defaultPricePerCm,
-  skipOversizeScaling,
-} = {}) {
+export async function updateCustomerPricing(
+  customerId,
+  {
+    customerName,
+    stonePrices,
+    sinkPrices,
+    stovePrices,
+    specialPrices,
+    defaultPricePerCm,
+    skipOversizeScaling,
+  } = {},
+) {
   if (!customerId) return;
   await authReadyPromise;
   const ref = doc(db, "customerPricing", customerId);
@@ -2595,9 +2839,9 @@ export async function updateCustomerPricing(customerId, {
   const merged = {
     customerId,
     customerName: customerName || cur.customerName || "",
-    stonePrices:   { ...(cur.stonePrices   || {}), ...(stonePrices   || {}) },
-    sinkPrices:    { ...(cur.sinkPrices    || {}), ...(sinkPrices    || {}) },
-    stovePrices:   { ...(cur.stovePrices   || {}), ...(stovePrices   || {}) },
+    stonePrices: { ...(cur.stonePrices || {}), ...(stonePrices || {}) },
+    sinkPrices: { ...(cur.sinkPrices || {}), ...(sinkPrices || {}) },
+    stovePrices: { ...(cur.stovePrices || {}), ...(stovePrices || {}) },
     specialPrices: { ...(cur.specialPrices || {}), ...(specialPrices || {}) },
     defaultPricePerCm: defaultPricePerCm ?? cur.defaultPricePerCm ?? null,
     skipOversizeScaling:

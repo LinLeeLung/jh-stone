@@ -7375,6 +7375,416 @@ exports.getAllPendingOrdersForSearch = onCall(
   },
 );
 
+// Admin callable: preview/delete test rows in PendingOrders by keyword.
+exports.purgePendingTestOrders = onCall(
+  { timeoutSeconds: 540, memory: "512MiB" },
+  async (payload, ctx) => {
+    const authUid = getCallableAuthUid(payload, ctx);
+    if (!authUid) {
+      throw new functions.https.HttpsError("unauthenticated", "請先登入");
+    }
+
+    const role = await readUserRole(authUid);
+    if (!["admin", "管理者"].includes(String(role || "").trim())) {
+      throw new functions.https.HttpsError("permission-denied", "需要 admin/管理者 權限");
+    }
+
+    const keyword = String(payload.data?.keyword || "").trim().toLowerCase();
+    if (!keyword) {
+      throw new functions.https.HttpsError("invalid-argument", "請輸入要刪除的測試關鍵字");
+    }
+
+    const dryRun = payload.data?.dryRun === true;
+    const limit = Math.max(1, Math.min(10000, Number(payload.data?.limit || 3000)));
+
+    const snap = await admin.firestore().collection("PendingOrders").limit(limit).get();
+    const matchedDocs = snap.docs.filter((docSnap) => {
+      const data = docSnap.data() || {};
+      const haystacks = [
+        docSnap.id,
+        data.orderNo,
+        data["訂單號碼"],
+        data.customerName,
+        data["客戶名稱"],
+        data.installAddress,
+        data["安裝地點"],
+        data.owner,
+        data.salesName,
+        data.color,
+      ]
+          .map((value) => String(value || "").toLowerCase());
+
+      return haystacks.some((value) => value.includes(keyword));
+    });
+
+    let deleted = 0;
+    const errors = [];
+
+    if (!dryRun && matchedDocs.length) {
+      for (let i = 0; i < matchedDocs.length; i += 400) {
+        const chunk = matchedDocs.slice(i, i + 400);
+        const batch = admin.firestore().batch();
+        chunk.forEach((docSnap) => batch.delete(docSnap.ref));
+        try {
+          await batch.commit();
+          deleted += chunk.length;
+        } catch (err) {
+          errors.push({
+            batchStart: i,
+            error: String(err?.message || err),
+          });
+          if (errors.length > 20) errors.length = 20;
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      keyword,
+      scanned: snap.size,
+      matched: matchedDocs.length,
+      deleted: dryRun ? 0 : deleted,
+      wouldDelete: dryRun ? matchedDocs.length : undefined,
+      limit,
+      dryRun,
+      samples: matchedDocs.slice(0, 20).map((docSnap) => {
+        const data = docSnap.data() || {};
+        return {
+          id: docSnap.id,
+          orderNo: data.orderNo || data["訂單號碼"] || "",
+          customerName: data.customerName || data["客戶名稱"] || "",
+          installAddress: data.installAddress || data["安裝地點"] || "",
+        };
+      }),
+      errors,
+    };
+  },
+);
+
+// Admin callable: preview/delete test rows in Orders by keyword.
+exports.purgeOrdersTestData = onCall(
+  { timeoutSeconds: 540, memory: "512MiB" },
+  async (payload, ctx) => {
+    const authUid = getCallableAuthUid(payload, ctx);
+    if (!authUid) {
+      throw new functions.https.HttpsError("unauthenticated", "請先登入");
+    }
+
+    const role = await readUserRole(authUid);
+    if (!["admin", "管理者"].includes(String(role || "").trim())) {
+      throw new functions.https.HttpsError("permission-denied", "需要 admin/管理者 權限");
+    }
+
+    const keywordRaw = String(payload.data?.keyword || "").trim();
+    const keyword = keywordRaw.toLowerCase();
+    if (!keywordRaw) {
+      throw new functions.https.HttpsError("invalid-argument", "請輸入要刪除的測試關鍵字");
+    }
+
+    const dryRun = payload.data?.dryRun === true;
+    const limit = Math.max(1, Math.min(10000, Number(payload.data?.limit || 3000)));
+
+    const ordersCol = admin.firestore().collection("Orders");
+    const candidateMap = new Map();
+    let scanned = 0;
+
+    const addCandidates = (docs = []) => {
+      docs.forEach((docSnap) => {
+        if (!candidateMap.has(docSnap.id)) candidateMap.set(docSnap.id, docSnap);
+      });
+    };
+
+    const isOrderPrefixKeyword = /^[0-9A-Za-z-]+$/.test(keywordRaw);
+    if (isOrderPrefixKeyword) {
+      const seeds = [...new Set([keywordRaw, keywordRaw.toUpperCase()])].filter(Boolean);
+      const queries = [];
+      for (const seed of seeds) {
+        const upperBound = `${seed}\uf8ff`;
+        queries.push(
+          ordersCol
+            .where(admin.firestore.FieldPath.documentId(), ">=", seed)
+            .where(admin.firestore.FieldPath.documentId(), "<=", upperBound)
+            .limit(limit)
+            .get(),
+          ordersCol.where("訂單號碼", ">=", seed).where("訂單號碼", "<=", upperBound).limit(limit).get(),
+          ordersCol.where("orderNo", ">=", seed).where("orderNo", "<=", upperBound).limit(limit).get(),
+          ordersCol.where("orderNumber", ">=", seed).where("orderNumber", "<=", upperBound).limit(limit).get(),
+        );
+      }
+      const targetedResults = await Promise.allSettled(queries);
+      for (const result of targetedResults) {
+        if (result.status !== "fulfilled") continue;
+        scanned += result.value.size;
+        addCandidates(result.value.docs);
+      }
+    }
+
+    if (!candidateMap.size || !isOrderPrefixKeyword) {
+      const snap = await ordersCol.limit(limit).get();
+      scanned += snap.size;
+      addCandidates(snap.docs);
+    }
+
+    const matchedDocs = [...candidateMap.values()].filter((docSnap) => {
+      const data = docSnap.data() || {};
+      const haystacks = [
+        docSnap.id,
+        data.orderNo,
+        data.orderNumber,
+        data["訂單號碼"],
+        data.customerName,
+        data["客戶名稱"],
+        data.installAddress,
+        data["安裝地點"],
+        data.owner,
+        data.salesName,
+        data.color,
+        data["顏色"],
+      ].map((value) => String(value || "").toLowerCase());
+
+      return haystacks.some((value) => value.includes(keyword));
+    });
+
+    let deleted = 0;
+    const errors = [];
+
+    if (!dryRun && matchedDocs.length) {
+      for (let i = 0; i < matchedDocs.length; i += 400) {
+        const chunk = matchedDocs.slice(i, i + 400);
+        const batch = admin.firestore().batch();
+        chunk.forEach((docSnap) => batch.delete(docSnap.ref));
+        try {
+          await batch.commit();
+          deleted += chunk.length;
+        } catch (err) {
+          errors.push({
+            batchStart: i,
+            error: String(err?.message || err),
+          });
+          if (errors.length > 20) errors.length = 20;
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      keyword: keywordRaw,
+      scanned,
+      matched: matchedDocs.length,
+      deleted: dryRun ? 0 : deleted,
+      wouldDelete: dryRun ? matchedDocs.length : undefined,
+      limit,
+      dryRun,
+      searchMode: isOrderPrefixKeyword ? "prefix+scan" : "scan",
+      samples: matchedDocs.slice(0, 20).map((docSnap) => {
+        const data = docSnap.data() || {};
+        return {
+          id: docSnap.id,
+          orderNo: data.orderNo || data.orderNumber || data["訂單號碼"] || "",
+          customerName: data.customerName || data["客戶名稱"] || "",
+          installAddress: data.installAddress || data["安裝地點"] || "",
+        };
+      }),
+      errors,
+    };
+  },
+);
+
+exports.importDispatchRowsToOrders = onCall(
+  { timeoutSeconds: 540, memory: "512MiB" },
+  async (payload, ctx) => {
+    const authUid = getCallableAuthUid(payload, ctx);
+    if (!authUid) {
+      throw new functions.https.HttpsError("unauthenticated", "請先登入");
+    }
+
+    const userSnap = await admin.firestore().collection("Users").doc(authUid).get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
+    const role = String(userData.role || "").trim();
+    const dept = String(userData.dept || "").trim();
+    if (!["admin", "管理者"].includes(role) && dept !== "1") {
+      throw new functions.https.HttpsError("permission-denied", "需要 admin/管理者 或 1 部門權限");
+    }
+
+    const rows = Array.isArray(payload?.data?.rows) ? payload.data.rows : [];
+    const validRows = rows.filter((row) => {
+      if (!row || row._orphan) return false;
+      const orderNo = String(row.sourceOrderNo || "").trim();
+      const date = String(row.date || "").trim();
+      return !!orderNo && !!date;
+    });
+
+    if (!validRows.length) {
+      return { imported: 0, skipped: rows.length || 0 };
+    }
+
+    let imported = 0;
+    const CHUNK = 400;
+    const db = admin.firestore();
+    for (let i = 0; i < validRows.length; i += CHUNK) {
+      const chunk = validRows.slice(i, i + CHUNK);
+      const batch = db.batch();
+      for (const row of chunk) {
+        const orderNo = String(row.sourceOrderNo || "").trim();
+        const date = String(row.date || "").trim();
+        const docId = `${orderNo}_${date}`;
+        const [yyyy, mm, dd] = date.split("-");
+        const installDate = `${Number(yyyy || 0)}/${Number(mm || 0)}/${Number(dd || 0)}`;
+        const installers = Array.isArray(row.installerNames) ? row.installerNames.filter(Boolean) : [];
+        const installer1 = installers[0] || "";
+        const installer2 = installers[1] || "";
+        const installer3 = installers[2] || "";
+        const vehiclePlate = String(row.vehiclePlate || "").trim();
+        const isRepair = row.kind === "repair";
+        batch.set(db.collection("Orders").doc(docId), {
+          orderNo,
+          "訂單號碼": orderNo,
+          customerName: row.customerName || "",
+          "客戶名稱": row.customerName || "",
+          installAddress: row.siteAddress || "",
+          "安裝地址": row.siteAddress || "",
+          "安裝地點": row.siteAddress || "",
+          color: row.stoneLabel || "",
+          "顏色": row.stoneLabel || "",
+          dueDate: installDate,
+          "安裝日": installDate,
+          "是否維修": isRepair ? "維修" : "安裝",
+          reason: row.reason || "",
+          "原因": row.reason || "",
+          etaTime: row.etaTime || "",
+          "預計到達": row.etaTime || "",
+          vehiclePlate,
+          "車號": vehiclePlate,
+          installers,
+          "安裝人員": installers.join("、"),
+          installer1,
+          installer2,
+          installer3,
+          "安裝人員1": installer1,
+          "安裝人員2": installer2,
+          "安裝人員3": installer3,
+          source: "dispatch-sheet-manual",
+          sourceCollection: row.sourceCollection || "",
+          sourceId: row.sourceId || "",
+          dispatchDate: row.date || "",
+          completed: !!row.completed,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedByUid: authUid,
+        }, { merge: true });
+        imported += 1;
+      }
+      await batch.commit();
+    }
+
+    return {
+      imported,
+      skipped: Math.max(0, (rows.length || 0) - validRows.length),
+    };
+  },
+);
+
+function _mirrorProductionStage(stage) {
+  const isDone = stage?.status === "done";
+  return {
+    time: isDone ? stage.doneAt || null : null,
+    by: isDone ? String(stage.doneByName || "").trim() : "",
+  };
+}
+
+function _buildLegacyOrderProductionUpdates(jobData, authUid) {
+  const cut = _mirrorProductionStage(jobData?.stages?.cut);
+  const waterjet = _mirrorProductionStage(jobData?.stages?.waterjet);
+  const qc = _mirrorProductionStage(jobData?.stages?.qc);
+
+  return {
+    cutBoardTime: cut.time,
+    "裁切時間": cut.time,
+    "裁板時間": cut.time,
+    cutBoardBy: cut.by,
+    "裁切者": cut.by,
+    "裁板者": cut.by,
+    waterjetTime: waterjet.time,
+    "水刀時間": waterjet.time,
+    waterjetBy: waterjet.by,
+    "水刀者": waterjet.by,
+    "水刀手": waterjet.by,
+    acceptanceTime: qc.time,
+    "驗收時間": qc.time,
+    acceptanceBy: qc.by,
+    "驗收者": qc.by,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedByUid: authUid,
+  };
+}
+
+exports.syncProductionJobToLegacyOrders = onCall(
+  { timeoutSeconds: 540, memory: "512MiB" },
+  async (payload, ctx) => {
+    const authUid = getCallableAuthUid(payload, ctx);
+    if (!authUid) {
+      throw new functions.https.HttpsError("unauthenticated", "請先登入");
+    }
+
+    const userSnap = await admin.firestore().collection("Users").doc(authUid).get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
+    const role = String(userData.role || "").trim();
+    const dept = String(userData.dept || "").trim();
+    if (!["admin", "管理者", "員工"].includes(role) && dept !== "3") {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "需要員工以上或廠內部門權限",
+      );
+    }
+
+    const data = unwrapCallablePayload(payload);
+    const db = admin.firestore();
+    let jobData = data?.job && typeof data.job === "object" ? data.job : null;
+
+    if (!jobData) {
+      const jobId = String(data?.jobId || "").trim();
+      if (!jobId) {
+        throw new functions.https.HttpsError("invalid-argument", "缺少 jobId");
+      }
+      const jobSnap = await db.collection("productionJobs").doc(jobId).get();
+      if (!jobSnap.exists) {
+        throw new functions.https.HttpsError("not-found", "找不到 production job");
+      }
+      jobData = { id: jobSnap.id, ...jobSnap.data() };
+    }
+
+    const orderNo = String(jobData?.orderNo || "").trim();
+    if (!orderNo) return { updated: 0 };
+
+    const refs = new Map();
+    const directRef = db.collection("Orders").doc(orderNo);
+    const directSnap = await directRef.get();
+    if (directSnap.exists) refs.set(directSnap.id, directRef);
+
+    const [orderNoSnap, orderNumberSnap] = await Promise.all([
+      db.collection("Orders").where("orderNo", "==", orderNo).get(),
+      db.collection("Orders").where("訂單號碼", "==", orderNo).get(),
+    ]);
+    [orderNoSnap, orderNumberSnap].forEach((snap) => {
+      snap.docs.forEach((d) => refs.set(d.id, d.ref));
+    });
+
+    if (!refs.size) return { updated: 0 };
+
+    const updates = _buildLegacyOrderProductionUpdates(jobData, authUid);
+    const batch = db.batch();
+    refs.forEach((ref) => batch.set(ref, updates, { merge: true }));
+    await batch.commit();
+
+    logger.info("syncProductionJobToLegacyOrders: synced", {
+      authUid,
+      orderNo,
+      updated: refs.size,
+      jobId: jobData.id || null,
+    });
+    return { updated: refs.size };
+  },
+);
+
 // ─── 列出 NAS 訂單資料夾內的舊有照片（尚未透過本系統上傳者）─────────────────
 const NAS_LEGACY_IMAGE_EXTS = new Set([
   ".jpg",

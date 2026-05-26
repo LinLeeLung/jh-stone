@@ -14,11 +14,15 @@
       <button class="btn-primary" @click="loadByDate" :disabled="!date || loading">
         {{ loading ? "載入中…" : "📥 一鍵載入" }}
       </button>
+      <button class="btn-aux" @click="importToOrders" :disabled="!rows.length || importSaving || loading">
+        {{ importSaving ? "匯入中…" : "⬆ 手動匯到 Orders" }}
+      </button>
       <button class="btn-aux" @click="setToday">今日</button>
       <button class="btn-aux" @click="setTomorrow">明日</button>
       <span class="hint">
         ※ 將載入該日的「預交日」訂單與「維修日」維修單
       </span>
+      <span v-if="importMsg" class="hint">{{ importMsg }}</span>
       <span v-if="errMsg" class="err">{{ errMsg }}</span>
     </div>
 
@@ -35,7 +39,8 @@
               <th class="col-addr">安裝地址</th>
               <th class="col-stone">石材</th>
               <th class="col-reason">原因</th>
-              <th class="col-installer">安裝人員(可複選)</th>
+              <th class="col-installer">安1 / 安2 / 安3</th>
+              <th class="col-vehicle">車號</th>
               <th class="col-eta">預計到達</th>
               <th class="col-done">完工</th>
               <th class="col-ops">操作</th>
@@ -67,24 +72,36 @@
               </td>
               <td>
                 <div class="installer-cell">
-                  <select
-                    multiple
-                    v-model="r.installerUids"
-                    class="installer-select"
-                    @change="syncInstallerNames(r)"
-                  >
-                    <option
-                      v-for="s in installers"
-                      :key="s.id"
-                      :value="s.id"
+                  <div class="installer-slot" v-for="slot in installerSlots" :key="slot.key">
+                    <label :for="`installer-${slot.key}-${r.entryId}`" class="installer-label">{{ slot.label }}</label>
+                    <select
+                      :id="`installer-${slot.key}-${r.entryId}`"
+                      :value="getInstallerSlot(r, slot.index)"
+                      class="installer-select"
+                      @change="setInstallerSlot(r, slot.index, $event.target.value)"
                     >
-                      {{ s.name }}
-                    </option>
-                  </select>
+                      <option value="">未指定</option>
+                      <option
+                        v-for="s in installers"
+                        :key="s.id"
+                        :value="s.id"
+                      >
+                        {{ s.name }}
+                      </option>
+                    </select>
+                  </div>
                   <div v-if="r.installerNames?.length" class="picked">
                     已選:{{ r.installerNames.join("、") }}
                   </div>
                 </div>
+              </td>
+              <td>
+                <input
+                  v-model="r.vehiclePlate"
+                  type="text"
+                  class="vehicle-input"
+                  placeholder="輸入車號"
+                />
               </td>
               <td>
                 <input v-model="r.etaTime" type="time" class="eta-input" />
@@ -126,6 +143,7 @@ import {
   saveDispatchEntry,
   deleteDispatchEntry,
   listStaffByDept,
+  importDispatchRowsToOrders,
 } from "../firebase";
 
 const date = ref(todayStr());
@@ -136,6 +154,13 @@ const loaded = ref(false);
 const errMsg = ref("");
 const bulkSaving = ref(false);
 const bulkMsg = ref("");
+const importSaving = ref(false);
+const importMsg = ref("");
+const installerSlots = [
+  { key: "1", label: "安1", index: 0 },
+  { key: "2", label: "安2", index: 1 },
+  { key: "3", label: "安3", index: 2 },
+];
 
 function todayStr() {
   const d = new Date();
@@ -160,7 +185,28 @@ async function loadInstallers() {
 
 function syncInstallerNames(r) {
   const map = new Map(installers.value.map((s) => [s.id, s.name]));
-  r.installerNames = (r.installerUids || []).map((id) => map.get(id) || id);
+  r.installerUids = normalizeInstallerUids(r.installerUids);
+  r.installerNames = r.installerUids.map((id) => map.get(id) || id);
+}
+
+function normalizeInstallerUids(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean)
+    .filter((id, index, arr) => arr.indexOf(id) === index)
+    .slice(0, 3);
+}
+
+function getInstallerSlot(r, index) {
+  return normalizeInstallerUids(r.installerUids)[index] || "";
+}
+
+function setInstallerSlot(r, index, nextValue) {
+  const next = normalizeInstallerUids(r.installerUids);
+  const value = String(nextValue || "").trim();
+  next.splice(index, 1, value);
+  r.installerUids = next.filter(Boolean);
+  syncInstallerNames(r);
 }
 
 async function loadByDate() {
@@ -212,6 +258,30 @@ async function saveAll() {
   bulkSaving.value = false;
   bulkMsg.value = `成功 ${ok} 筆${fail ? `,失敗 ${fail} 筆` : ""}`;
   setTimeout(() => (bulkMsg.value = ""), 3000);
+}
+
+async function importToOrders() {
+  const targetRows = rows.value.filter((row) => !row._orphan && row.sourceOrderNo);
+  if (!targetRows.length) {
+    importMsg.value = "沒有可匯入的資料";
+    setTimeout(() => (importMsg.value = ""), 3000);
+    return;
+  }
+  if (!confirm(`確定要把 ${targetRows.length} 筆 ${date.value} 派車資料手動匯入 Orders？\n\n相同文件 id 會以 merge 方式更新。`)) {
+    return;
+  }
+
+  importSaving.value = true;
+  importMsg.value = "";
+  try {
+    const result = await importDispatchRowsToOrders(targetRows);
+    importMsg.value = `已匯入 ${result.imported} 筆${result.skipped ? `，略過 ${result.skipped} 筆` : ""}`;
+  } catch (e) {
+    importMsg.value = `匯入失敗：${e?.message || e}`;
+  } finally {
+    importSaving.value = false;
+    setTimeout(() => (importMsg.value = ""), 4000);
+  }
 }
 
 async function onDelete(r) {
@@ -431,11 +501,21 @@ onMounted(async () => {
 .installer-cell {
   min-width: 160px;
 }
+.installer-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.installer-label {
+  width: 26px;
+  font-size: 12px;
+  color: #475569;
+}
 .installer-select {
   width: 100%;
-  min-height: 70px;
   font-size: 12px;
-  padding: 2px;
+  padding: 4px 6px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
 }
@@ -445,7 +525,9 @@ onMounted(async () => {
   margin-top: 2px;
 }
 
+.vehicle-input,
 .eta-input {
+  width: 100%;
   padding: 3px 6px;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
