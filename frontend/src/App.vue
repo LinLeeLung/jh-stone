@@ -73,7 +73,7 @@
           @click="closeNav"
           >客戶</RouterLink
         >
-        <RouterLink
+        <a
           class="nav-link"
           v-if="
             userDoc &&
@@ -81,9 +81,11 @@
               userDoc.role === '管理者' ||
               String(userDoc.dept) === '1')
           "
-          to="/quote"
+          href="https://mystone.web.app/"
+          target="_blank"
+          rel="noopener noreferrer"
           @click="closeNav"
-          >估價</RouterLink
+          >估價</a
         >
         <RouterLink
           class="nav-link"

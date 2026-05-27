@@ -9,7 +9,9 @@
     <!-- 工具列 -->
     <div class="conf-toolbar no-print">
       <RouterLink :to="`/orders`" class="back-btn">← 訂單列表</RouterLink>
-      <RouterLink :to="`/orders/${orderId}/edit`" class="back-btn">✏️ 訂單編輯</RouterLink>
+      <RouterLink :to="`/orders/${orderId}/edit`" class="back-btn"
+        >✏️ 訂單編輯</RouterLink
+      >
       <RouterLink :to="`/orders/${orderId}/drawing`" class="back-btn"
         >← 繪圖</RouterLink
       >
@@ -17,13 +19,55 @@
       <div class="toolbar-right">
         <span class="hint">點選繪圖：移動；四角藍點：縮放</span>
         <!-- 手繪工具 -->
-        <button class="btn-draw" :class="{ 'draw-on': drawTool === null }" @click="setDrawTool(null)">↖ 移動</button>
-        <button class="btn-draw" :class="{ 'draw-on': drawTool === 'pen' }" @click="setDrawTool('pen')">✏️ 筆</button>
-        <button class="btn-draw" :class="{ 'draw-on': drawTool === 'erase' }" @click="setDrawTool('erase')">🧹 擦</button>
-        <button class="btn-draw" :class="{ 'draw-on': drawTool === 'line' }" @click="setDrawTool('line')">╱ 直線</button>
-        <button class="btn-draw" :class="{ 'draw-on': drawTool === 'rect' }" @click="setDrawTool('rect')">▭ 框</button>
-        <button class="btn-draw" :class="{ 'draw-on': drawTool === 'text' }" @click="setDrawTool('text')">T 文字</button>
-        <input v-show="drawTool && drawTool !== 'erase'" type="color" v-model="drawColor" class="color-picker" title="顏色" />
+        <button
+          class="btn-draw"
+          :class="{ 'draw-on': drawTool === null }"
+          @click="setDrawTool(null)"
+        >
+          ↖ 移動
+        </button>
+        <button
+          class="btn-draw"
+          :class="{ 'draw-on': drawTool === 'pen' }"
+          @click="setDrawTool('pen')"
+        >
+          ✏️ 筆
+        </button>
+        <button
+          class="btn-draw"
+          :class="{ 'draw-on': drawTool === 'erase' }"
+          @click="setDrawTool('erase')"
+        >
+          🧹 擦
+        </button>
+        <button
+          class="btn-draw"
+          :class="{ 'draw-on': drawTool === 'line' }"
+          @click="setDrawTool('line')"
+        >
+          ╱ 直線
+        </button>
+        <button
+          class="btn-draw"
+          :class="{ 'draw-on': drawTool === 'rect' }"
+          @click="setDrawTool('rect')"
+        >
+          ▭ 框
+        </button>
+        <button
+          class="btn-draw"
+          :class="{ 'draw-on': drawTool === 'text' }"
+          @click="setDrawTool('text')"
+        >
+          T 文字
+        </button>
+        <input
+          v-show="drawTool && drawTool !== 'erase'"
+          type="color"
+          v-model="drawColor"
+          class="color-picker"
+          title="顏色"
+        />
         <div v-show="drawTool !== null" class="sz-btns">
           <button
             v-for="w in strokeWidths"
@@ -37,15 +81,38 @@
               class="sz-line"
               :style="{
                 height: Math.min(w, 18) + 'px',
-                background: drawTool === 'erase' ? '#94a3b8' : (drawColor || '#e00000')
+                background:
+                  drawTool === 'erase' ? '#94a3b8' : drawColor || '#e00000',
               }"
             />
           </button>
         </div>
-        <button v-show="drawTool !== null" class="btn-draw" @click="clearAnnotCanvas" title="清除全部手繪">🗑️</button>
-        <button class="btn-img" @click="imgInputRef.click()">📷 插入截圖</button>
-        <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="onImgFile" />
-        <button class="btn-stamp" :class="{ active: showStampPanel }" @click="showStampPanel = !showStampPanel" title="圖章庫">🔖 圖章</button>
+        <button
+          v-show="drawTool !== null"
+          class="btn-draw"
+          @click="clearAnnotCanvas"
+          title="清除全部手繪"
+        >
+          🗑️
+        </button>
+        <button class="btn-img" @click="imgInputRef.click()">
+          📷 插入截圖
+        </button>
+        <input
+          ref="imgInputRef"
+          type="file"
+          accept="image/*"
+          style="display: none"
+          @change="onImgFile"
+        />
+        <button
+          class="btn-stamp"
+          :class="{ active: showStampPanel }"
+          @click="showStampPanel = !showStampPanel"
+          title="圖章庫"
+        >
+          🔖 圖章
+        </button>
         <button class="btn-print" @click="doPrint">🖨️ 列印 / PDF</button>
         <button class="btn-save" :disabled="saving" @click="doSave">
           {{ saving ? "儲存中…" : "💾 儲存" }}
@@ -57,14 +124,34 @@
           :disabled="pdfUploading"
           @click="pdfUploadRef.click()"
           title="上傳手繪確定單PDF（取代現有）"
-        >{{ pdfUploading ? "上傳中…" : "📤 上傳PDF" }}</button>
-        <input ref="pdfUploadRef" type="file" accept="application/pdf" style="display:none" @change="onUploadPdfFile" />
-        <span v-if="pdfGenerating" class="save-msg pdf-generating">⏳ 封存PDF中…</span>
+        >
+          {{ pdfUploading ? "上傳中…" : "📤 上傳PDF" }}
+        </button>
+        <input
+          ref="pdfUploadRef"
+          type="file"
+          accept="application/pdf"
+          style="display: none"
+          @change="onUploadPdfFile"
+        />
+        <span v-if="pdfGenerating" class="save-msg pdf-generating"
+          >⏳ 封存PDF中…</span
+        >
         <template v-else-if="confirmedPdfUrl">
-          <a :href="confirmedPdfUrl" target="_blank" class="btn-pdf-link">📄 確定單PDF</a>
-          <button class="btn-repdf" @click="regeneratePdf" title="重新封存PDF">↺</button>
+          <a :href="confirmedPdfUrl" target="_blank" class="btn-pdf-link"
+            >📄 確定單PDF</a
+          >
+          <button class="btn-repdf" @click="regeneratePdf" title="重新封存PDF">
+            ↺
+          </button>
         </template>
-        <button v-else-if="order?.status === 'confirmed'" class="btn-repdf" @click="regeneratePdf">📄 封存PDF</button>
+        <button
+          v-else-if="order?.status === 'confirmed'"
+          class="btn-repdf"
+          @click="regeneratePdf"
+        >
+          📄 封存PDF
+        </button>
         <span v-if="saveMsg" class="save-msg">{{ saveMsg }}</span>
       </div>
     </div>
@@ -84,7 +171,13 @@
         <div class="body-row">
           <!-- 左側直條 -->
           <div class="vert-strip vert-l">
-            <span class="vert-txt" v-html="splitVert('務必請桶身師父加強水平及桶身懸空處的結構，尤其是有缺角的地方，謝謝！')"
+            <span
+              class="vert-txt"
+              v-html="
+                splitVert(
+                  '務必請桶身師父加強水平及桶身懸空處的結構，尤其是有缺角的地方，謝謝！',
+                )
+              "
             ></span>
           </div>
 
@@ -145,7 +238,11 @@
                     <tr>
                       <td class="lbl">實際交貨日</td>
                       <td colspan="3">
+                        <span v-if="pdfGenerating" class="ii full">{{
+                          cf.actualDelivery || ""
+                        }}</span>
                         <input
+                          v-else
                           v-model="cf.actualDelivery"
                           type="date"
                           class="ii full"
@@ -321,13 +418,20 @@
                 <div class="sub-section">
                   <div class="section-head">水槽</div>
                   <table class="detail-tbl">
+                    <colgroup>
+                      <col style="width: 40%" />
+                      <col style="width: 13%" />
+                      <col style="width: 13%" />
+                      <col style="width: 14%" />
+                      <col style="width: 20%" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>品名</th>
                         <th>長</th>
                         <th>寬</th>
-                        <th>有無<br />配件</th>
-                        <th>下嵌<br />上嵌</th>
+                        <th>配件</th>
+                        <th>工法</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -347,13 +451,20 @@
                 <div class="sub-section">
                   <div class="section-head">爐子</div>
                   <table class="detail-tbl">
+                    <colgroup>
+                      <col style="width: 40%" />
+                      <col style="width: 13%" />
+                      <col style="width: 13%" />
+                      <col style="width: 14%" />
+                      <col style="width: 20%" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>品名</th>
                         <th>長</th>
                         <th>寬</th>
                         <th>R角</th>
-                        <th>下嵌<br />嵌入</th>
+                        <th>工法</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -404,10 +515,15 @@
                 <div class="price-lbl">未稅價</div>
               </div>
               <div class="price-val-col">
-                <div v-if="priceBreakdown.left.length || priceBreakdown.right.length" class="price-grid">
+                <div
+                  v-if="
+                    priceBreakdown.left.length || priceBreakdown.right.length
+                  "
+                  class="price-grid"
+                >
                   <table class="price-table">
                     <tbody>
-                      <tr v-for="(ln, i) in priceBreakdown.left" :key="'l'+i">
+                      <tr v-for="(ln, i) in priceBreakdown.left" :key="'l' + i">
                         <td class="pt-desc">{{ ln.desc }}</td>
                         <td class="pt-calc">{{ ln.calc }}</td>
                         <td class="pt-amt">{{ ln.amt }}</td>
@@ -416,14 +532,19 @@
                   </table>
                   <table class="price-table">
                     <tbody>
-                      <tr v-for="(ln, i) in priceBreakdown.right" :key="'r'+i">
+                      <tr
+                        v-for="(ln, i) in priceBreakdown.right"
+                        :key="'r' + i"
+                      >
                         <td class="pt-desc">{{ ln.desc }}</td>
                         <td class="pt-calc">{{ ln.calc }}</td>
                         <td class="pt-amt">{{ ln.amt }}</td>
                       </tr>
                     </tbody>
                   </table>
-                  <div class="price-sum">合計 <span>{{ priceBreakdown.total }}</span></div>
+                  <div class="price-sum">
+                    合計 <span>{{ priceBreakdown.total }}</span>
+                  </div>
                 </div>
                 <span v-else class="price-val">{{ untaxedPriceDisplay }}</span>
               </div>
@@ -450,10 +571,12 @@
                 <span class="vf-lbl">下單</span><span class="vf-val"></span>
               </div>
               <div class="vf-row">
-                <span class="vf-lbl">打板</span><span class="vf-val">{{ order?.templatingStaff || "" }}</span>
+                <span class="vf-lbl">打板</span
+                ><span class="vf-val">{{ order?.templatingStaff || "" }}</span>
               </div>
               <div class="vf-row">
-                <span class="vf-lbl">對圖</span><span class="vf-val">{{ order?.drawingStaff || "" }}</span>
+                <span class="vf-lbl">對圖</span
+                ><span class="vf-val">{{ order?.drawingStaff || "" }}</span>
               </div>
               <div class="vf-row">
                 <span class="vf-lbl">傳真</span><span class="vf-val"></span>
@@ -491,13 +614,22 @@
           class="text-box-wrap no-print"
           :style="{ left: textBox.x + 'px', top: textBox.y + 'px' }"
         >
-          <div
-            class="text-box-handle"
-            @mousedown.stop.prevent="startTextDrag"
-          >
-            <span style="flex:1;pointer-events:none">⠿ 拖移</span>
-            <button class="text-commit-btn" @mousedown.stop @click.stop="commitText">✓ 確認</button>
-            <button class="text-cancel-btn" @mousedown.stop @click.stop="cancelText">✕</button>
+          <div class="text-box-handle" @mousedown.stop.prevent="startTextDrag">
+            <span style="flex: 1; pointer-events: none">⠿ 拖移</span>
+            <button
+              class="text-commit-btn"
+              @mousedown.stop
+              @click.stop="commitText"
+            >
+              ✓ 確認
+            </button>
+            <button
+              class="text-cancel-btn"
+              @mousedown.stop
+              @click.stop="cancelText"
+            >
+              ✕
+            </button>
           </div>
           <textarea
             ref="textInputRef"
@@ -516,10 +648,21 @@
           v-for="ovl in textOverlays"
           :key="ovl.id"
           class="txt-ovl"
-          :style="{ left: ovl.x + 'px', top: ovl.y + 'px', fontSize: ovl.fontSize + 'px', color: ovl.color }"
+          :style="{
+            left: ovl.x + 'px',
+            top: ovl.y + 'px',
+            fontSize: ovl.fontSize + 'px',
+            color: ovl.color,
+          }"
           @mousedown.stop="startTxtOvlDrag($event, ovl)"
         >
-          <button class="txt-ovl-del no-print" @mousedown.stop @click.stop="removeTxtOvl(ovl.id)">×</button>
+          <button
+            class="txt-ovl-del no-print"
+            @mousedown.stop
+            @click.stop="removeTxtOvl(ovl.id)"
+          >
+            ×
+          </button>
           <div class="txt-ovl-content">{{ ovl.text }}</div>
         </div>
 
@@ -529,30 +672,42 @@
           :key="ovl.id"
           class="shape-ovl"
           :style="{
-            left: (Math.min(ovl.x1, ovl.x2) - ovl.width - 4) + 'px',
-            top:  (Math.min(ovl.y1, ovl.y2) - ovl.width - 4) + 'px',
+            left: Math.min(ovl.x1, ovl.x2) - ovl.width - 4 + 'px',
+            top: Math.min(ovl.y1, ovl.y2) - ovl.width - 4 + 'px',
           }"
           @mousedown.stop="startShapeOvlDrag($event, ovl)"
         >
-          <button class="shape-ovl-del no-print" @mousedown.stop @click.stop="removeShapeOvl(ovl.id)">×</button>
+          <button
+            class="shape-ovl-del no-print"
+            @mousedown.stop
+            @click.stop="removeShapeOvl(ovl.id)"
+          >
+            ×
+          </button>
           <svg
             :width="Math.abs(ovl.x2 - ovl.x1) + (ovl.width + 4) * 2"
             :height="Math.abs(ovl.y2 - ovl.y1) + (ovl.width + 4) * 2"
-            style="display:block;overflow:visible;pointer-events:none"
+            style="display: block; overflow: visible; pointer-events: none"
           >
-            <line v-if="ovl.type === 'line'"
+            <line
+              v-if="ovl.type === 'line'"
               :x1="ovl.x1 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4"
               :y1="ovl.y1 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4"
               :x2="ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4"
               :y2="ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4"
-              :stroke="ovl.color" :stroke-width="ovl.width" stroke-linecap="round"
+              :stroke="ovl.color"
+              :stroke-width="ovl.width"
+              stroke-linecap="round"
             />
-            <rect v-else-if="ovl.type === 'rect'"
+            <rect
+              v-else-if="ovl.type === 'rect'"
               :x="ovl.width + 4"
               :y="ovl.width + 4"
               :width="Math.abs(ovl.x2 - ovl.x1)"
               :height="Math.abs(ovl.y2 - ovl.y1)"
-              :stroke="ovl.color" :stroke-width="ovl.width" fill="none"
+              :stroke="ovl.color"
+              :stroke-width="ovl.width"
+              fill="none"
             />
           </svg>
         </div>
@@ -630,25 +785,53 @@
           v-for="img in overlayImgs"
           :key="img.id"
           class="o-img no-print"
-          :style="{ left: img.x + 'px', top: img.y + 'px', width: img.w + 'px' }"
+          :style="{
+            left: img.x + 'px',
+            top: img.y + 'px',
+            width: img.w + 'px',
+          }"
           @mousedown.stop="startImgDrag($event, img)"
           @dblclick.stop="removeOverlayImg(img.id)"
         >
-          <img :src="img.src" style="width:100%;display:block;pointer-events:none;" draggable="false" />
-          <div class="o-img-rh no-print" @mousedown.stop="startImgResize($event, img)"></div>
+          <img
+            :src="img.src"
+            style="width: 100%; display: block; pointer-events: none"
+            draggable="false"
+          />
+          <div
+            class="o-img-rh no-print"
+            @mousedown.stop="startImgResize($event, img)"
+          ></div>
         </div>
         <!-- 圖章疊層 -->
         <div
           v-for="sov in stampOverlays"
           :key="sov.id"
           class="s-img"
-          :style="{ left: sov.x + 'px', top: sov.y + 'px', width: sov.w + 'px' }"
+          :style="{
+            left: sov.x + 'px',
+            top: sov.y + 'px',
+            width: sov.w + 'px',
+          }"
           @mousedown.stop="startImgDrag($event, sov)"
           @dblclick.stop="removeStampOvl(sov.id)"
         >
-          <img :src="sov.url" style="width:100%;display:block;pointer-events:none;" draggable="false" />
-          <button class="s-img-del no-print" @mousedown.stop @click.stop="removeStampOvl(sov.id)">×</button>
-          <div class="s-img-rh no-print" @mousedown.stop="startImgResize($event, sov)"></div>
+          <img
+            :src="sov.url"
+            style="width: 100%; display: block; pointer-events: none"
+            draggable="false"
+          />
+          <button
+            class="s-img-del no-print"
+            @mousedown.stop
+            @click.stop="removeStampOvl(sov.id)"
+          >
+            ×
+          </button>
+          <div
+            class="s-img-rh no-print"
+            @mousedown.stop="startImgResize($event, sov)"
+          ></div>
         </div>
         <!-- /a4-page -->
       </div>
@@ -656,7 +839,11 @@
     </div>
 
     <!-- 圖章面板 -->
-    <StampPanel v-if="showStampPanel" @close="showStampPanel = false" @insert="onStampInsert" />
+    <StampPanel
+      v-if="showStampPanel"
+      @close="showStampPanel = false"
+      @insert="onStampInsert"
+    />
   </div>
 </template>
 
@@ -719,7 +906,13 @@ const priceBreakdown = computed(() => {
     const name = normName(li.description) || li.priceKey || "項目";
     const unit = li.unit || "";
     const key = `${name}__${up}__${unit}`;
-    const g = groups.get(key) || { name, unit, unitPrice: up, qty: 0, amount: 0 };
+    const g = groups.get(key) || {
+      name,
+      unit,
+      unitPrice: up,
+      qty: 0,
+      amount: 0,
+    };
     g.qty += qty;
     g.amount += amt;
     groups.set(key, g);
@@ -727,7 +920,9 @@ const priceBreakdown = computed(() => {
   }
 
   const lines = [...groups.values()].map((g) => {
-    const qtyStr = Number.isInteger(g.qty) ? g.qty : Math.round(g.qty * 100) / 100;
+    const qtyStr = Number.isInteger(g.qty)
+      ? g.qty
+      : Math.round(g.qty * 100) / 100;
     const calc = g.unitPrice
       ? `@${g.unitPrice.toLocaleString()}×${qtyStr}${g.unit}`
       : `${qtyStr}${g.unit}`;
@@ -805,7 +1000,7 @@ function markDirty() {
   dirty.value = true;
 }
 function splitVert(str) {
-  return [...str].map(c => `<div class="vc">${c}</div>`).join("");
+  return [...str].map((c) => `<div class="vc">${c}</div>`).join("");
 }
 
 // ── Drag & Resize ───────────────────────────────────────────────────
@@ -824,7 +1019,13 @@ const draggingId = ref(null);
 const overlayImgs = ref([]);
 const imgInputRef = ref(null);
 const pdfUploadRef = ref(null);
-let _activeImg = null, _aiType = null, _aiSX = 0, _aiSY = 0, _aiOrigX = 0, _aiOrigY = 0, _aiOrigW = 0;
+let _activeImg = null,
+  _aiType = null,
+  _aiSX = 0,
+  _aiSY = 0,
+  _aiOrigX = 0,
+  _aiOrigY = 0,
+  _aiOrigW = 0;
 // key: id, value: Promise — 追蹤背景上傳中的截圖
 const _pendingOverlayUploads = new Map();
 
@@ -832,21 +1033,32 @@ const _pendingOverlayUploads = new Map();
 const annotCanvasRef = ref(null);
 const previewCanvasRef = ref(null);
 const drawTool = ref(null); // null | 'pen' | 'erase' | 'line' | 'rect' | 'text'
-const drawColor = ref('#e00000');
+const drawColor = ref("#e00000");
 const drawWidth = ref(5);
 const strokeWidths = [1, 2, 3, 4, 5, 7, 9, 12, 16, 20];
 let _cdrawing = false;
 let _shapeStart = null; // { x, y } canvas coords
 
 // 文字工具狀態
-const textBox = ref({ visible: false, value: '', x: 0, y: 0, canvasX: 0, canvasY: 0, fontSize: 16 });
+const textBox = ref({
+  visible: false,
+  value: "",
+  x: 0,
+  y: 0,
+  canvasX: 0,
+  canvasY: 0,
+  fontSize: 16,
+});
 const textInputRef = ref(null);
 let _textDragging = false;
-let _textDragSX = 0, _textDragSY = 0, _textOrigX = 0, _textOrigY = 0;
+let _textDragSX = 0,
+  _textDragSY = 0,
+  _textOrigX = 0,
+  _textOrigY = 0;
 
 function setDrawTool(tool) {
   if (textBox.value.visible) cancelText();
-  drawTool.value = (tool !== null && drawTool.value === tool) ? null : tool;
+  drawTool.value = tool !== null && drawTool.value === tool ? null : tool;
 }
 function getCanvasPos(e) {
   const c = annotCanvasRef.value;
@@ -858,24 +1070,32 @@ function getCanvasPos(e) {
 }
 
 function _applyStrokeStyle(ctx) {
-  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalCompositeOperation = "source-over";
   ctx.strokeStyle = drawColor.value;
   ctx.lineWidth = drawWidth.value;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 }
 
 function onCanvasDown(e) {
   if (!drawTool.value) return;
   const { x, y } = getCanvasPos(e);
 
-  if (drawTool.value === 'text') {
+  if (drawTool.value === "text") {
     const c = annotCanvasRef.value;
     const rect = c.getBoundingClientRect();
     const cssX = e.clientX - rect.left;
     const cssY = e.clientY - rect.top;
     const fontSize = drawWidth.value * 3 + 10;
-    textBox.value = { visible: true, value: '', x: cssX, y: cssY, canvasX: x, canvasY: y, fontSize };
+    textBox.value = {
+      visible: true,
+      value: "",
+      x: cssX,
+      y: cssY,
+      canvasX: x,
+      canvasY: y,
+      fontSize,
+    };
     nextTick(() => textInputRef.value?.focus());
     return;
   }
@@ -883,8 +1103,8 @@ function onCanvasDown(e) {
   _cdrawing = true;
   _shapeStart = { x, y };
 
-  if (drawTool.value === 'pen' || drawTool.value === 'erase') {
-    const ctx = annotCanvasRef.value.getContext('2d');
+  if (drawTool.value === "pen" || drawTool.value === "erase") {
+    const ctx = annotCanvasRef.value.getContext("2d");
     ctx.beginPath();
     ctx.moveTo(x, y);
   }
@@ -892,42 +1112,56 @@ function onCanvasDown(e) {
 function onCanvasMove(e) {
   if (!_cdrawing || !drawTool.value) return;
   const { x, y } = getCanvasPos(e);
-  const ctx = annotCanvasRef.value.getContext('2d');
+  const ctx = annotCanvasRef.value.getContext("2d");
 
-  if (drawTool.value === 'pen') {
+  if (drawTool.value === "pen") {
     _applyStrokeStyle(ctx);
     ctx.lineTo(x, y);
     ctx.stroke();
     markDirty();
-  } else if (drawTool.value === 'erase') {
-    ctx.globalCompositeOperation = 'destination-out';
+  } else if (drawTool.value === "erase") {
+    ctx.globalCompositeOperation = "destination-out";
     ctx.lineWidth = drawWidth.value * 5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.lineTo(x, y);
     ctx.stroke();
     markDirty();
-  } else if ((drawTool.value === 'line' || drawTool.value === 'rect') && _shapeStart) {
+  } else if (
+    (drawTool.value === "line" || drawTool.value === "rect") &&
+    _shapeStart
+  ) {
     const pc = previewCanvasRef.value;
     if (!pc) return;
-    const pctx = pc.getContext('2d');
+    const pctx = pc.getContext("2d");
     pctx.clearRect(0, 0, pc.width, pc.height);
     _applyStrokeStyle(pctx);
-    if (drawTool.value === 'line') {
+    if (drawTool.value === "line") {
       pctx.beginPath();
       pctx.moveTo(_shapeStart.x, _shapeStart.y);
       pctx.lineTo(x, y);
       pctx.stroke();
     } else {
       pctx.beginPath();
-      pctx.strokeRect(_shapeStart.x, _shapeStart.y, x - _shapeStart.x, y - _shapeStart.y);
+      pctx.strokeRect(
+        _shapeStart.x,
+        _shapeStart.y,
+        x - _shapeStart.x,
+        y - _shapeStart.y,
+      );
     }
   }
 }
 function onCanvasUp(e) {
-  if (_cdrawing && _shapeStart && (drawTool.value === 'line' || drawTool.value === 'rect')) {
+  if (
+    _cdrawing &&
+    _shapeStart &&
+    (drawTool.value === "line" || drawTool.value === "rect")
+  ) {
     let pos;
-    try { pos = e ? getCanvasPos(e) : null; } catch {}
+    try {
+      pos = e ? getCanvasPos(e) : null;
+    } catch {}
     if (pos) {
       const dx = Math.abs(pos.x - _shapeStart.x);
       const dy = Math.abs(pos.y - _shapeStart.y);
@@ -935,8 +1169,10 @@ function onCanvasUp(e) {
         shapeOverlays.value.push({
           id: Date.now(),
           type: drawTool.value,
-          x1: _shapeStart.x, y1: _shapeStart.y,
-          x2: pos.x, y2: pos.y,
+          x1: _shapeStart.x,
+          y1: _shapeStart.y,
+          x2: pos.x,
+          y2: pos.y,
           color: drawColor.value,
           width: drawWidth.value,
         });
@@ -945,10 +1181,10 @@ function onCanvasUp(e) {
     }
     // clear preview
     const pc = previewCanvasRef.value;
-    if (pc) pc.getContext('2d').clearRect(0, 0, pc.width, pc.height);
+    if (pc) pc.getContext("2d").clearRect(0, 0, pc.width, pc.height);
   }
   if (_cdrawing) {
-    annotCanvasRef.value?.getContext('2d')?.beginPath();
+    annotCanvasRef.value?.getContext("2d")?.beginPath();
     _cdrawing = false;
   }
   _shapeStart = null;
@@ -981,7 +1217,7 @@ function commitText() {
   cancelText();
 }
 function cancelText() {
-  textBox.value = { ...textBox.value, visible: false, value: '' };
+  textBox.value = { ...textBox.value, visible: false, value: "" };
 }
 function startTextDrag(e) {
   _textDragging = true;
@@ -993,16 +1229,22 @@ function startTextDrag(e) {
 
 // ── 文字疊層拖移 ─────────────────────────────────────────────────
 const textOverlays = ref([]); // { id, x, y, text, fontSize, color }
-let _activeTxtOvl = null, _toSX = 0, _toSY = 0, _toOrigX = 0, _toOrigY = 0;
+let _activeTxtOvl = null,
+  _toSX = 0,
+  _toSY = 0,
+  _toOrigX = 0,
+  _toOrigY = 0;
 
 function startTxtOvlDrag(e, ovl) {
   _activeTxtOvl = ovl;
-  _toSX = e.clientX; _toSY = e.clientY;
-  _toOrigX = ovl.x;  _toOrigY = ovl.y;
+  _toSX = e.clientX;
+  _toSY = e.clientY;
+  _toOrigX = ovl.x;
+  _toOrigY = ovl.y;
   e.preventDefault();
 }
 function removeTxtOvl(id) {
-  textOverlays.value = textOverlays.value.filter(o => o.id !== id);
+  textOverlays.value = textOverlays.value.filter((o) => o.id !== id);
   markDirty();
 }
 
@@ -1014,40 +1256,52 @@ function onStampInsert(stamp) {
     id: Date.now(),
     stampId: stamp.id,
     url: stamp.imageUrl,
-    x: 200, y: 200, w: 120,
+    x: 200,
+    y: 200,
+    w: 120,
   });
   markDirty();
 }
 function removeStampOvl(id) {
-  stampOverlays.value = stampOverlays.value.filter(o => o.id !== id);
+  stampOverlays.value = stampOverlays.value.filter((o) => o.id !== id);
   markDirty();
 }
 
 // ── 直線/矩形疊層拖移 ────────────────────────────────────────────
 const shapeOverlays = ref([]); // { id, type, x1, y1, x2, y2, color, width }
-let _activeShapeOvl = null, _soSX = 0, _soSY = 0, _soOX1 = 0, _soOY1 = 0, _soOX2 = 0, _soOY2 = 0;
+let _activeShapeOvl = null,
+  _soSX = 0,
+  _soSY = 0,
+  _soOX1 = 0,
+  _soOY1 = 0,
+  _soOX2 = 0,
+  _soOY2 = 0;
 
 function startShapeOvlDrag(e, ovl) {
   _activeShapeOvl = ovl;
-  _soSX = e.clientX; _soSY = e.clientY;
-  _soOX1 = ovl.x1; _soOY1 = ovl.y1;
-  _soOX2 = ovl.x2; _soOY2 = ovl.y2;
+  _soSX = e.clientX;
+  _soSY = e.clientY;
+  _soOX1 = ovl.x1;
+  _soOY1 = ovl.y1;
+  _soOX2 = ovl.x2;
+  _soOY2 = ovl.y2;
   e.preventDefault();
 }
 function removeShapeOvl(id) {
-  shapeOverlays.value = shapeOverlays.value.filter(o => o.id !== id);
+  shapeOverlays.value = shapeOverlays.value.filter((o) => o.id !== id);
   markDirty();
 }
 function clearAnnotCanvas() {
   const c = annotCanvasRef.value;
   if (!c) return;
-  c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  c.getContext("2d").clearRect(0, 0, c.width, c.height);
   markDirty();
 }
 function restoreAnnotCanvas(dataUrl) {
   if (!dataUrl || !annotCanvasRef.value) return;
   const img = new Image();
-  img.onload = () => annotCanvasRef.value?.getContext('2d')?.drawImage(img, 0, 0);
+  img.onload = () =>
+    annotCanvasRef.value?.getContext("2d")?.drawImage(img, 0, 0);
   img.src = dataUrl;
 }
 
@@ -1055,9 +1309,9 @@ function onImgFile(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => addOverlayImg(ev.target.result);
+  reader.onload = (ev) => addOverlayImg(ev.target.result);
   reader.readAsDataURL(file);
-  e.target.value = '';
+  e.target.value = "";
 }
 function addOverlayImg(src) {
   const id = Date.now();
@@ -1069,32 +1323,37 @@ function addOverlayImg(src) {
       const img = overlayImgs.value.find((i) => i.id === id);
       if (img) img.src = url;
     })
-    .catch((e) => console.warn('截圖上傳失敗', e))
+    .catch((e) => console.warn("截圖上傳失敗", e))
     .finally(() => _pendingOverlayUploads.delete(id));
   _pendingOverlayUploads.set(id, p);
 }
 function removeOverlayImg(id) {
-  overlayImgs.value = overlayImgs.value.filter(i => i.id !== id);
+  overlayImgs.value = overlayImgs.value.filter((i) => i.id !== id);
   markDirty();
 }
 function startImgDrag(e, img) {
-  _activeImg = img; _aiType = 'drag';
-  _aiSX = e.clientX; _aiSY = e.clientY;
-  _aiOrigX = img.x; _aiOrigY = img.y;
+  _activeImg = img;
+  _aiType = "drag";
+  _aiSX = e.clientX;
+  _aiSY = e.clientY;
+  _aiOrigX = img.x;
+  _aiOrigY = img.y;
   e.preventDefault();
 }
 function startImgResize(e, img) {
-  _activeImg = img; _aiType = 'resize';
-  _aiSX = e.clientX; _aiOrigW = img.w;
+  _activeImg = img;
+  _aiType = "resize";
+  _aiSX = e.clientX;
+  _aiOrigW = img.w;
   e.preventDefault();
 }
 function onPaste(e) {
   const items = e.clipboardData?.items;
   if (!items) return;
   for (const item of items) {
-    if (item.type.startsWith('image/')) {
+    if (item.type.startsWith("image/")) {
       const reader = new FileReader();
-      reader.onload = ev => addOverlayImg(ev.target.result);
+      reader.onload = (ev) => addOverlayImg(ev.target.result);
       reader.readAsDataURL(item.getAsFile());
       break;
     }
@@ -1133,7 +1392,11 @@ function onMouseMove(e) {
   if (_textDragging) {
     const dx = e.clientX - _textDragSX;
     const dy = e.clientY - _textDragSY;
-    textBox.value = { ...textBox.value, x: _textOrigX + dx, y: _textOrigY + dy };
+    textBox.value = {
+      ...textBox.value,
+      x: _textOrigX + dx,
+      y: _textOrigY + dy,
+    };
   }
   if (_activeTxtOvl) {
     const dx = e.clientX - _toSX;
@@ -1154,7 +1417,7 @@ function onMouseMove(e) {
   if (_activeImg) {
     const dx = e.clientX - _aiSX;
     const dy = e.clientY - _aiSY;
-    if (_aiType === 'drag') {
+    if (_aiType === "drag") {
       _activeImg.x = _aiOrigX + dx;
       _activeImg.y = _aiOrigY + dy;
     } else {
@@ -1199,15 +1462,23 @@ function onMouseUp() {
   if (_textDragging) {
     _textDragging = false;
     // sync canvasX/Y with new CSS position (1:1 scale)
-    textBox.value = { ...textBox.value, canvasX: textBox.value.x, canvasY: textBox.value.y + textBox.value.fontSize };
+    textBox.value = {
+      ...textBox.value,
+      canvasX: textBox.value.x,
+      canvasY: textBox.value.y + textBox.value.fontSize,
+    };
     nextTick(() => textInputRef.value?.focus());
   }
-  if (_cdrawing && _shapeStart && (drawTool.value === 'line' || drawTool.value === 'rect')) {
+  if (
+    _cdrawing &&
+    _shapeStart &&
+    (drawTool.value === "line" || drawTool.value === "rect")
+  ) {
     const pc = previewCanvasRef.value;
-    if (pc) pc.getContext('2d').clearRect(0, 0, pc.width, pc.height);
+    if (pc) pc.getContext("2d").clearRect(0, 0, pc.width, pc.height);
   }
   if (_cdrawing) {
-    annotCanvasRef.value?.getContext('2d')?.beginPath();
+    annotCanvasRef.value?.getContext("2d")?.beginPath();
     _cdrawing = false;
   }
   _shapeStart = null;
@@ -1267,16 +1538,22 @@ async function loadAll() {
     // re-fetch a fresh token URL from Storage so it opens without a 403.
     if (confirmedPdfUrl.value && !confirmedPdfUrl.value.includes("token=")) {
       try {
-        confirmedPdfUrl.value = await refreshConfirmedPdfDownloadUrl(orderId.value);
+        confirmedPdfUrl.value = await refreshConfirmedPdfDownloadUrl(
+          orderId.value,
+        );
       } catch (e) {
         console.warn("Could not refresh confirmedPdfUrl", e);
       }
     }
     if (conf?.cf) Object.assign(cf, conf.cf);
-    if (Array.isArray(conf?.overlayImgs)) overlayImgs.value = conf.overlayImgs.map(i => ({ ...i }));
-    if (Array.isArray(conf?.textOverlays)) textOverlays.value = conf.textOverlays.map(o => ({ ...o }));
-    if (Array.isArray(conf?.shapeOverlays)) shapeOverlays.value = conf.shapeOverlays.map(o => ({ ...o }));
-    if (Array.isArray(conf?.stampOverlays)) stampOverlays.value = conf.stampOverlays.map(o => ({ ...o }));
+    if (Array.isArray(conf?.overlayImgs))
+      overlayImgs.value = conf.overlayImgs.map((i) => ({ ...i }));
+    if (Array.isArray(conf?.textOverlays))
+      textOverlays.value = conf.textOverlays.map((o) => ({ ...o }));
+    if (Array.isArray(conf?.shapeOverlays))
+      shapeOverlays.value = conf.shapeOverlays.map((o) => ({ ...o }));
+    if (Array.isArray(conf?.stampOverlays))
+      stampOverlays.value = conf.stampOverlays.map((o) => ({ ...o }));
     // 手繪 canvas 等 nextTick 後再還原
     if (conf?.annotCanvas) {
       await nextTick();
@@ -1305,7 +1582,9 @@ async function loadAll() {
         y: saved.y !== undefined ? saved.y : 0,
         scale,
         _hasSavedPos: saved.x !== undefined,
-        overlayImages: Array.isArray(d.state?.overlayImages) ? d.state.overlayImages.map(i => ({ ...i })) : [],
+        overlayImages: Array.isArray(d.state?.overlayImages)
+          ? d.state.overlayImages.map((i) => ({ ...i }))
+          : [],
       });
     });
 
@@ -1342,7 +1621,9 @@ async function onUploadPdfFile(e) {
   if (!file) return;
   if (file.type !== "application/pdf") {
     saveMsg.value = "❗ 請選擇 PDF 檔案";
-    setTimeout(() => { saveMsg.value = ""; }, 3000);
+    setTimeout(() => {
+      saveMsg.value = "";
+    }, 3000);
     return;
   }
   pdfUploading.value = true;
@@ -1355,7 +1636,9 @@ async function onUploadPdfFile(e) {
     saveMsg.value = "❌ 上傳失敗：" + (err?.message || err);
   } finally {
     pdfUploading.value = false;
-    setTimeout(() => { saveMsg.value = ""; }, 4000);
+    setTimeout(() => {
+      saveMsg.value = "";
+    }, 4000);
   }
 }
 
@@ -1365,7 +1648,8 @@ async function regeneratePdf() {
   await generateConfirmedPdf();
 }
 
-async function generateConfirmedPdf() {  if (pdfGenerating.value || confirmedPdfUrl.value) return;
+async function generateConfirmedPdf() {
+  if (pdfGenerating.value || confirmedPdfUrl.value) return;
   pdfGenerating.value = true;
   try {
     selectedBlkId.value = null;
@@ -1389,11 +1673,17 @@ async function generateConfirmedPdf() {  if (pdfGenerating.value || confirmedPdf
     });
 
     const imgData = canvas.toDataURL("image/jpeg", 0.96);
-    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "mm",
+      format: "a4",
+      compress: true,
+    });
     // 依實際長寬比放入 A4 landscape (297x210),保持比例不變形,內容不會被裁切
-    const pageW = 297, pageH = 210;
-    const drawW = (w / h >= pageW / pageH) ? pageW : pageH * (w / h);
-    const drawH = (w / h >= pageW / pageH) ? pageW * (h / w) : pageH;
+    const pageW = 297,
+      pageH = 210;
+    const drawW = w / h >= pageW / pageH ? pageW : pageH * (w / h);
+    const drawH = w / h >= pageW / pageH ? pageW * (h / w) : pageH;
     const offX = (pageW - drawW) / 2;
     const offY = (pageH - drawH) / 2;
     pdf.addImage(imgData, "JPEG", offX, offY, drawW, drawH, undefined, "FAST");
@@ -1415,7 +1705,7 @@ async function doSave() {
   saving.value = true;
   try {
     const annotCanvas = annotCanvasRef.value
-      ? annotCanvasRef.value.toDataURL('image/png')
+      ? annotCanvasRef.value.toDataURL("image/png")
       : null;
     await saveOrderConfirmation(orderId.value, {
       drawingBlocks: Object.fromEntries(
@@ -1425,10 +1715,10 @@ async function doSave() {
         ]),
       ),
       cf: { ...cf },
-      overlayImgs: overlayImgs.value.map(i => ({ ...i })),
-      textOverlays: textOverlays.value.map(o => ({ ...o })),
-      shapeOverlays: shapeOverlays.value.map(o => ({ ...o })),
-      stampOverlays: stampOverlays.value.map(o => ({ ...o })),
+      overlayImgs: overlayImgs.value.map((i) => ({ ...i })),
+      textOverlays: textOverlays.value.map((o) => ({ ...o })),
+      shapeOverlays: shapeOverlays.value.map((o) => ({ ...o })),
+      stampOverlays: stampOverlays.value.map((o) => ({ ...o })),
       annotCanvas,
     });
     saveMsg.value = "✓ 已儲存";
@@ -1477,10 +1767,10 @@ function doPrint() {
 
 onMounted(() => {
   loadAll();
-  document.addEventListener('paste', onPaste);
+  document.addEventListener("paste", onPaste);
 });
 onUnmounted(() => {
-  document.removeEventListener('paste', onPaste);
+  document.removeEventListener("paste", onPaste);
 });
 </script>
 
@@ -1542,8 +1832,13 @@ onUnmounted(() => {
   cursor: pointer;
   font-size: 12px;
 }
-.btn-stamp:hover { background: #6d28d9; }
-.btn-stamp.active { background: #4c1d95; border-color: #a78bfa; }
+.btn-stamp:hover {
+  background: #6d28d9;
+}
+.btn-stamp.active {
+  background: #4c1d95;
+  border-color: #a78bfa;
+}
 /* ══ 圖章疊層 ══ */
 .s-img {
   position: absolute;
@@ -1553,8 +1848,12 @@ onUnmounted(() => {
   user-select: none;
   z-index: 7;
 }
-.s-img:hover { border-color: #a78bfa; }
-.s-img:active { cursor: grabbing; }
+.s-img:hover {
+  border-color: #a78bfa;
+}
+.s-img:active {
+  cursor: grabbing;
+}
 .s-img-del {
   position: absolute;
   top: -9px;
@@ -1573,7 +1872,9 @@ onUnmounted(() => {
   padding: 0;
   z-index: 1;
 }
-.s-img:hover .s-img-del { display: block; }
+.s-img:hover .s-img-del {
+  display: block;
+}
 .s-img-rh {
   position: absolute;
   bottom: -5px;
@@ -1587,7 +1888,9 @@ onUnmounted(() => {
   opacity: 0;
   transition: opacity 0.15s;
 }
-.s-img:hover .s-img-rh { opacity: 1; }
+.s-img:hover .s-img-rh {
+  opacity: 1;
+}
 .o-img {
   position: absolute;
   cursor: grab;
@@ -1596,8 +1899,12 @@ onUnmounted(() => {
   user-select: none;
   z-index: 6;
 }
-.o-img:hover { border-color: #aaa; }
-.o-img:active { cursor: grabbing; }
+.o-img:hover {
+  border-color: #aaa;
+}
+.o-img:active {
+  cursor: grabbing;
+}
 .o-img-rh {
   position: absolute;
   bottom: -5px;
@@ -1611,7 +1918,9 @@ onUnmounted(() => {
   opacity: 0;
   transition: opacity 0.15s;
 }
-.o-img:hover .o-img-rh { opacity: 1; }
+.o-img:hover .o-img-rh {
+  opacity: 1;
+}
 .btn-print {
   padding: 5px 12px;
   background: #334155;
@@ -1709,9 +2018,9 @@ onUnmounted(() => {
 /* ══ 頂部標題 ══ */
 .top-strip {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  padding: 2px 6px;
+  padding: 0 6px 4px;
   border-bottom: 2px solid #000;
   height: 24px;
   background: #d4d4d4;
@@ -1719,6 +2028,7 @@ onUnmounted(() => {
 .doc-star {
   font-size: 13px;
   font-weight: 900;
+  line-height: 1.1;
   white-space: nowrap;
 }
 .co-info {
@@ -1822,7 +2132,7 @@ onUnmounted(() => {
 
 /* ══ 左欄位 ══ */
 .left-col {
-  width: 260px;
+  width: 280px;
   flex-shrink: 0;
   border-right: 1px solid #000;
   display: flex;
@@ -1857,9 +2167,9 @@ onUnmounted(() => {
 }
 .fields-tbl td {
   border: 1px solid #aaa;
-  padding: 1px 4px;
+  padding: 0 4px 2px;
   height: 22px;
-  vertical-align: middle;
+  vertical-align: top;
 }
 .lbl {
   background: #e8e8e8;
@@ -1980,27 +2290,37 @@ onUnmounted(() => {
   text-align: center;
   word-break: break-all;
   padding: 2px 0;
+  transform: translateY(-2px);
 }
 
 .detail-tbl {
   flex: 1;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 10px;
   width: 100%;
   table-layout: fixed;
 }
 .detail-tbl th,
 .detail-tbl td {
   border: 1px solid #bbb;
-  padding: 1px 2px;
+  padding: 1px 3px 3px;
+  height: 20px;
   text-align: center;
-  vertical-align: middle;
-  overflow: hidden;
+  vertical-align: top;
+  line-height: 1.25;
+  overflow: visible;
+  white-space: nowrap;
+}
+.detail-tbl td:first-child {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: left;
 }
 .detail-tbl th {
   background: #e8e8e8;
   font-size: 10px;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 /* ══ 安裝地點 ══ */
@@ -2024,13 +2344,14 @@ onUnmounted(() => {
 
 /* ══ 交期說明 ══ */
 .notice-row {
-  padding: 2px 6px;
+  padding: 1px 6px 3px;
   font-size: 10px;
   border-bottom: 1px solid #000;
   background: #fffbeb;
   height: 18px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  line-height: 1.1;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -2209,12 +2530,12 @@ onUnmounted(() => {
 /* ══ 底部傳真 ══ */
 .fax-strip {
   position: absolute;
-  bottom: 0;
+  bottom: 2px;
   right: 6px;
   font-size: 10px;
   color: #555;
-  height: 16px;
-  line-height: 16px;
+  height: 18px;
+  line-height: 18px;
 }
 
 /* ══ 繪圖區塊 ══ */
@@ -2298,7 +2619,9 @@ onUnmounted(() => {
   line-height: 1.3;
   padding: 2px 4px;
 }
-.txt-ovl:active { cursor: grabbing; }
+.txt-ovl:active {
+  cursor: grabbing;
+}
 .txt-ovl-del {
   position: absolute;
   top: -9px;
@@ -2316,7 +2639,9 @@ onUnmounted(() => {
   display: none;
   padding: 0;
 }
-.txt-ovl:hover .txt-ovl-del { display: block; }
+.txt-ovl:hover .txt-ovl-del {
+  display: block;
+}
 
 /* ══ 直線/矩形疊層 ══ */
 .shape-ovl {
@@ -2325,7 +2650,9 @@ onUnmounted(() => {
   user-select: none;
   z-index: 13;
 }
-.shape-ovl:active { cursor: grabbing; }
+.shape-ovl:active {
+  cursor: grabbing;
+}
 .shape-ovl-del {
   position: absolute;
   top: -9px;
@@ -2344,7 +2671,9 @@ onUnmounted(() => {
   padding: 0;
   z-index: 1;
 }
-.shape-ovl:hover .shape-ovl-del { display: block; }
+.shape-ovl:hover .shape-ovl-del {
+  display: block;
+}
 
 /* ══ 手繪 canvas ══ */
 .annot-canvas {
@@ -2376,7 +2705,7 @@ onUnmounted(() => {
   z-index: 17;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   border-radius: 4px;
   overflow: visible;
 }
@@ -2392,7 +2721,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
 }
-.text-box-handle:active { cursor: grabbing; }
+.text-box-handle:active {
+  cursor: grabbing;
+}
 .text-commit-btn {
   padding: 1px 6px;
   background: #16a34a;

@@ -89,9 +89,13 @@
             :key="job.id"
             class="today-row"
           >
-            <RouterLink :to="`/orders/${job.orderId}/edit`" class="order-link">
+            <button
+              type="button"
+              class="order-link order-link-btn"
+              @click="openOrderPdf(job)"
+            >
               {{ job.orderNo || job.id.slice(0, 8) }}
-            </RouterLink>
+            </button>
             <span class="today-name">{{ job.customerName }}</span>
             <span v-if="job.total" class="today-amt">{{ fmtMoney(job.total) }}</span>
             <button class="btn-reset-small" title="退回工序" @click="openReject(job)">↩</button>
@@ -145,21 +149,28 @@
                 </span>
               </td>
               <td class="col-no">
-                <RouterLink :to="`/orders/${job.orderId}/edit`" class="order-link">
+                <button
+                  type="button"
+                  class="order-link order-link-btn"
+                  @click="openOrderPdf(job)"
+                >
                   {{ job.orderNo || '—' }}
-                </RouterLink>
+                </button>
               </td>
               <td class="col-customer">{{ job.customerName || '—' }}</td>
               <td class="col-addr">{{ job.siteAddress || '—' }}</td>
               <td class="col-stone">
-                <span
+                <button
                   v-for="(s, i) in job.stones"
                   :key="i"
-                  class="stone-tag"
+                  type="button"
+                  class="stone-tag stone-link"
                   :class="'mat-' + s.materialType"
+                  :disabled="!canOpenStoneInventory(s)"
+                  @click="openStoneInventory(s)"
                 >
                   {{ s.color || s.brand || s.materialType }}
-                </span>
+                </button>
               </td>
               <td class="col-money">{{ job.total ? fmtMoney(job.total) : '—' }}</td>
               <td class="col-actions">
@@ -202,21 +213,28 @@
               </span>
             </td>
             <td class="col-no">
-              <RouterLink :to="`/orders/${job.orderId}/edit`" class="order-link">
+              <button
+                type="button"
+                class="order-link order-link-btn"
+                @click="openOrderPdf(job)"
+              >
                 {{ job.orderNo || '—' }}
-              </RouterLink>
+              </button>
             </td>
             <td class="col-customer">{{ job.customerName || '—' }}</td>
             <td class="col-addr">{{ job.siteAddress || '—' }}</td>
             <td class="col-stone">
-              <span
+              <button
                 v-for="(s, i) in job.stones"
                 :key="i"
-                class="stone-tag"
+                type="button"
+                class="stone-tag stone-link"
                 :class="'mat-' + s.materialType"
+                :disabled="!canOpenStoneInventory(s)"
+                @click="openStoneInventory(s)"
               >
                 {{ s.color || s.brand || s.materialType }}
-              </span>
+              </button>
             </td>
             <td class="col-money">{{ job.total ? fmtMoney(job.total) : '—' }}</td>
             <td class="col-actions">
@@ -264,7 +282,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { PRODUCTION_STAGES, listProductionJobs, advanceProductionStage, rejectProductionQc, resetProductionJob, backfillProductionJobs, backfillLegacyOrderProductionFields, getUserByUid } from "../firebase";
+import { PRODUCTION_STAGES, listProductionJobs, advanceProductionStage, rejectProductionQc, resetProductionJob, backfillProductionJobs, backfillLegacyOrderProductionFields, getUserByUid, refreshConfirmedPdfDownloadUrl } from "../firebase";
 import { auth } from "../firebase";
 
 const STAGES = PRODUCTION_STAGES;
@@ -344,6 +362,30 @@ function fmtStageDoneDate(value) {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function canOpenStoneInventory(stone) {
+  return Boolean(String(stone?.color || "").trim());
+}
+
+async function openOrderPdf(job) {
+  const orderId = String(job?.orderId || "").trim();
+  const orderNumber = String(job?.orderNo || "").trim();
+  if (!orderId) return;
+  try {
+    const url = await refreshConfirmedPdfDownloadUrl(orderId);
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (e) {
+    console.error("openOrderPdf failed", e);
+    alert(`找不到${orderNumber ? `訂單 ${orderNumber} 的` : ""}確定單 PDF：` + (e?.message || String(e)));
+  }
+}
+
+function openStoneInventory(stone) {
+  const color = String(stone?.color || "").trim();
+  if (!color) return;
+  const url = `/inventory?color=${encodeURIComponent(color)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function isDateToday(dateStr) {
@@ -608,6 +650,16 @@ onMounted(async () => {
 .stat-card {
   flex: 1;
   min-width: 130px;
+.stone-link {
+  border: none;
+  cursor: pointer;
+}
+.stone-link:disabled {
+  cursor: default;
+}
+.stone-link:not(:disabled):hover {
+  filter: brightness(0.96);
+}
   border-radius: 10px;
   padding: 12px 16px;
   display: flex;
@@ -617,6 +669,12 @@ onMounted(async () => {
 .stat-label { font-size: .78rem; color: #888; }
 .stat-value { font-size: 1.5rem; font-weight: 700; }
 .stat-sub   { font-size: .85rem; color: #666; }
+.order-link-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
 
 .stat-pending   { background: #fff3e0; }
 .stat-pending .stat-value { color: #e65100; }

@@ -238,6 +238,68 @@
             </label>
           </div>
         </div>
+        <div style="margin-top: 14px; padding: 14px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 8px; max-width: 780px">
+          <h3 style="margin: 0 0 8px; font-size: 15px; color: #9a3412;">🧪 清除派車測試資料</h3>
+          <p style="margin: 0 0 12px; font-size: 13px; color: #9a3412;">
+            只刪除 <strong>PendingOrders</strong> 中含指定關鍵字的測試資料。員工查詢會直接讀這個集合，建議先用 dryRun 預覽再刪除。
+          </p>
+          <div class="field-row" style="gap: 12px; flex-wrap: wrap; align-items: end;">
+            <div class="field-item tight">
+              <label>測試關鍵字:</label>
+              <input type="text" v-model.trim="dispatchTools.pendingCleanupKeyword" placeholder="例如：測試 / TEST" />
+            </div>
+            <div class="field-item tight">
+              <label>掃描上限:</label>
+              <input type="number" min="1" max="10000" v-model.number="dispatchTools.pendingCleanupLimit" />
+            </div>
+            <button
+              class="btn-aux"
+              :disabled="dispatchTools.loading"
+              @click="runPendingCleanup(true)"
+            >
+              {{ dispatchTools.loading && dispatchTools.action === 'pending-cleanup-dry' ? '檢查中…' : '預覽 PendingOrders 測試資料' }}
+            </button>
+            <button
+              class="btn-manage"
+              style="background:#dc2626;color:#fff;"
+              :disabled="dispatchTools.loading"
+              @click="runPendingCleanup(false)"
+            >
+              {{ dispatchTools.loading && dispatchTools.action === 'pending-cleanup' ? '刪除中…' : '刪除 PendingOrders 測試資料' }}
+            </button>
+          </div>
+        </div>
+        <div style="margin-top: 14px; padding: 14px; background: #eff6ff; border: 1px solid #93c5fd; border-radius: 8px; max-width: 780px">
+          <h3 style="margin: 0 0 8px; font-size: 15px; color: #1d4ed8;">🧾 清除 Orders 測試派車資料</h3>
+          <p style="margin: 0 0 12px; font-size: 13px; color: #1e40af;">
+            只刪除 <strong>Orders</strong> 中含指定關鍵字的派車測試資料。若你的 Sheet trigger 是直接匯進 Orders，應該使用這組工具。
+          </p>
+          <div class="field-row" style="gap: 12px; flex-wrap: wrap; align-items: end;">
+            <div class="field-item tight">
+              <label>測試關鍵字:</label>
+              <input type="text" v-model.trim="dispatchTools.ordersCleanupKeyword" placeholder="例如：測試 / TEST" />
+            </div>
+            <div class="field-item tight">
+              <label>掃描上限:</label>
+              <input type="number" min="1" max="10000" v-model.number="dispatchTools.ordersCleanupLimit" />
+            </div>
+            <button
+              class="btn-aux"
+              :disabled="dispatchTools.loading"
+              @click="runOrdersCleanup(true)"
+            >
+              {{ dispatchTools.loading && dispatchTools.action === 'orders-cleanup-dry' ? '檢查中…' : '預覽 Orders 測試資料' }}
+            </button>
+            <button
+              class="btn-manage"
+              style="background:#dc2626;color:#fff;"
+              :disabled="dispatchTools.loading"
+              @click="runOrdersCleanup(false)"
+            >
+              {{ dispatchTools.loading && dispatchTools.action === 'orders-cleanup' ? '刪除中…' : '刪除 Orders 測試資料' }}
+            </button>
+          </div>
+        </div>
         <div v-if="dispatchTools.error" class="muted-text" style="color: #dc2626; margin-top: 8px;">
           {{ dispatchTools.error }}
         </div>
@@ -608,6 +670,10 @@ const dispatchTools = ref({
   backfillLimit: 500,
   syncDaysAhead: 7,
   forceCreatedAt: false,
+  pendingCleanupKeyword: "測試",
+  pendingCleanupLimit: 3000,
+  ordersCleanupKeyword: "測試",
+  ordersCleanupLimit: 3000,
   result: null,
   error: "",
 });
@@ -669,6 +735,64 @@ async function runPurgeLegacy(dryRun) {
     const res = await call({
       dryRun,
       limit: Math.min(10000, Math.max(1, Number(dispatchTools.value.backfillLimit) || 5000)),
+    });
+    dispatchTools.value.result = res.data;
+  } catch (e) {
+    dispatchTools.value.error = e?.message || String(e);
+  } finally {
+    dispatchTools.value.loading = false;
+    dispatchTools.value.action = "";
+  }
+}
+
+async function runPendingCleanup(dryRun) {
+  if (dispatchTools.value.loading) return;
+  const keyword = String(dispatchTools.value.pendingCleanupKeyword || "").trim();
+  if (!keyword) {
+    dispatchTools.value.error = "請先輸入要刪除的測試關鍵字";
+    return;
+  }
+  if (!dryRun && !confirm(`確定要刪除 PendingOrders 中包含「${keyword}」的測試資料？\n\n此操作會影響員工查詢結果，且無法復原。`)) return;
+
+  dispatchTools.value.loading = true;
+  dispatchTools.value.action = dryRun ? "pending-cleanup-dry" : "pending-cleanup";
+  dispatchTools.value.error = "";
+  dispatchTools.value.result = null;
+  try {
+    const call = httpsCallable(functionsInstance, "purgePendingTestOrders", { timeout: 540000 });
+    const res = await call({
+      dryRun,
+      keyword,
+      limit: Math.min(10000, Math.max(1, Number(dispatchTools.value.pendingCleanupLimit) || 3000)),
+    });
+    dispatchTools.value.result = res.data;
+  } catch (e) {
+    dispatchTools.value.error = e?.message || String(e);
+  } finally {
+    dispatchTools.value.loading = false;
+    dispatchTools.value.action = "";
+  }
+}
+
+async function runOrdersCleanup(dryRun) {
+  if (dispatchTools.value.loading) return;
+  const keyword = String(dispatchTools.value.ordersCleanupKeyword || "").trim();
+  if (!keyword) {
+    dispatchTools.value.error = "請先輸入要刪除的測試關鍵字";
+    return;
+  }
+  if (!dryRun && !confirm(`確定要刪除 Orders 中包含「${keyword}」的測試資料？\n\n此操作會直接影響正式訂單查詢，且無法復原。`)) return;
+
+  dispatchTools.value.loading = true;
+  dispatchTools.value.action = dryRun ? "orders-cleanup-dry" : "orders-cleanup";
+  dispatchTools.value.error = "";
+  dispatchTools.value.result = null;
+  try {
+    const call = httpsCallable(functionsInstance, "purgeOrdersTestData", { timeout: 540000 });
+    const res = await call({
+      dryRun,
+      keyword,
+      limit: Math.min(10000, Math.max(1, Number(dispatchTools.value.ordersCleanupLimit) || 3000)),
     });
     dispatchTools.value.result = res.data;
   } catch (e) {

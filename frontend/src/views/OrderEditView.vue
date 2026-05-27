@@ -12,17 +12,20 @@
         <RouterLink
           v-if="isEdit"
           class="btn-aux"
-          :to="`/orders/${route.params.id}/drawing`"
-          >📏 繪圖</RouterLink
+          :to="`/orders/${route.params.id}/confirmation`"
+          >📋 確定單</RouterLink
         >
         <RouterLink
           v-if="isEdit"
           class="btn-aux"
-          :to="`/orders/${route.params.id}/confirmation`"
-          >📋 確定單</RouterLink
+          :to="`/orders/${route.params.id}/drawing`"
+          >📏 繪圖</RouterLink
         >
         <button v-if="canSendConfirmation" class="btn-aux" @click="onSendConfirmation">📨 傳確定單</button>
         <button v-if="canIssue" class="btn-primary btn-issue" @click="showIssuanceDialog = true">✅ 發單</button>
+        <button v-if="canRenameIssuedOrderNo" class="btn-aux" @click="onRenameOrderNo">
+          ✏️ 改訂單號（{{ currentOrderNo }}）
+        </button>
         <button class="btn-secondary" @click="$router.back()">取消</button>
         <button class="btn-primary" :disabled="saving" @click="onSave">
           {{ saving ? "儲存中..." : "儲存" }}
@@ -35,7 +38,7 @@
 
     <div v-if="!loading" class="form-grid">
       <!-- 客戶資訊 -->
-      <section class="card">
+      <section class="card card-customer">
         <h3>客戶資訊</h3>
         <div class="row">
           <label>客戶</label>
@@ -109,7 +112,7 @@
       </section>
 
       <!-- 石材 -->
-      <section class="card">
+      <section class="card card-stone">
         <header class="card-head">
           <h3>石材</h3>
           <button class="btn-mini" @click="addStone">+ 新增石材</button>
@@ -176,7 +179,7 @@
       </section>
 
         <!-- 計價 -->
-      <section class="card">
+      <section class="card card-pricing full">
         <header class="card-head">
           <h3>計價</h3>
           <a href="/quote" target="_blank" class="btn-aux">📊 開啟估價單</a>
@@ -335,7 +338,7 @@
       </section>
 
       <!-- 附件（原始圖檔 / 打板照）-->
-      <section v-if="isEdit" class="card full">
+      <section v-if="isEdit" class="card card-attachments full">
         <h3>附件</h3>
 
         <!-- 原始圖檔 -->
@@ -388,7 +391,7 @@
       </section>
 
       <!-- 台面 -->
-      <section class="card">
+      <section class="card card-countertop">
         <h3>台面</h3>
         <div class="row">
           <label>台面型別</label>
@@ -433,7 +436,7 @@
       </section>
 
       <!-- 水槽 -->
-      <section class="card">
+      <section class="card card-sinks">
         <header class="card-head">
           <h3>水槽 (最多 3 個)</h3>
           <button
@@ -529,7 +532,7 @@
       </section>
 
       <!-- 爐子 -->
-      <section class="card">
+      <section class="card card-stoves">
         <header class="card-head">
           <h3>爐子 (最多 3 個)</h3>
           <button
@@ -580,7 +583,7 @@
       </section>
 
       <!-- 切割/邊緣 -->
-      <section class="card">
+      <section class="card card-production">
         <h3>生產指令</h3>
         <div class="row">
           <label>打板日</label>
@@ -671,6 +674,7 @@ import {
   getCustomerPricing,
   updateCustomerPricing,
   listOrderDrawings,
+  updateIssuedOrderNo,
 } from "../firebase";
 import IssuanceDialog from "../components/IssuanceDialog.vue";
 import { SINK_STATUS_LIST } from "../utils/sinkStatus";
@@ -711,6 +715,12 @@ const pendingSignDrawingVersions = ref({});
 const showIssuanceDialog = ref(false);
 const canSendConfirmation = computed(() => isEdit.value && (!orderStatus.value || orderStatus.value === "draft"));
 const canIssue = computed(() => isEdit.value && orderStatus.value === "pendingSign");
+const currentOrderNo = computed(() => String(form.value.orderNo || "").trim());
+const canRenameIssuedOrderNo = computed(() =>
+  isEdit.value &&
+  !!currentOrderNo.value &&
+  ["confirmed", "inProduction", "delivered"].includes(orderStatus.value),
+);
 
 async function onSendConfirmation() {
   if (!confirm("確定要傳送確定單給客戶簽回嗎？\n（系統將記錄目前資料快照，狀態改為「待客戶簽回」）")) return;
@@ -731,10 +741,34 @@ async function onSendConfirmation() {
 function onIssued(orderNo) {
   showIssuanceDialog.value = false;
   orderStatus.value = "confirmed";
+  form.value.orderNo = orderNo;
   // 自動建立生產工單
   createProductionJob(route.params.id, { ...toPayload(), orderNo }).catch(console.error);
   alert(`發單成功！訂單號：${orderNo}\n即將跳轉確定單頁面封存PDF。`);
   router.push({ name: "order-confirmation", params: { id: route.params.id } });
+}
+
+async function onRenameOrderNo() {
+  const current = currentOrderNo.value;
+  if (!current) {
+    alert("目前沒有可修改的訂單號碼");
+    return;
+  }
+  const next = String(prompt("請輸入新的訂單號碼", current) || "")
+    .trim()
+    .toUpperCase();
+  if (!next || next === current) return;
+  if (!confirm(`確定將訂單號碼由 ${current} 改為 ${next}？\n系統會同步更新生產工單、派車與維修關聯資料。`)) {
+    return;
+  }
+  try {
+    const result = await updateIssuedOrderNo(route.params.id, next);
+    form.value.orderNo = result.orderNo;
+    alert(`訂單號碼已更新為 ${result.orderNo}`);
+  } catch (e) {
+    console.error(e);
+    alert("修改訂單號碼失敗：" + (e?.message || e));
+  }
 }
 
 // ─── 附件 ────────────────────────────────────────────────
@@ -1854,36 +1888,47 @@ onMounted(loadAll);
 
 <style scoped>
 .order-edit {
-  max-width: 1100px;
+  max-width: 1480px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 24px 20px 40px;
 }
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.page-header h2 {
+  margin: 0;
+  font-size: clamp(1.4rem, 1.8vw, 2rem);
+  letter-spacing: 0.02em;
 }
 .header-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .btn-primary {
-  padding: 8px 16px;
+  padding: 10px 18px;
   background: #1976d2;
   color: #fff;
   border: 0;
-  border-radius: 4px;
+  border-radius: 10px;
   cursor: pointer;
+  font-weight: 600;
+  box-shadow: 0 10px 20px rgba(25, 118, 210, 0.18);
 }
 .btn-primary:disabled {
   background: #999;
+  box-shadow: none;
 }
 .btn-secondary {
-  padding: 8px 16px;
+  padding: 10px 18px;
   background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  border: 1px solid #d5dbe7;
+  border-radius: 10px;
   cursor: pointer;
 }
 .btn-mini {
@@ -1892,7 +1937,7 @@ onMounted(loadAll);
   border: 1px solid #1976d2;
   background: #fff;
   color: #1976d2;
-  border-radius: 4px;
+  border-radius: 999px;
   cursor: pointer;
 }
 .btn-mini:disabled {
@@ -1910,102 +1955,150 @@ onMounted(loadAll);
 .form-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: 18px;
 }
 @media (min-width: 900px) {
   .form-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
   }
   .card.full {
     grid-column: 1 / -1;
   }
 }
+.card-pricing,
+.card-attachments {
+  grid-column: 1 / -1;
+}
+@media (min-width: 1240px) {
+  .form-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+  .card-customer {
+    grid-column: span 5;
+  }
+  .card-stone {
+    grid-column: span 7;
+  }
+  .card-countertop {
+    grid-column: span 5;
+  }
+  .card-production {
+    grid-column: span 7;
+  }
+  .card-sinks {
+    grid-column: span 7;
+  }
+  .card-stoves {
+    grid-column: span 5;
+  }
+}
 .card {
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  padding: 12px 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  border: 1px solid #dde6f3;
+  border-radius: 18px;
+  padding: 18px 20px 20px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
 }
 .card h3 {
-  margin: 0 0 10px 0;
-  font-size: 15px;
-  color: #333;
+  margin: 0 0 14px 0;
+  font-size: 1rem;
+  color: #183153;
 }
 .card-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf2f8;
 }
 .card-head h3 {
   margin: 0;
 }
 .row {
   display: grid;
-  grid-template-columns: 100px 1fr;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px 14px;
+  margin-bottom: 12px;
 }
 .row label {
   font-size: 13px;
-  color: #555;
+  font-weight: 600;
+  color: #4c607a;
+  padding-top: 11px;
 }
 .row input,
 .row select,
 .row textarea {
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid #cfd8e6;
+  border-radius: 10px;
   font-size: 13px;
   width: 100%;
   box-sizing: border-box;
+  background: #fff;
+  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+.row textarea {
+  min-height: 96px;
+  resize: vertical;
 }
 .inline {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   flex-wrap: wrap;
 }
 .inline input {
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid #cfd8e6;
+  border-radius: 10px;
   font-size: 13px;
 }
 .sub-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid #edf2f8;
+  border-radius: 14px;
+  background: #fcfdff;
 }
 .sub-row input,
 .sub-row select {
-  padding: 5px 7px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #cfd8e6;
+  border-radius: 10px;
   font-size: 12px;
   min-width: 0;
 }
 .sink-row {
-  border: 1px solid #eee;
-  border-radius: 4px;
-  padding: 8px;
-  margin-bottom: 8px;
+  border: 1px solid #e8eef7;
+  border-radius: 16px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #fcfdff;
 }
 .sink-row-main {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .sink-row-main input,
 .sink-row-main select {
-  padding: 5px 7px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #cfd8e6;
+  border-radius: 10px;
   font-size: 12px;
   min-width: 0;
 }
@@ -2049,9 +2142,10 @@ onMounted(loadAll);
   position: relative;
 }
 .customer-picker input {
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid #cfd8e6;
+  border-radius: 10px;
   font-size: 13px;
   width: 100%;
   box-sizing: border-box;
@@ -2064,7 +2158,7 @@ onMounted(loadAll);
   max-height: 280px;
   overflow-y: auto;
   background: #fff;
-  border: 1px solid #ccc;
+  border: 1px solid #d7e0ec;
   border-top: 0;
   list-style: none;
   margin: 0;
@@ -2086,7 +2180,7 @@ onMounted(loadAll);
   font-size: 12px;
 }
 .picked {
-  margin-top: 4px;
+  margin-top: 8px;
   font-size: 12px;
   color: #1976d2;
 }
@@ -2106,24 +2200,29 @@ onMounted(loadAll);
   cursor: pointer;
 }
 .line-items-block {
-  margin: 12px 0;
-  padding: 10px;
-  background: #fafafa;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
+  margin: 14px 0;
+  padding: 14px;
+  background: #f8fbff;
+  border: 1px solid #dbe8f6;
+  border-radius: 16px;
+  overflow-x: auto;
 }
 .line-items-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 .line-items-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .line-items-table {
   width: 100%;
+  min-width: 760px;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -2175,10 +2274,10 @@ onMounted(loadAll);
 }
 .pricing-history {
   margin-bottom: 12px;
-  padding: 10px 12px;
-  background: #f0f7ff;
-  border: 1px solid #bbdefb;
-  border-radius: 6px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, #f3f9ff 0%, #eef6ff 100%);
+  border: 1px solid #bfdcff;
+  border-radius: 14px;
 }
 .pricing-history-head {
   font-size: 13px;
@@ -2210,15 +2309,19 @@ onMounted(loadAll);
 }
 .check-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 6px 12px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px 12px;
   flex: 1;
 }
 .check-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid #e9eef6;
+  border-radius: 12px;
+  background: #fcfdff;
 }
 .small {
   font-size: 12px;
@@ -2232,8 +2335,8 @@ onMounted(loadAll);
 /* ── 附件區塊 ── */
 .attach-section {
   margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #edf2f8;
 }
 .attach-section:last-child {
   border-bottom: 0;
@@ -2277,16 +2380,61 @@ onMounted(loadAll);
 .photo-thumb {
   position: relative;
   width: 120px;
-  height: 90px;
+  gap: 10px;
   border-radius: 4px;
   overflow: hidden;
   border: 1px solid #e0e0e0;
-  cursor: pointer;
-}
-.photo-thumb img {
+  width: 132px;
+  height: 96px;
+  border-radius: 12px;
   width: 100%;
-  height: 100%;
+  border: 1px solid #dbe3ef;
   object-fit: cover;
+}
+.row input:focus,
+.row select:focus,
+.row textarea:focus,
+.inline input:focus,
+.sub-row input:focus,
+.sub-row select:focus,
+.sink-row-main input:focus,
+.sink-row-main select:focus,
+.customer-picker input:focus,
+.li-input:focus {
+  outline: none;
+  border-color: #5a9cff;
+  box-shadow: 0 0 0 4px rgba(90, 156, 255, 0.12);
+}
+@media (max-width: 899px) {
+  .page-header {
+    flex-direction: column;
+  }
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 640px) {
+  .order-edit {
+    padding: 16px 12px 28px;
+  }
+  .row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .row label {
+    padding-top: 0;
+  }
+  .card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+  .card-head {
+    align-items: flex-start;
+  }
+  .line-items-block {
+    padding: 12px;
+  }
 }
 .thumb-del {
   position: absolute;

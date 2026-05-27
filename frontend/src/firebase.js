@@ -2256,6 +2256,125 @@ export async function issueOrder(
   return finalOrderNo;
 }
 
+export async function updateIssuedOrderNo(orderId, nextOrderNo) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const cleanOrderId = String(orderId || "").trim();
+  const cleanNextOrderNo = String(nextOrderNo || "").trim().toUpperCase();
+  if (!cleanOrderId) throw new Error("缺少訂單 ID");
+  if (!cleanNextOrderNo) throw new Error("請輸入訂單號碼");
+
+  const orderRef = doc(db, "salesOrders", cleanOrderId);
+  const orderSnap = await getDoc(orderRef);
+  if (!orderSnap.exists()) throw new Error("找不到訂單");
+
+  const orderData = orderSnap.data() || {};
+  const currentOrderNo = String(orderData.orderNo || "").trim();
+  if (!currentOrderNo) throw new Error("此訂單尚未發單，沒有可修改的訂單號碼");
+  if (currentOrderNo === cleanNextOrderNo) {
+    return { orderNo: cleanNextOrderNo, updated: 0 };
+  }
+
+  const dupSnap = await getDocs(
+    query(collection(db, "salesOrders"), where("orderNo", "==", cleanNextOrderNo)),
+  );
+  const duplicated = dupSnap.docs.some((d) => d.id !== cleanOrderId);
+  if (duplicated) {
+    throw new Error(`訂單號碼 ${cleanNextOrderNo} 已存在`);
+  }
+
+  const legacyRefs = await _findLegacyOrderRefsByOrderNo(currentOrderNo);
+  const [productionSnap, repairTicketSnap, repairOrderSnap, dispatchSnap] = await Promise.all([
+    getDocs(query(collection(db, "productionJobs"), where("orderId", "==", cleanOrderId))),
+    getDocs(query(collection(db, "repairTickets"), where("sourceOrderId", "==", cleanOrderId))),
+    getDocs(query(collection(db, "salesOrders"), where("repairSourceOrderId", "==", cleanOrderId))),
+    getDocs(query(collection(db, "dispatchEntries"), where("sourceId", "==", cleanOrderId))),
+  ]);
+
+  const targets = [
+    {
+      ref: orderRef,
+      data: {
+        orderNo: cleanNextOrderNo,
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      },
+    },
+  ];
+
+  productionSnap.docs.forEach((d) => {
+    targets.push({
+      ref: d.ref,
+      data: {
+        orderNo: cleanNextOrderNo,
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      },
+    });
+  });
+
+  repairTicketSnap.docs.forEach((d) => {
+    targets.push({
+      ref: d.ref,
+      data: {
+        sourceOrderNo: cleanNextOrderNo,
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      },
+    });
+  });
+
+  repairOrderSnap.docs.forEach((d) => {
+    targets.push({
+      ref: d.ref,
+      data: {
+        repairSourceOrderNo: cleanNextOrderNo,
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      },
+    });
+  });
+
+  dispatchSnap.docs
+    .filter((d) => d.data()?.sourceCollection === "salesOrders")
+    .forEach((d) => {
+      targets.push({
+        ref: d.ref,
+        data: {
+          sourceOrderNo: cleanNextOrderNo,
+          updatedAt: serverTimestamp(),
+          updatedByUid: uid,
+        },
+      });
+    });
+
+  legacyRefs.forEach((ref) => {
+    targets.push({
+      ref,
+      data: {
+        orderNo: cleanNextOrderNo,
+        orderNumber: cleanNextOrderNo,
+        訂單號碼: cleanNextOrderNo,
+      },
+    });
+  });
+
+  const CHUNK = 450;
+  for (let i = 0; i < targets.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    targets.slice(i, i + CHUNK).forEach((item) => {
+      batch.set(item.ref, item.data, { merge: true });
+    });
+    await batch.commit();
+  }
+
+  return {
+    orderNo: cleanNextOrderNo,
+    updated: targets.length,
+    previousOrderNo: currentOrderNo,
+  };
+}
+
 // onProgress(done, total) 可選的進度回呼
 export async function batchImportSalesOrders(records, onProgress) {
   const uid = auth.currentUser?.uid || null;

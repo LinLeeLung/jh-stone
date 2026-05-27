@@ -9,7 +9,11 @@
           :disabled="!selectedIds.size || dispatching"
           @click="onDispatchPrint"
         >
-          {{ dispatching ? pdfProgress || "處理中…" : `🖨️ 批次發單並列印（${selectedIds.size} 張）` }}
+          {{
+            dispatching
+              ? pdfProgress || "處理中…"
+              : `🖨️ 批次發單並列印（${selectedIds.size} 張）`
+          }}
         </button>
       </div>
     </header>
@@ -22,7 +26,7 @@
         <option value="pendingSign">待回簽</option>
         <option value="confirmed">已確認</option>
         <option value="inProduction">生產中</option>
-        <option value="delivered">已出貨</option>
+        <option value="delivered">已驗收</option>
         <option value="done">完工</option>
         <option value="cancelled">已取消</option>
       </select>
@@ -37,7 +41,9 @@
         placeholder="搜尋訂單號 / 客戶 / 地址"
         @input="applyFilter"
       />
-      <button class="btn-aux" @click="selectAll">全選（{{ filtered.length }}）</button>
+      <button class="btn-aux" @click="selectAll">
+        全選（{{ filtered.length }}）
+      </button>
       <button class="btn-aux" @click="clearSelection">取消全選</button>
     </div>
 
@@ -49,23 +55,47 @@
         <thead>
           <tr>
             <th class="col-check">
-              <input type="checkbox" :checked="allSelected" :indeterminate.prop="someSelected" @change="toggleAll" />
+              <input
+                type="checkbox"
+                :checked="allSelected"
+                :indeterminate.prop="someSelected"
+                @change="toggleAll"
+              />
             </th>
-            <th class="sortable" @click="setSort('promisedAt')">預交日{{ sortIcon('promisedAt') }}</th>
-            <th class="sortable" @click="setSort('orderNo')">訂單號{{ sortIcon('orderNo') }}</th>
-            <th class="sortable" @click="setSort('customerName')">客戶{{ sortIcon('customerName') }}</th>
-            <th>施工地址</th>
-            <th>石材</th>
-            <th>狀態</th>
-            <th>確定單</th>
-            <th>發單紀錄</th>
+            <th class="sortable" @click="setSort('promisedAt')">
+              預交日{{ sortIcon("promisedAt") }}
+            </th>
+            <th class="sortable" @click="setSort('orderNo')">
+              訂單號{{ sortIcon("orderNo") }}
+            </th>
+            <th class="sortable" @click="setSort('customerName')">
+              客戶{{ sortIcon("customerName") }}
+            </th>
+            <th class="sortable" @click="setSort('siteAddress')">
+              施工地址{{ sortIcon("siteAddress") }}
+            </th>
+            <th class="sortable" @click="setSort('stoneType')">
+              石材{{ sortIcon("stoneType") }}
+            </th>
+            <th class="sortable" @click="setSort('status')">
+              狀態{{ sortIcon("status") }}
+            </th>
+            <th class="sortable" @click="setSort('confirmedPdf')">
+              確定單{{ sortIcon("confirmedPdf") }}
+            </th>
+            <th class="sortable" @click="setSort('dispatchedAt')">
+              發單紀錄{{ sortIcon("dispatchedAt") }}
+            </th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="o in filtered"
             :key="o.id"
-            :class="{ 'row-dispatched': o.dispatchedAt, 'row-selected': selectedIds.has(o.id) }"
+            :class="{
+              'row-dispatched': o.dispatchedAt,
+              'row-selected': selectedIds.has(o.id),
+            }"
             @click="toggleSelect(o.id)"
           >
             <td class="col-check" @click.stop>
@@ -92,7 +122,9 @@
               <span v-else class="pdf-none">✗ 未封存</span>
             </td>
             <td class="col-dispatched" @click.stop>
-              <span v-if="o.dispatchedAt" class="dispatched-badge">✓ {{ fmtDate(o.dispatchedAt) }}</span>
+              <span v-if="o.dispatchedAt" class="dispatched-badge"
+                >✓ {{ fmtDate(o.dispatchedAt) }}</span
+              >
               <span v-else class="undispatched-tag">未發單</span>
             </td>
           </tr>
@@ -115,8 +147,12 @@
       <strong>{{ selectedWithPdf }}</strong> 張有確定單PDF）×
       <strong>{{ activeStations.length }}</strong> 關卡 =
       <strong>{{ selectedWithPdf * activeStations.length }}</strong> 頁　
-      <span class="station-names">{{ activeStations.join(' / ') || '（未選任何關卡）' }}</span>
-      <span v-if="selectedWithPdf < selectedIds.size" class="warn-no-pdf">　⚠️ {{ selectedIds.size - selectedWithPdf }} 張無PDF將略過</span>
+      <span class="station-names">{{
+        activeStations.join(" / ") || "（未選任何關卡）"
+      }}</span>
+      <span v-if="selectedWithPdf < selectedIds.size" class="warn-no-pdf"
+        >　⚠️ {{ selectedIds.size - selectedWithPdf }} 張無PDF將略過</span
+      >
     </div>
 
     <!-- 錯誤訊息 -->
@@ -129,7 +165,11 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { PDFDocument, rgb } from "pdf-lib";
-import { listSalesOrders, batchMarkDispatched, downloadConfirmedPdfBytes } from "../firebase";
+import {
+  listSalesOrders,
+  batchMarkDispatched,
+  downloadConfirmedPdfBytes,
+} from "../firebase";
 
 const STATIONS = ["裁切", "水刀", "黏合", "水磨", "套板", "驗收"];
 
@@ -138,14 +178,16 @@ const STATUS_LABEL = {
   pendingSign: "待回簽",
   confirmed: "已確認",
   inProduction: "生產中",
-  delivered: "已出貨",
+  delivered: "已驗收",
   done: "完工",
   cancelled: "已取消",
 };
 
 // Station selection: default all enabled
-const stationMap = ref(Object.fromEntries(STATIONS.map(s => [s, true])));
-const activeStations = computed(() => STATIONS.filter(s => stationMap.value[s]));
+const stationMap = ref(Object.fromEntries(STATIONS.map((s) => [s, true])));
+const activeStations = computed(() =>
+  STATIONS.filter((s) => stationMap.value[s]),
+);
 
 const loading = ref(true);
 const rows = ref([]);
@@ -162,23 +204,32 @@ const dispatching = ref(false);
 const pdfProgress = ref("");
 const errorMsg = ref("");
 
-const selectedIds = computed(() => new Set(Object.keys(selectedMap.value).filter(k => selectedMap.value[k])));
+const selectedIds = computed(
+  () =>
+    new Set(Object.keys(selectedMap.value).filter((k) => selectedMap.value[k])),
+);
 
 const selectedWithPdf = computed(() => {
   const ids = selectedIds.value;
-  return rows.value.filter(o => ids.has(o.id) && o.confirmedPdfUrl).length;
+  return rows.value.filter((o) => ids.has(o.id) && o.confirmedPdfUrl).length;
 });
 
-const allSelected = computed(() =>
-  filtered.value.length > 0 && filtered.value.every(o => selectedMap.value[o.id])
+const allSelected = computed(
+  () =>
+    filtered.value.length > 0 &&
+    filtered.value.every((o) => selectedMap.value[o.id]),
 );
-const someSelected = computed(() =>
-  filtered.value.some(o => selectedMap.value[o.id]) && !allSelected.value
+const someSelected = computed(
+  () =>
+    filtered.value.some((o) => selectedMap.value[o.id]) && !allSelected.value,
 );
 
 function setSort(col) {
   if (sortCol.value === col) sortDir.value *= -1;
-  else { sortCol.value = col; sortDir.value = 1; }
+  else {
+    sortCol.value = col;
+    sortDir.value = 1;
+  }
   applyFilter();
 }
 
@@ -217,12 +268,14 @@ onMounted(async () => {
 
 function applyFilter() {
   const kw = keyword.value.trim().toLowerCase();
-  let result = rows.value.filter(o => {
+  let result = rows.value.filter((o) => {
     if (statusFilter.value && o.status !== statusFilter.value) return false;
     if (showDispatched.value === "undispatched" && o.dispatchedAt) return false;
     if (showDispatched.value === "dispatched" && !o.dispatchedAt) return false;
     if (kw) {
-      const hay = [o.orderNo, o.customerName, o.siteAddress].join(" ").toLowerCase();
+      const hay = [o.orderNo, o.customerName, o.siteAddress]
+        .join(" ")
+        .toLowerCase();
       if (!hay.includes(kw)) return false;
     }
     return true;
@@ -252,9 +305,28 @@ function sortVal(o, col) {
       if (!isNaN(n) && n >= 1000000000000) return n;
       return new Date(String(v).slice(0, 10)).getTime();
     }
-    case "orderNo": return o.orderNo ?? "";
-    case "customerName": return o.customerName ?? "";
-    default: return "";
+    case "orderNo":
+      return o.orderNo ?? "";
+    case "customerName":
+      return o.customerName ?? "";
+    case "siteAddress":
+      return o.siteAddress ?? "";
+    case "stoneType":
+      return o.countertop?.type ?? "";
+    case "status":
+      return o.status ?? "";
+    case "confirmedPdf":
+      return o.confirmedPdfUrl ? 1 : 0;
+    case "dispatchedAt": {
+      const v = o.dispatchedAt;
+      if (!v) return Infinity;
+      if (v?.toDate) return v.toDate().getTime();
+      const n = Number(v);
+      if (!isNaN(n) && n >= 1000000000000) return n;
+      return new Date(String(v).slice(0, 10)).getTime();
+    }
+    default:
+      return "";
   }
 }
 
@@ -265,7 +337,8 @@ function fmtDate(val) {
     d = val.toDate();
   } else {
     const n = Number(val);
-    if (!isNaN(n) && n > 0 && n < 100000) d = new Date((n - 25569) * 86400 * 1000);
+    if (!isNaN(n) && n > 0 && n < 100000)
+      d = new Date((n - 25569) * 86400 * 1000);
     else if (!isNaN(n) && n >= 1000000000000) d = new Date(n);
     else d = new Date(String(val).slice(0, 10));
   }
@@ -283,7 +356,7 @@ async function onDispatchPrint() {
     return;
   }
 
-  const selectedOrders = rows.value.filter(o => ids.includes(o.id));
+  const selectedOrders = rows.value.filter((o) => ids.includes(o.id));
   // Sort by promisedAt ascending (nearest deadline first)
   const sorted = [...selectedOrders].sort((a, b) => {
     const va = sortVal(a, "promisedAt");
@@ -293,19 +366,26 @@ async function onDispatchPrint() {
     return va - vb;
   });
 
-  const ordersWithPdf = sorted.filter(o => o.confirmedPdfUrl);
+  const ordersWithPdf = sorted.filter((o) => o.confirmedPdfUrl);
   if (ordersWithPdf.length === 0) {
-    errorMsg.value = "選取的訂單都尚未封存確定單PDF，請先到各訂單的「確定單」頁面按「封存PDF」後再發單。";
+    errorMsg.value =
+      "選取的訂單都尚未封存確定單PDF，請先到各訂單的「確定單」頁面按「封存PDF」後再發單。";
     return;
   }
 
-  const missing = sorted.filter(o => !o.confirmedPdfUrl);
-  let confirmMsg = `確定要對 ${ids.length} 張訂單執行發單作業？\n` +
-    sorted.map(o => `  • ${o.orderNo || "—"} ${o.customerName || ""} (${fmtDate(o.promisedAt)})${!o.confirmedPdfUrl ? " ⚠️無PDF" : ""}`).join("\n");
+  const missing = sorted.filter((o) => !o.confirmedPdfUrl);
+  let confirmMsg =
+    `確定要對 ${ids.length} 張訂單執行發單作業？\n` +
+    sorted
+      .map(
+        (o) =>
+          `  • ${o.orderNo || "—"} ${o.customerName || ""} (${fmtDate(o.promisedAt)})${!o.confirmedPdfUrl ? " ⚠️無PDF" : ""}`,
+      )
+      .join("\n");
   if (missing.length) {
     confirmMsg += `\n\n⚠️ ${missing.length} 張無確定單PDF，將略過。`;
   }
-  confirmMsg += `\n\n系統將標記「生產中」並產生 ${ordersWithPdf.length * activeStations.value.length} 頁合併PDF（${activeStations.value.join('、')}）。`;
+  confirmMsg += `\n\n系統將標記「生產中」並產生 ${ordersWithPdf.length * activeStations.value.length} 頁合併PDF（${activeStations.value.join("、")}）。`;
 
   if (!confirm(confirmMsg)) return;
 
@@ -350,7 +430,8 @@ async function onDispatchPrint() {
  * 用 canvas 產生站別浮水印 PNG（只畫文字，不涉及跨域，canvas 不會被汙染）
  */
 async function createStationWatermarkPng(station) {
-  const W = 400, H = 160;
+  const W = 400,
+    H = 160;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
@@ -395,7 +476,8 @@ async function buildDispatchPdf(orders, stations) {
         srcBytes = await downloadConfirmedPdfBytes(order.id);
       } catch (e) {
         console.error(`無法取得 ${order.orderNo} 的PDF:`, e);
-        errorMsg.value = (errorMsg.value ? errorMsg.value + "\n" : "") +
+        errorMsg.value =
+          (errorMsg.value ? errorMsg.value + "\n" : "") +
           `${order.orderNo || order.id}: 下載失敗 — ${e?.message || e}`;
         _pdfDone++;
         continue;
@@ -406,7 +488,8 @@ async function buildDispatchPdf(orders, stations) {
         srcDoc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
       } catch (e) {
         console.error(`無法解析 ${order.orderNo} 的PDF:`, e);
-        errorMsg.value = (errorMsg.value ? errorMsg.value + "\n" : "") +
+        errorMsg.value =
+          (errorMsg.value ? errorMsg.value + "\n" : "") +
           `${order.orderNo || order.id}: 解析失敗 — ${e?.message || e}`;
         _pdfDone++;
         continue;
@@ -421,7 +504,7 @@ async function buildDispatchPdf(orders, stations) {
 
         // 1. 遮蓋價格區域（白色矩形，pdf-lib 座標原點在左下）
         page.drawRectangle({
-          x: 0.20 * width,
+          x: 0.2 * width,
           y: 0.04 * height,
           width: 0.45 * width,
           height: 0.13 * height,
@@ -450,7 +533,9 @@ async function buildDispatchPdf(orders, stations) {
   }
 
   if (pageCount === 0) {
-    throw new Error("所有確定單PDF均無法下載，請檢查網路連線或重新登入後再試。");
+    throw new Error(
+      "所有確定單PDF均無法下載，請檢查網路連線或重新登入後再試。",
+    );
   }
 
   const bytes = await mergedDoc.save();
@@ -683,11 +768,32 @@ async function buildDispatchPdf(orders, stations) {
   font-weight: 600;
   white-space: nowrap;
 }
-.status-chip.status-draft { background: #f3f4f6; color: #6b7280; }
-.status-chip.status-pendingSign { background: #fef9c3; color: #a16207; }
-.status-chip.status-confirmed { background: #dcfce7; color: #166534; }
-.status-chip.status-inProduction { background: #dbeafe; color: #1e40af; }
-.status-chip.status-delivered { background: #f0fdf4; color: #15803d; }
-.status-chip.status-done { background: #e0e7ff; color: #3730a3; }
-.status-chip.status-cancelled { background: #fee2e2; color: #991b1b; }
+.status-chip.status-draft {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.status-chip.status-pendingSign {
+  background: #fef9c3;
+  color: #a16207;
+}
+.status-chip.status-confirmed {
+  background: #dcfce7;
+  color: #166534;
+}
+.status-chip.status-inProduction {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.status-chip.status-delivered {
+  background: #f0fdf4;
+  color: #15803d;
+}
+.status-chip.status-done {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.status-chip.status-cancelled {
+  background: #fee2e2;
+  color: #991b1b;
+}
 </style>

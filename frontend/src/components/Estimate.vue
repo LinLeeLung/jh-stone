@@ -729,7 +729,7 @@ import LoginGoogle from "./LoginGoogle.vue";
 import { saveAs } from "file-saver";
 import { getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/firebase";
-const siteBase = window.location.origin;
+const siteBase = "https://mystone.web.app";
 
 const fileKeyWord = ref("");
 
