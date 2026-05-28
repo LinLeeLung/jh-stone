@@ -14,8 +14,14 @@
       <p>請先登入以查看您可使用的功能。</p>
     </div>
 
+    <div class="about-guide-link">
+      <a href="/guide.html" target="_blank" rel="noopener noreferrer"
+        >查看完整功能說明</a
+      >
+    </div>
+
     <!-- 功能區塊 -->
-    <div v-else class="about-grid">
+    <div v-if="userDoc" class="about-grid">
       <!-- 員工查詢 -->
       <div v-if="isStaff" class="about-card feature-main">
         <div class="about-card-icon">🔍</div>
@@ -286,6 +292,28 @@ const isCustomer = computed(() => role.value === "客戶");
   padding: 24px;
   color: #6b7280;
   font-size: 1rem;
+}
+
+.about-guide-link {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 24px;
+}
+
+.about-guide-link a {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(15, 118, 110, 0.18);
+}
+
+.about-guide-link a:hover {
+  background: #0b5f59;
 }
 
 /* Hero */
