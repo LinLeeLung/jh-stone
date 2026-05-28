@@ -118,6 +118,7 @@ import { onMounted, ref } from "vue";
 import {
   auth,
   getUserByUid,
+  userHasAnyRole,
   listMyCompanyOrders,
   getOrderCompletionPhotoStatus,
   listOrderCompletionPhotos,
@@ -196,7 +197,7 @@ async function loadOrders() {
       throw new Error("找不到使用者資料");
     }
 
-    if (String(userDoc.role || "") !== "客戶") {
+    if (!userHasAnyRole(userDoc, ["客戶"])) {
       throw new Error("此頁面僅供客戶帳號使用");
     }
 

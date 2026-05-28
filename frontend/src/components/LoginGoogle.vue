@@ -24,18 +24,25 @@ async function saveUserToFirestore(user) {
   const snap = await getDoc(docRef);
 
   if (!snap.exists()) {
+    const initialRole = user.email === ADMIN_EMAIL ? "admin" : "遊客";
     await setDoc(docRef, {
       email: user.email || "",
       name: user.displayName || "",
       photo: user.photoURL || "",
       lastLogin: serverTimestamp(),
-      role: user.email === ADMIN_EMAIL ? "admin" : "guest",
+      roles: [initialRole],
+      activeRole: initialRole,
+      role: initialRole,
     });
     console.log("👤 已新增使用者至 Firestore");
   } else {
     const updateData = { lastLogin: serverTimestamp() };
     // 若為管理員 email 且角色不是 admin，自動升級
     if (user.email === ADMIN_EMAIL && snap.data().role !== "admin") {
+      updateData.roles = Array.from(
+        new Set([...(Array.isArray(snap.data().roles) ? snap.data().roles : []), "admin"]),
+      );
+      updateData.activeRole = "admin";
       updateData.role = "admin";
     }
     await setDoc(docRef, updateData, { merge: true });

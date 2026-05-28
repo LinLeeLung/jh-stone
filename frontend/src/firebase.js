@@ -97,9 +97,223 @@ function isPermissionDeniedError(error) {
 
 // Designated admin email (as requested)
 const ADMIN_EMAIL = "linlilung@gmail.com";
+const PERSPECTIVE_STORAGE_PREFIX = "jh-stone:perspective-role:";
+const DEPARTMENT_PERSPECTIVE_STORAGE_PREFIX = "jh-stone:perspective-department:";
 
 // allowed roles in the system
 export const ROLES = ["admin", "管理者", "員工", "行動", "客戶", "遊客"];
+export const DEPARTMENTS = ["1", "2", "3", "4"];
+
+function uniqueRoles(list = []) {
+  return Array.from(new Set(list.filter((role) => ROLES.includes(role))));
+}
+
+function uniqueDepartments(list = []) {
+  return Array.from(
+    new Set(list.filter((dept) => DEPARTMENTS.includes(String(dept || "").trim()))),
+  );
+}
+
+export function getUserAssignedRoles(userDoc = {}, fallbackRole = "遊客") {
+  const roles = [];
+
+  if (Array.isArray(userDoc?.roles)) {
+    roles.push(
+      ...userDoc.roles.map((role) => String(role || "").trim()).filter(Boolean),
+    );
+  }
+
+  const legacyRole = String(userDoc?.role || "").trim();
+  if (legacyRole) {
+    roles.push(legacyRole);
+  }
+
+  if (String(userDoc?.email || "").trim().toLowerCase() === ADMIN_EMAIL) {
+    roles.push("admin");
+  }
+
+  const normalized = uniqueRoles(roles);
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  return ROLES.includes(fallbackRole) ? [fallbackRole] : ["遊客"];
+}
+
+export function getUserActiveRole(userDoc = {}, fallbackRole = "遊客") {
+  const assignedRoles = getUserAssignedRoles(userDoc, fallbackRole);
+  const candidate = String(userDoc?.activeRole || userDoc?.role || "").trim();
+  return assignedRoles.includes(candidate) ? candidate : assignedRoles[0];
+}
+
+export function getUserAssignedDepartments(userDoc = {}, fallbackDept = "") {
+  const departments = [];
+
+  if (Array.isArray(userDoc?.departments)) {
+    departments.push(
+      ...userDoc.departments
+        .map((dept) => String(dept || "").trim())
+        .filter(Boolean),
+    );
+  }
+
+  const legacyDept = String(userDoc?.dept || "").trim();
+  if (legacyDept) {
+    departments.push(legacyDept);
+  }
+
+  const normalized = uniqueDepartments(departments);
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  const safeFallback = String(fallbackDept || "").trim();
+  return DEPARTMENTS.includes(safeFallback) ? [safeFallback] : [];
+}
+
+export function getUserActiveDepartment(userDoc = {}, fallbackDept = "") {
+  const assignedDepartments = getUserAssignedDepartments(userDoc, fallbackDept);
+  const candidate = String(
+    userDoc?.activeDepartment || userDoc?.dept || "",
+  ).trim();
+  if (assignedDepartments.includes(candidate)) {
+    return candidate;
+  }
+  return assignedDepartments[0] || "";
+}
+
+export function normalizeUserAccessDoc(userDoc = {}, fallbackRole = "遊客") {
+  const roles = getUserAssignedRoles(userDoc, fallbackRole);
+  const activeRole = getUserActiveRole({ ...userDoc, roles }, fallbackRole);
+  const departments = getUserAssignedDepartments(userDoc, userDoc?.dept || "");
+  const activeDepartment = getUserActiveDepartment(
+    { ...userDoc, departments },
+    userDoc?.dept || "",
+  );
+  return {
+    ...userDoc,
+    roles,
+    activeRole,
+    departments,
+    activeDepartment,
+    dept: String(userDoc?.dept || activeDepartment || "").trim() || activeDepartment,
+    role: String(userDoc?.role || activeRole || "").trim() || activeRole,
+  };
+}
+
+function getPerspectiveStorageKey(uid) {
+  return `${PERSPECTIVE_STORAGE_PREFIX}${uid}`;
+}
+
+function getDepartmentPerspectiveStorageKey(uid) {
+  return `${DEPARTMENT_PERSPECTIVE_STORAGE_PREFIX}${uid}`;
+}
+
+export function getStoredPerspectiveRole(uid) {
+  if (typeof window === "undefined" || !uid) {
+    return "";
+  }
+  try {
+    return String(localStorage.getItem(getPerspectiveStorageKey(uid)) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function setStoredPerspectiveRole(uid, role) {
+  if (typeof window === "undefined" || !uid) {
+    return;
+  }
+  try {
+    if (!role) {
+      localStorage.removeItem(getPerspectiveStorageKey(uid));
+      return;
+    }
+    localStorage.setItem(getPerspectiveStorageKey(uid), role);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export function getStoredPerspectiveDepartment(uid) {
+  if (typeof window === "undefined" || !uid) {
+    return "";
+  }
+  try {
+    return String(
+      localStorage.getItem(getDepartmentPerspectiveStorageKey(uid)) || "",
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function setStoredPerspectiveDepartment(uid, dept) {
+  if (typeof window === "undefined" || !uid) {
+    return;
+  }
+  try {
+    if (!dept) {
+      localStorage.removeItem(getDepartmentPerspectiveStorageKey(uid));
+      return;
+    }
+    localStorage.setItem(getDepartmentPerspectiveStorageKey(uid), dept);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export function getCurrentPerspectiveRole(userDoc = {}, fallbackRole = "遊客") {
+  const normalizedUser = normalizeUserAccessDoc(userDoc, fallbackRole);
+  const uid = normalizedUser?.uid || normalizedUser?.id;
+  const storedRole = getStoredPerspectiveRole(uid);
+  return normalizedUser.roles.includes(storedRole)
+    ? storedRole
+    : normalizedUser.activeRole;
+}
+
+export function getCurrentPerspectiveDepartment(userDoc = {}, fallbackDept = "") {
+  const normalizedUser = normalizeUserAccessDoc(userDoc);
+  const uid = normalizedUser?.uid || normalizedUser?.id;
+  const storedDept = getStoredPerspectiveDepartment(uid);
+  return normalizedUser.departments.includes(storedDept)
+    ? storedDept
+    : getUserActiveDepartment(normalizedUser, fallbackDept);
+}
+
+export function userHasAnyRole(userDoc, allowedRoles = [], options = {}) {
+  if (!Array.isArray(allowedRoles) || allowedRoles.length === 0) {
+    return false;
+  }
+  const normalizedUser = normalizeUserAccessDoc(userDoc);
+  const effectiveRoles = options.usePerspectiveRole
+    ? [getCurrentPerspectiveRole(normalizedUser)]
+    : normalizedUser.roles;
+  return effectiveRoles.some((role) => allowedRoles.includes(role));
+}
+
+export function userHasAnyDept(userDoc, allowedDepts = [], options = {}) {
+  if (!Array.isArray(allowedDepts) || allowedDepts.length === 0) {
+    return false;
+  }
+  const normalizedUser = normalizeUserAccessDoc(userDoc);
+  const effectiveDepartments = options.usePerspectiveDepartment
+    ? [getCurrentPerspectiveDepartment(normalizedUser)]
+    : normalizedUser.departments;
+  return effectiveDepartments.some((dept) => allowedDepts.includes(String(dept || "")));
+}
+
+export function canAccessPermission(userDoc, permission = {}, options = {}) {
+  const allowedRoles = Array.isArray(permission?.roles) ? permission.roles : [];
+  const allowedDepts = Array.isArray(permission?.depts) ? permission.depts : [];
+  const roleOk = allowedRoles.length
+    ? userHasAnyRole(userDoc, allowedRoles, options)
+    : false;
+  const deptOk = allowedDepts.length
+    ? userHasAnyDept(userDoc, allowedDepts, options)
+    : false;
+  return roleOk || deptOk;
+}
 
 export function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);
@@ -117,16 +331,27 @@ export function subscribeAuthState(callback) {
       try {
         const userRef = doc(db, "Users", user.uid);
         const snap = await getDoc(userRef);
-        let role =
-          user.email === ADMIN_EMAIL
-            ? "admin"
-            : snap.exists()
-              ? snap.data().role || "遊客"
-              : "遊客";
-        // validate against ROLES
-        if (!ROLES.includes(role)) {
-          role = "遊客";
-        }
+        const existingData = snap.exists() ? snap.data() : {};
+        const roles = getUserAssignedRoles(
+          { ...existingData, email: user.email || existingData?.email || "" },
+          user.email === ADMIN_EMAIL ? "admin" : "遊客",
+        );
+        const activeRole = getUserActiveRole(
+          {
+            ...existingData,
+            email: user.email || existingData?.email || "",
+            roles,
+          },
+          roles[0],
+        );
+        const departments = getUserAssignedDepartments(
+          existingData,
+          existingData?.dept || "",
+        );
+        const activeDepartment = getUserActiveDepartment(
+          { ...existingData, departments },
+          existingData?.dept || "",
+        );
         const existingName = snap.exists() ? snap.data().displayName : null;
         await setDoc(
           userRef,
@@ -135,7 +360,12 @@ export function subscribeAuthState(callback) {
             displayName: existingName || user.displayName || null,
             email: user.email || null,
             photoURL: user.photoURL || null,
-            role,
+            roles,
+            activeRole,
+            departments,
+            activeDepartment,
+            dept: activeDepartment || null,
+            role: activeRole,
             lastSeen: serverTimestamp(),
           },
           { merge: true },
@@ -152,7 +382,9 @@ export function subscribeAuthState(callback) {
 export async function fetchAllUsers() {
   const col = collection(db, "Users");
   const snaps = await getDocs(col);
-  return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return snaps.docs.map((d) =>
+    normalizeUserAccessDoc({ id: d.id, ...d.data() }),
+  );
 }
 
 // Query users with where-clauses. conditions is array of { field, op, value }
@@ -164,7 +396,9 @@ export async function queryUsers(conditions = []) {
     q = query(col, ...clauses);
   }
   const snaps = await getDocs(q);
-  return snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return snaps.docs.map((d) =>
+    normalizeUserAccessDoc({ id: d.id, ...d.data() }),
+  );
 }
 
 // Query any collection by a date range on a specific field.
@@ -364,11 +598,10 @@ export async function listMyCompanyOrders(maxRows = 100) {
   const user = await getSignedInUser();
   const userDoc = await getUserByUid(user.uid);
 
-  const role = String(userDoc?.role || "").trim();
   const isApproved = userDoc?.customerApproved === true;
   const companyId = String(userDoc?.companyId || "").trim();
 
-  if (role !== "客戶") {
+  if (!userHasAnyRole(userDoc, ["客戶"])) {
     throw new Error("僅客戶帳號可使用此功能");
   }
   if (!isApproved) {
@@ -385,14 +618,29 @@ export async function listMyCompanyOrders(maxRows = 100) {
   return Array.isArray(resp?.data) ? resp.data : [];
 }
 
-// Admin helper: update user role
+// Admin helper: update user roles
+export async function updateUserRoles(uid, roles = [], activeRole = "") {
+  const normalizedRoles = uniqueRoles(
+    Array.isArray(roles)
+      ? roles.map((role) => String(role || "").trim())
+      : [String(roles || "").trim()],
+  );
+  const nextRoles = normalizedRoles.length ? normalizedRoles : ["遊客"];
+  const nextActiveRole = nextRoles.includes(activeRole) ? activeRole : nextRoles[0];
+  const userRef = doc(db, "Users", uid);
+  await updateDoc(userRef, {
+    roles: nextRoles,
+    activeRole: nextActiveRole,
+    role: nextActiveRole,
+  });
+}
+
 export async function updateUserRole(uid, role) {
-  // validate role before writing
-  if (!ROLES.includes(role)) {
+  const nextRole = String(role || "").trim();
+  if (!ROLES.includes(nextRole)) {
     throw new Error(`invalid role "${role}"`);
   }
-  const userRef = doc(db, "Users", uid);
-  await updateDoc(userRef, { role });
+  await updateUserRoles(uid, [nextRole], nextRole);
 }
 
 export async function updateUserDisplayName(uid, displayName) {
@@ -402,10 +650,26 @@ export async function updateUserDisplayName(uid, displayName) {
   await updateDoc(userRef, { displayName: name });
 }
 
-export async function updateUserDept(uid, dept) {
+export async function updateUserDepartments(uid, departments = [], activeDepartment = "") {
+  const normalizedDepartments = uniqueDepartments(
+    Array.isArray(departments)
+      ? departments.map((dept) => String(dept || "").trim())
+      : [String(departments || "").trim()],
+  );
+  const nextActiveDepartment = normalizedDepartments.includes(activeDepartment)
+    ? activeDepartment
+    : normalizedDepartments[0] || "";
   const userRef = doc(db, "Users", uid);
+  await updateDoc(userRef, {
+    departments: normalizedDepartments,
+    activeDepartment: nextActiveDepartment || null,
+    dept: nextActiveDepartment || null,
+  });
+}
+
+export async function updateUserDept(uid, dept) {
   const value = String(dept || "").trim();
-  await updateDoc(userRef, { dept: value || null });
+  await updateUserDepartments(uid, value ? [value] : [], value);
 }
 
 /**
@@ -430,7 +694,9 @@ export async function updateUserPermissions(uid, flags = {}) {
 export async function getUserByUid(uid) {
   const userRef = doc(db, "Users", uid);
   const snap = await getDoc(userRef);
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  return snap.exists()
+    ? normalizeUserAccessDoc({ id: snap.id, ...snap.data() })
+    : null;
 }
 
 // ── 路由權限設定（Config/routePermissions）────────────────────────────────

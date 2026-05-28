@@ -282,7 +282,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { PRODUCTION_STAGES, listProductionJobs, advanceProductionStage, rejectProductionQc, resetProductionJob, backfillProductionJobs, backfillLegacyOrderProductionFields, getUserByUid, refreshConfirmedPdfDownloadUrl } from "../firebase";
+import { PRODUCTION_STAGES, listProductionJobs, advanceProductionStage, rejectProductionQc, resetProductionJob, backfillProductionJobs, backfillLegacyOrderProductionFields, getUserByUid, refreshConfirmedPdfDownloadUrl, userHasAnyRole } from "../firebase";
 import { auth } from "../firebase";
 
 const STAGES = PRODUCTION_STAGES;
@@ -581,7 +581,7 @@ onMounted(async () => {
   const uid = auth.currentUser?.uid;
   if (uid) {
     const u = await getUserByUid(uid);
-    isAdmin.value = u?.role === "admin" || u?.role === "管理者";
+    isAdmin.value = userHasAnyRole(u, ["admin", "管理者"]);
   }
   await reload();
 });

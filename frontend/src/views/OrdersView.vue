@@ -197,6 +197,8 @@ import {
   updateSalesOrder,
   auth,
   getUserByUid,
+  userHasAnyDept,
+  userHasAnyRole,
 } from "../firebase";
 import { SINK_STATUS_LIST, getSinkStatus } from "../utils/sinkStatus";
 
@@ -287,8 +289,8 @@ onMounted(async () => {
     const uid = auth.currentUser?.uid;
     if (uid) {
       const u = await getUserByUid(uid);
-      isAdmin.value = u?.role === "admin" || u?.role === "管理者";
-      canDispatch.value = isAdmin.value || u?.dept === "1";
+      isAdmin.value = userHasAnyRole(u, ["admin", "管理者"]);
+      canDispatch.value = isAdmin.value || userHasAnyDept(u, ["1"]);
     }
     const [so, lo] = await Promise.all([
       listSalesOrders({ limit: loadLimit }).catch(() => []),

@@ -385,7 +385,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { auth, db, authReadyPromise } from "../firebase";
-import { getUserByUid, getSystemSettings, fetchAllUsers } from "../firebase";
+import {
+  getUserByUid,
+  getSystemSettings,
+  fetchAllUsers,
+  userHasAnyRole,
+} from "../firebase";
 import { t, lang } from "../locale";
 import {
   collection,
@@ -576,8 +581,7 @@ onMounted(async () => {
   }
 
   userDoc = await getUserByUid(currentUser.uid);
-  isAdminOrManager.value =
-    userDoc?.role === "admin" || userDoc?.role === "管理者";
+  isAdminOrManager.value = userHasAnyRole(userDoc, ["admin", "管理者"]);
 
   try {
     const settings = await getSystemSettings();

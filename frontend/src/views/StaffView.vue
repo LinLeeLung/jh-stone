@@ -385,7 +385,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import * as XLSX from "xlsx";
-import { db, auth, getUserByUid, authReadyPromise } from "../firebase";
+import { db, auth, getUserByUid, authReadyPromise, userHasAnyRole } from "../firebase";
 import {
   collection,
   getDocs,
@@ -599,7 +599,7 @@ onMounted(async () => {
     return;
   }
   const userDoc = await getUserByUid(uid);
-  isAdmin.value = userDoc?.role === "admin" || userDoc?.role === "管理者";
+  isAdmin.value = userHasAnyRole(userDoc, ["admin", "管理者"]);
   if (isAdmin.value) await fetchStaff();
   loading.value = false;
 });

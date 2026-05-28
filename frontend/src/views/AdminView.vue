@@ -19,7 +19,9 @@
                 <th>姓名</th>
                 <th class="secondary-col">電郵</th>
                 <th>角色</th>
+                <th>預設視角</th>
                 <th>部門</th>
+                <th>預設部門</th>
                 <th>動作</th>
               </tr>
             </thead>
@@ -30,17 +32,41 @@
                 </td>
                 <td class="secondary-col">{{ u.email }}</td>
                 <td>
-                  <select v-model="u.role">
-                    <option v-for="r in roles" :key="r" :value="r">
+                  <div class="role-checklist">
+                    <label v-for="r in roles" :key="r" class="role-chip">
+                      <input
+                        type="checkbox"
+                        :checked="u.roles.includes(r)"
+                        @change="toggleUserRole(u, r, $event.target.checked)"
+                      />
+                      <span>{{ r }}</span>
+                    </label>
+                  </div>
+                </td>
+                <td>
+                  <select v-model="u.activeRole" style="min-width: 110px">
+                    <option v-for="r in u.roles" :key="r" :value="r">
                       {{ r }}
                     </option>
                   </select>
                 </td>
                 <td>
-                  <select v-model="u.dept" style="min-width: 90px">
+                  <div class="role-checklist">
+                    <label v-for="d in deptOptions" :key="d.value" class="role-chip">
+                      <input
+                        type="checkbox"
+                        :checked="u.departments.includes(d.value)"
+                        @change="toggleUserDepartment(u, d.value, $event.target.checked)"
+                      />
+                      <span>{{ d.label }}</span>
+                    </label>
+                  </div>
+                </td>
+                <td>
+                  <select v-model="u.activeDepartment" style="min-width: 110px">
                     <option value="">— 未設定</option>
-                    <option v-for="d in deptOptions" :key="d.value" :value="d.value">
-                      {{ d.label }}
+                    <option v-for="d in u.departments" :key="d" :value="d">
+                      {{ deptLabel(d) }}
                     </option>
                   </select>
                 </td>
@@ -578,6 +604,41 @@
           ⚠️ 「admin」角色不建議取消任何頁面的存取權限，以免無法管理系統。「允許部門」填部門代號（如 1, 2），留空表示不以部門限制。角色勾選與允許部門為 OR 關係（符合其一即可進入）。
         </p>
 
+        <div class="toolbar-row" style="margin-top: 24px">
+          <h2 style="margin: 0">使用者模組預覽</h2>
+          <span class="muted-text" style="font-size: 13px">依目前編輯中的預設角色與預設部門視角，即時預覽可見模組</span>
+        </div>
+        <div class="field-row" style="margin-top: 10px; align-items: end; gap: 12px; flex-wrap: wrap">
+          <div class="field-item" style="min-width: 280px">
+            <label>預覽使用者</label>
+            <select v-model="previewUserId">
+              <option v-for="u in users" :key="u.id" :value="u.id">
+                {{ u.displayName || u.email || u.id }}
+              </option>
+            </select>
+          </div>
+          <div v-if="selectedPreviewUser" class="summary-row" style="gap: 8px; flex-wrap: wrap">
+            <span>角色：{{ selectedPreviewUser.roles.join(' / ') || '—' }}</span>
+            <span>預設角色：{{ selectedPreviewUser.activeRole || '—' }}</span>
+            <span>部門：{{ previewDepartmentLabels || '—' }}</span>
+            <span>預設部門：{{ deptLabel(selectedPreviewUser.activeDepartment) || '—' }}</span>
+          </div>
+        </div>
+        <div v-if="selectedPreviewUser" class="preview-grid" style="margin-top: 12px">
+          <div v-for="group in previewGroups" :key="group.name" class="preview-card">
+            <div class="preview-head">
+              <h3>{{ group.name }}</h3>
+              <span class="preview-meta">{{ group.visible.length }}/{{ group.items.length }} 可見</span>
+            </div>
+            <div v-if="group.visible.length" class="preview-tags">
+              <span v-for="item in group.visible" :key="item.path" class="preview-tag">
+                {{ item.title }}
+              </span>
+            </div>
+            <div v-else class="muted-text" style="font-size: 13px">此預設視角目前看不到此群組模組</div>
+          </div>
+        </div>
+
         <!-- 測試資料清除 -->
         <div style="margin-top: 28px; padding: 16px; background: #fff8e1; border: 1px solid #fbbf24; border-radius: 8px; max-width: 480px">
           <h3 style="margin: 0 0 8px; font-size: 15px; color: #92400e;">🧹 清除測試資料</h3>
@@ -640,8 +701,8 @@ import {
   subscribeAuthState,
   fetchAllUsers,
   updateUserDisplayName,
-  updateUserRole,
-  updateUserDept,
+  updateUserRoles,
+  updateUserDepartments,
   ROLES,
   listClientUploadErrors,
   listCompletionPhotoFolderCreations,
@@ -650,6 +711,8 @@ import {
   repairWrongOrderFolder,
   getRoutePermissionsConfig,
   saveRoutePermissionsConfig,
+  userHasAnyRole,
+  canAccessPermission,
 } from "../firebase";
 import { getUserByUid } from "../firebase";
 import { deleteTestOrders } from "../firebase";
@@ -868,43 +931,81 @@ const deptOptions = [
   { value: '4', label: '4 外勞' },
 ];
 
+function deptLabel(value) {
+  return deptOptions.find((item) => item.value === String(value || ""))?.label || String(value || "");
+}
+
 async function loadUsers() {
   loading.value = true;
   const list = await fetchAllUsers();
   users.value = list.map((u) => ({
     ...u,
-    role: u.role || "遊客",
-    dept: u.dept || "",
-    _origRole: u.role || "遊客",
+    roles: Array.isArray(u.roles) && u.roles.length ? [...u.roles] : [u.role || "遊客"],
+    activeRole: u.activeRole || u.role || "遊客",
+    departments: Array.isArray(u.departments) ? [...u.departments] : (u.dept ? [u.dept] : []),
+    activeDepartment: u.activeDepartment || u.dept || "",
+    _origRoles: JSON.stringify(
+      [...(Array.isArray(u.roles) && u.roles.length ? u.roles : [u.role || "遊客"])]
+        .sort(),
+    ),
+    _origActiveRole: u.activeRole || u.role || "遊客",
     _origName: u.displayName || "",
-    _origDept: u.dept || "",
+    _origDepartments: JSON.stringify([...(Array.isArray(u.departments) ? u.departments : (u.dept ? [u.dept] : []))].sort()),
+    _origActiveDepartment: u.activeDepartment || u.dept || "",
   }));
   loading.value = false;
 }
 
 function changed(u) {
-  return u.role !== u._origRole
+  return JSON.stringify([...(u.roles || [])].sort()) !== u._origRoles
+    || u.activeRole !== u._origActiveRole
     || (u.displayName || "") !== u._origName
-    || (u.dept || "") !== u._origDept;
+    || JSON.stringify([...(u.departments || [])].sort()) !== u._origDepartments
+    || (u.activeDepartment || "") !== u._origActiveDepartment;
+}
+
+function toggleUserRole(u, role, checked) {
+  const nextRoles = checked
+    ? [...u.roles, role]
+    : u.roles.filter((item) => item !== role);
+  const uniqueRoles = Array.from(new Set(nextRoles));
+  u.roles = uniqueRoles.length ? uniqueRoles : ["遊客"];
+  if (!u.roles.includes(u.activeRole)) {
+    u.activeRole = u.roles[0];
+  }
+}
+
+function toggleUserDepartment(u, dept, checked) {
+  const nextDepartments = checked
+    ? [...u.departments, dept]
+    : u.departments.filter((item) => item !== dept);
+  const uniqueDepartments = Array.from(new Set(nextDepartments));
+  u.departments = uniqueDepartments;
+  if (!u.departments.includes(u.activeDepartment)) {
+    u.activeDepartment = u.departments[0] || "";
+  }
 }
 
 async function applyRole(u) {
-  if (u.role !== u._origRole) {
+  const rolesChanged = JSON.stringify([...(u.roles || [])].sort()) !== u._origRoles;
+  const activeRoleChanged = u.activeRole !== u._origActiveRole;
+  const departmentsChanged = JSON.stringify([...(u.departments || [])].sort()) !== u._origDepartments;
+  const activeDepartmentChanged = u.activeDepartment !== u._origActiveDepartment;
+
+  if (rolesChanged || activeRoleChanged || departmentsChanged || activeDepartmentChanged) {
     if (u.id === currentUid.value) {
-      alert("無法變更自己的角色。");
+      alert("無法變更自己的角色、部門與視角設定。");
       return;
     }
     if (u.email === adminEmail) {
-      alert("此帳號的角色不可變更。");
+      alert("此帳號的角色、部門與視角不可變更。");
       return;
     }
-    await updateUserRole(u.id, u.role);
+    await updateUserRoles(u.id, u.roles, u.activeRole);
+    await updateUserDepartments(u.id, u.departments, u.activeDepartment);
   }
   if ((u.displayName || "") !== u._origName) {
     await updateUserDisplayName(u.id, u.displayName || "");
-  }
-  if ((u.dept || "") !== u._origDept) {
-    await updateUserDept(u.id, u.dept || "");
   }
   await loadUsers();
 }
@@ -1235,6 +1336,64 @@ const permGroups = computed(() => {
   return groups;
 });
 
+const previewUserId = ref("");
+
+const selectedPreviewUser = computed(() => {
+  if (!users.value.length) return null;
+  return users.value.find((user) => user.id === previewUserId.value) || users.value[0];
+});
+
+const previewDepartmentLabels = computed(() => {
+  const departments = selectedPreviewUser.value?.departments || [];
+  return departments.map((dept) => deptLabel(dept)).join(" / ");
+});
+
+const previewPerspectiveUser = computed(() => {
+  const user = selectedPreviewUser.value;
+  if (!user) return null;
+  return {
+    ...user,
+    roles: user.activeRole ? [user.activeRole] : [],
+    role: user.activeRole || "",
+    departments: user.activeDepartment ? [user.activeDepartment] : [],
+    dept: user.activeDepartment || "",
+  };
+});
+
+const previewGroups = computed(() => {
+  if (!previewPerspectiveUser.value) return [];
+  const groups = [];
+  const seen = new Map();
+  for (const perm of permRoutes.value) {
+    const groupName = perm.group || "其他";
+    if (!seen.has(groupName)) {
+      const entry = { name: groupName, items: [], visible: [] };
+      seen.set(groupName, entry);
+      groups.push(entry);
+    }
+    const bucket = seen.get(groupName);
+    bucket.items.push(perm);
+    if (canAccessPermission(previewPerspectiveUser.value, perm)) {
+      bucket.visible.push(perm);
+    }
+  }
+  return groups;
+});
+
+watch(
+  users,
+  (list) => {
+    if (!list.length) {
+      previewUserId.value = "";
+      return;
+    }
+    if (!list.some((user) => user.id === previewUserId.value)) {
+      previewUserId.value = list[0].id;
+    }
+  },
+  { immediate: true },
+);
+
 function togglePermRole(perm, role, checked) {
   if (checked) {
     if (!perm.roles.includes(role)) perm.roles.push(role);
@@ -1257,6 +1416,7 @@ async function savePermissions() {
   try {
     await saveRoutePermissionsConfig(permRoutes.value);
     invalidatePermissionsCache();
+    window.dispatchEvent(new CustomEvent('route-permissions-updated'));
     permSaveMsg.value = '✅ 已儲存，設定立即生效';
   } catch (e) {
     console.error('savePermissions failed:', e);
@@ -1279,8 +1439,8 @@ onMounted(() => {
       return;
     }
     currentUid.value = u.uid;
-    const doc = await getUserByUid(u.uid);
-    isAdmin.value = doc && (doc.role === "admin" || doc.role === "管理者");
+    const currentUserDoc = await getUserByUid(u.uid);
+    isAdmin.value = userHasAnyRole(currentUserDoc, ["admin", "管理者"]);
     if (isAdmin.value) {
       await loadUsers();
       await loadUploadErrorLogs();
@@ -1303,5 +1463,75 @@ onMounted(() => {
 .name-input:focus {
   outline: none;
   border-color: #4a90e2;
+}
+
+.role-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #f9fafb;
+  font-size: 0.85rem;
+}
+
+.role-chip input {
+  width: auto;
+  height: auto;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.preview-card {
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fbff;
+}
+
+.preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.preview-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.preview-meta {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preview-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 12px;
 }
 </style>

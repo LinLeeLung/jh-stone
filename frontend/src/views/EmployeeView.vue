@@ -458,6 +458,7 @@ import {
   ROLES,
   subscribeAuthState,
   getUserByUid,
+  userHasAnyRole,
   getAllPendingOrdersForSearch,
   listOrderCompletionPhotos,
   getOrderCompletionPhotoStatus,
@@ -2375,7 +2376,7 @@ onMounted(() => {
   subscribeAuthState(async (user) => {
     if (!user) return;
     const doc = await getUserByUid(user.uid);
-    if (!doc || !["員工", "管理者", "admin"].includes(doc.role)) {
+    if (!doc || !userHasAnyRole(doc, ["員工", "管理者", "admin"])) {
       // 非員工仍可嘗試，但通常路由會阻擋
       console.warn("非員工帳號存取員工頁面");
     }

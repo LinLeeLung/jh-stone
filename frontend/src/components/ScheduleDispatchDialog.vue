@@ -71,7 +71,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { collection, doc, getDocs, query, updateDoc, where, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db, auth, normalizeUserAccessDoc, userHasAnyDept, userHasAnyRole } from '../firebase';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -146,11 +146,10 @@ async function loadInstallers() {
     const col = collection(db, 'Users');
     const snap = await getDocs(col);
     installers.value = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
+      .map((d) => normalizeUserAccessDoc({ id: d.id, ...d.data() }))
       .filter((u) => {
-        const role = String(u.role || '').trim();
-        if (role === 'admin' || role === '管理者') return true;
-        if ((role === '員工' || role === '行動') && String(u.dept || '') === '2') return true;
+        if (userHasAnyRole(u, ['admin', '管理者'])) return true;
+        if (userHasAnyRole(u, ['員工', '行動']) && userHasAnyDept(u, ['2'])) return true;
         return false;
       })
       .sort((a, b) => String(a.displayName || a.email || '').localeCompare(String(b.displayName || b.email || '')));

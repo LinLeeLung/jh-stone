@@ -257,7 +257,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { subscribeAuthState, getUserByUid } from "../firebase";
+import {
+  subscribeAuthState,
+  getUserByUid,
+  getCurrentPerspectiveRole,
+  userHasAnyRole,
+} from "../firebase";
 
 const userDoc = ref(null);
 
@@ -271,14 +276,24 @@ onMounted(() => {
   });
 });
 
-const role = computed(() => String(userDoc.value?.role || "").trim());
+const role = computed(() =>
+  userDoc.value ? getCurrentPerspectiveRole(userDoc.value) : "",
+);
 
 const isStaff = computed(() =>
-  ["員工", "admin", "管理者"].includes(role.value),
+  userHasAnyRole(userDoc.value, ["員工", "admin", "管理者"], {
+    usePerspectiveRole: true,
+  }),
 );
-const isAdmin = computed(() => ["admin", "管理者"].includes(role.value));
+const isAdmin = computed(() =>
+  userHasAnyRole(userDoc.value, ["admin", "管理者"], {
+    usePerspectiveRole: true,
+  }),
+);
 const isAdminOnly = computed(() => role.value === "admin");
-const isCustomer = computed(() => role.value === "客戶");
+const isCustomer = computed(() =>
+  userHasAnyRole(userDoc.value, ["客戶"], { usePerspectiveRole: true }),
+);
 </script>
 
 <style scoped>

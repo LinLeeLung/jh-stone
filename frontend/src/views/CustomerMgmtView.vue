@@ -197,7 +197,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
-  db, auth, authReadyPromise
+  db, auth, authReadyPromise, userHasAnyDept, userHasAnyRole
 } from '../firebase'
 import {
   collection, getDocs, setDoc, updateDoc, deleteDoc, doc,
@@ -217,10 +217,10 @@ const typeFilter = ref('')
 const customers  = ref([])
 
 const userDoc  = ref(null)
-const isAdmin  = computed(() => ['admin', '管理者'].includes(userDoc.value?.role))
+const isAdmin  = computed(() => userHasAnyRole(userDoc.value, ['admin', '管理者']))
 const isOffice = computed(() =>
   isAdmin.value ||
-  String(userDoc.value?.dept) === '1' ||
+  userHasAnyDept(userDoc.value, ['1']) ||
   userDoc.value?.permissions?.office === true
 )
 const canRead  = computed(() => !!userDoc.value)

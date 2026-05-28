@@ -809,6 +809,11 @@ import {
 } from "firebase/firestore";
 import { db, auth, authReadyPromise, storage } from "../firebase";
 import {
+  getUserByUid,
+  getUserActiveRole,
+  getUserActiveDepartment,
+} from "../firebase";
+import {
   ref as storageRef,
   uploadBytes,
   getDownloadURL,
@@ -1281,14 +1286,15 @@ onMounted(async () => {
   currentUser.value = auth.currentUser;
   if (!currentUser.value) return;
 
-  const userSnap = await getDoc(doc(db, "Users", currentUser.value.uid));
-  if (userSnap.exists()) {
-    const u = userSnap.data();
-    userRole.value = u.role;
-    myName.value = u.displayName || currentUser.value.displayName || "";
-    if (u.staffRole) myStaffRole.value = u.staffRole;
-    if (u.dept) myDept.value = u.dept;
-    if (u.empNo) myEmpNo.value = u.empNo;
+  const userDoc = await getUserByUid(currentUser.value.uid);
+  if (userDoc) {
+    userRole.value = getUserActiveRole(userDoc);
+    myName.value = userDoc.displayName || currentUser.value.displayName || "";
+    if (userDoc.staffRole) myStaffRole.value = userDoc.staffRole;
+    if (getUserActiveDepartment(userDoc)) {
+      myDept.value = getUserActiveDepartment(userDoc);
+    }
+    if (userDoc.empNo) myEmpNo.value = userDoc.empNo;
   }
 
   // 補齊：管理者可讀 staff 集合，會覆蓋/補上 Users 缺少的欄位

@@ -32,7 +32,12 @@ import DispatchSheetView from "../views/DispatchSheetView.vue";
 import MyTodayTasksView from "../views/MyTodayTasksView.vue";
 import VehiclesView from "../views/VehiclesView.vue";
 import { auth } from "../firebase";
-import { getUserByUid, authReadyPromise, getRoutePermissionsConfig } from "../firebase";
+import {
+  getUserByUid,
+  authReadyPromise,
+  getRoutePermissionsConfig,
+  canAccessPermission,
+} from "../firebase";
 import { DEFAULT_ROUTE_PERMISSIONS, findPermission } from "../config/routePermissions";
 
 // 記憶體快取：Firestore 設定讀取一次後存在此，null 表示「尚未載入」
@@ -311,17 +316,18 @@ router.beforeEach(async (to, from, next) => {
 
   try {
     const userDoc = await getUserByUid(user.uid);
-    const roleOk = allowedRoles.includes(userDoc?.role);
     const allowedDepts = permDef?.depts ?? to.meta?.depts ?? null;
-    const deptOk = allowedDepts
-      ? allowedDepts.includes(String(userDoc?.dept ?? ""))
-      : false;
-    if (roleOk || deptOk) {
+    const accessOk = canAccessPermission(userDoc, {
+      roles: allowedRoles,
+      depts: allowedDepts,
+    });
+    if (accessOk) {
       next();
     } else {
       console.warn("[router] role/dept not allowed", {
         path: to.fullPath,
-        role: userDoc?.role,
+        roles: userDoc?.roles,
+        activeRole: userDoc?.activeRole,
         dept: userDoc?.dept,
         allowedRoles,
         allowedDepts,

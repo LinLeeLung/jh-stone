@@ -16,174 +16,81 @@
         <RouterLink class="nav-link" to="/about" @click="closeNav"
           >說明</RouterLink
         >
-        <RouterLink
-          class="nav-link"
-          v-if="
-            userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
-          "
-          to="/admin"
-          @click="closeNav"
+        <RouterLink v-if="navAccess.admin" class="nav-link" to="/admin" @click="closeNav"
           >管理介面</RouterLink
         >
-        <RouterLink
-          class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === 'admin' ||
-              userDoc.role === '管理者' ||
-              String(userDoc.dept) === '1')
-          "
-          to="/orders"
-          @click="closeNav"
+        <RouterLink v-if="navAccess.orders" class="nav-link" to="/orders" @click="closeNav"
           >訂單</RouterLink
         >
         <RouterLink
+          v-if="navAccess.orderDispatch"
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === 'admin' ||
-              userDoc.role === '管理者' ||
-              String(userDoc.dept) === '1')
-          "
           to="/orders/dispatch"
           @click="closeNav"
           >發單作業</RouterLink
         >
         <RouterLink
+          v-if="navAccess.production"
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === 'admin' ||
-              userDoc.role === '管理者' ||
-              String(userDoc.dept) === '3')
-          "
           to="/production"
           @click="closeNav"
           >生產</RouterLink
         >
         <RouterLink
+          v-if="navAccess.customers"
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === 'admin' ||
-              userDoc.role === '管理者' ||
-              String(userDoc.dept) === '1')
-          "
           to="/customers"
           @click="closeNav"
           >客戶</RouterLink
         >
         <a
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === 'admin' ||
-              userDoc.role === '管理者' ||
-              String(userDoc.dept) === '1')
-          "
+          v-if="navAccess.quote"
           href="https://mystone.web.app/"
           target="_blank"
           rel="noopener noreferrer"
           @click="closeNav"
           >估價</a
         >
-        <RouterLink
-          class="nav-link"
-          v-if="
-            userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
-          "
-          to="/settings"
-          @click="closeNav"
+        <RouterLink v-if="navAccess.settings" class="nav-link" to="/settings" @click="closeNav"
           >系統設定</RouterLink
         >
         <RouterLink
+          v-if="navAccess.attendance"
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === '員工' ||
-              userDoc.role === '行動' ||
-              userDoc.role === 'admin' ||
-              userDoc.role === '管理者')
-          "
           to="/attendance"
           @click="closeNav"
           >{{ t("nav_attendance") }}</RouterLink
         >
-        <RouterLink
-          class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === '員工' ||
-              userDoc.role === '行動' ||
-              userDoc.role === 'admin' ||
-              userDoc.role === '管理者')
-          "
-          to="/leave"
-          @click="closeNav"
+        <RouterLink v-if="navAccess.leave" class="nav-link" to="/leave" @click="closeNav"
           >{{ t("nav_leave") }}</RouterLink
         >
-        <RouterLink
-          class="nav-link"
-          v-if="
-            userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
-          "
-          to="/payroll"
-          @click="closeNav"
+        <RouterLink v-if="navAccess.payroll" class="nav-link" to="/payroll" @click="closeNav"
           >{{ t("nav_payroll") }}</RouterLink
         >
-        <RouterLink
-          class="nav-link"
-          v-if="
-            userDoc && (userDoc.role === 'admin' || userDoc.role === '管理者')
-          "
-          to="/staff"
-          @click="closeNav"
+        <RouterLink v-if="navAccess.staff" class="nav-link" to="/staff" @click="closeNav"
           >員工資料</RouterLink
         >
-        <RouterLink
-          class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === '員工' ||
-              userDoc.role === 'admin' ||
-              userDoc.role === '管理者')
-          "
-          to="/employee"
-          @click="closeNav"
+        <RouterLink v-if="navAccess.employee" class="nav-link" to="/employee" @click="closeNav"
           >{{ t("nav_employee") }}</RouterLink
         >
         <RouterLink
+          v-if="navAccess.inventory"
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === '員工' ||
-              userDoc.role === 'admin' ||
-              userDoc.role === '管理者')
-          "
           to="/inventory"
           @click="closeNav"
           >{{ t("nav_inventory") }}</RouterLink
         >
         <RouterLink
+          v-if="navAccess.drawing"
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === '員工' ||
-              userDoc.role === 'admin' ||
-              userDoc.role === '管理者')
-          "
           to="/drawing/straight"
           @click="closeNav"
           >{{ t("nav_drawing") }}</RouterLink
         >
         <a
           class="nav-link"
-          v-if="
-            userDoc &&
-            (userDoc.role === '員工' ||
-              userDoc.role === 'admin' ||
-              userDoc.role === '管理者')
-          "
+          v-if="navAccess.tools"
           href="https://junchengstone.synology.me/draw/tools.php"
           target="_blank"
           rel="noopener noreferrer"
@@ -192,9 +99,25 @@
         >
       </div>
       <div v-if="user" class="top-nav-user">
-        <span v-if="userDoc && userDoc.role" class="nav-user-role">{{
-          userDoc.role
+        <span v-if="displayRoleLabel" class="nav-user-role">{{
+          displayRoleLabel
         }}</span>
+        <label v-if="hasMultipleRoles" class="nav-role-switcher">
+          <span>視角</span>
+          <select v-model="perspectiveRole">
+            <option v-for="role in assignedRoles" :key="role" :value="role">
+              {{ role }}
+            </option>
+          </select>
+        </label>
+        <label v-if="hasMultipleDepartments" class="nav-role-switcher">
+          <span>部門</span>
+          <select v-model="perspectiveDepartment">
+            <option v-for="dept in assignedDepartments" :key="dept" :value="dept">
+              {{ departmentLabel(dept) }}
+            </option>
+          </select>
+        </label>
         <img
           v-if="user.photoURL && !avatarFailed"
           :src="user.photoURL"
@@ -233,14 +156,26 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
-import { logout, subscribeAuthState, getUserByUid } from "./firebase";
+import { ref, onMounted, onUnmounted, computed } from "vue";
+import {
+  logout,
+  subscribeAuthState,
+  getUserByUid,
+  getRoutePermissionsConfig,
+  getCurrentPerspectiveRole,
+  setStoredPerspectiveRole,
+  getCurrentPerspectiveDepartment,
+  setStoredPerspectiveDepartment,
+  canAccessPermission,
+} from "./firebase";
+import { DEFAULT_ROUTE_PERMISSIONS, findPermission } from "./config/routePermissions";
 import { lang, setLang, t } from "./locale";
 function toggleLang() {
   setLang(lang.value === "zh" ? "vi" : "zh");
 }
 const user = ref(null);
 const userDoc = ref(null);
+const routePermissions = ref(DEFAULT_ROUTE_PERMISSIONS);
 const navOpen = ref(false);
 const navRef = ref(null);
 const avatarFailed = ref(false);
@@ -249,7 +184,89 @@ const appVersion =
     ? __APP_VERSION__
     : "-";
 
+const assignedRoles = computed(() => userDoc.value?.roles || []);
+const hasMultipleRoles = computed(() => assignedRoles.value.length > 1);
+const assignedDepartments = computed(() => userDoc.value?.departments || []);
+const hasMultipleDepartments = computed(() => assignedDepartments.value.length > 1);
+const perspectiveRole = computed({
+  get() {
+    return userDoc.value ? getCurrentPerspectiveRole(userDoc.value) : "";
+  },
+  set(value) {
+    if (!userDoc.value?.uid) {
+      return;
+    }
+    setStoredPerspectiveRole(userDoc.value.uid, value);
+    userDoc.value = { ...userDoc.value };
+  },
+});
+const perspectiveDepartment = computed({
+  get() {
+    return userDoc.value ? getCurrentPerspectiveDepartment(userDoc.value) : "";
+  },
+  set(value) {
+    if (!userDoc.value?.uid) {
+      return;
+    }
+    setStoredPerspectiveDepartment(userDoc.value.uid, value);
+    userDoc.value = { ...userDoc.value };
+  },
+});
+const displayRoleLabel = computed(() =>
+  perspectiveRole.value || userDoc.value?.activeRole || userDoc.value?.role || "",
+);
+
+function departmentLabel(value) {
+  return {
+    "1": "1 辦公室",
+    "2": "2 裝安",
+    "3": "3 廠內",
+    "4": "4 外勞",
+  }[String(value || "")] || String(value || "");
+}
+
+function hasPerspectiveAccess(path, fallbackPermission = {}) {
+  if (!userDoc.value) {
+    return false;
+  }
+  const permission = findPermission(routePermissions.value, path) || fallbackPermission;
+  return canAccessPermission(userDoc.value, permission, {
+    usePerspectiveRole: true,
+    usePerspectiveDepartment: true,
+  });
+}
+
+const navAccess = computed(() => ({
+  admin: hasPerspectiveAccess("/admin"),
+  orders: hasPerspectiveAccess("/orders"),
+  orderDispatch: hasPerspectiveAccess("/orders/dispatch"),
+  production: hasPerspectiveAccess("/production"),
+  customers: hasPerspectiveAccess("/customers"),
+  quote: hasPerspectiveAccess("/quote"),
+  settings: hasPerspectiveAccess("/settings"),
+  attendance: hasPerspectiveAccess("/attendance"),
+  leave: hasPerspectiveAccess("/leave"),
+  payroll: hasPerspectiveAccess("/payroll"),
+  staff: hasPerspectiveAccess("/staff"),
+  employee: hasPerspectiveAccess("/employee"),
+  inventory: hasPerspectiveAccess("/inventory"),
+  drawing: hasPerspectiveAccess("/drawing/straight"),
+  tools: hasPerspectiveAccess("/drawing/straight", {
+    roles: ["員工", "admin", "管理者"],
+  }),
+}));
+
+async function loadRoutePermissions() {
+  try {
+    routePermissions.value =
+      (await getRoutePermissionsConfig()) || DEFAULT_ROUTE_PERMISSIONS;
+  } catch {
+    routePermissions.value = DEFAULT_ROUTE_PERMISSIONS;
+  }
+}
+
 onMounted(() => {
+  loadRoutePermissions();
   subscribeAuthState(async (currentUser) => {
     user.value = currentUser;
     avatarFailed.value = false;
@@ -283,12 +300,18 @@ function handleDocumentClick(event) {
   }
 }
 
+function handlePermissionsUpdated() {
+  loadRoutePermissions();
+}
+
 onMounted(() => {
   document.addEventListener("click", handleDocumentClick);
+  window.addEventListener("route-permissions-updated", handlePermissionsUpdated);
 });
 
 onUnmounted(() => {
   document.removeEventListener("click", handleDocumentClick);
+  window.removeEventListener("route-permissions-updated", handlePermissionsUpdated);
 });
 </script>
 
@@ -301,6 +324,23 @@ onUnmounted(() => {
   border-radius: 4px;
   padding: 1px 6px;
   white-space: nowrap;
+}
+
+.nav-role-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: #4b5563;
+  white-space: nowrap;
+}
+
+.nav-role-switcher select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: #fff;
+  font-size: 0.78rem;
 }
 
 .nav-user-name {

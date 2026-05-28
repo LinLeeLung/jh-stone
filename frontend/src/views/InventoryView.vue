@@ -205,6 +205,7 @@ import {
   subscribeAuthState,
   upsertInventoryColor,
   uploadInventoryColorPhoto,
+  userHasAnyRole,
 } from "../firebase";
 
 const BRAND_CSV_URL =
@@ -293,9 +294,7 @@ const selectedOfficialSite = computed(() => {
 });
 
 const isAdmin = computed(() => {
-  const role = String(currentUserDoc.value?.role || "").trim();
-  const normalizedRole = role.toLowerCase();
-  return normalizedRole === "admin" || role === "管理者";
+  return userHasAnyRole(currentUserDoc.value, ["admin", "管理者"]);
 });
 
 const canSavePhotoUrl = computed(() => {
