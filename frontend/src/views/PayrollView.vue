@@ -421,7 +421,7 @@
               </td>
             </tr>
             <tr v-if="(detailRecord.healthInsurance || 0) > 0">
-              <th>健保費</th>
+              <th>健保費（本人）</th>
               <td class="num deduct">
                 −{{ detailRecord.healthInsurance.toLocaleString() }}
               </td>
@@ -872,8 +872,8 @@ const annualColumnDefs = [
   { key: "bonusTotal", label: "獎金" },
   { key: "mealAllowance", label: "伙食津貼" },
   { key: "laborInsurance", label: "勞保自付" },
-  { key: "healthInsurance", label: "健保自付" },
-  { key: "dependentHealth", label: "眷屬健保" },
+  { key: "healthInsurance", label: "健保費（本人）" },
+  { key: "dependentHealth", label: "健保費（眷屬）" },
   { key: "lunchFee", label: "便當費" },
   { key: "loanPrincipal", label: "借款本金" },
   { key: "loanInterest", label: "借款利息" },
@@ -1821,8 +1821,8 @@ function printSlip(r, mode) {
       <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
       ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ''}
       ${deductRow('勞保費', r.laborInsurance)}
-      ${deductRow('健保費', r.healthInsurance)}
-      ${deductRow('眷屬健保費', r.dependentHealth)}
+      ${deductRow('健保費（本人）', r.healthInsurance)}
+      ${deductRow('健保費（眷屬）', r.dependentHealth)}
       ${deductRow('便當費', r.lunchFee)}
       ${deductRow('房租（外勞）', r.foreignRent)}
       ${deductRow('水費', r.waterFee)}
@@ -1884,8 +1884,8 @@ function printSlip(r, mode) {
       ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ''}
       ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
       ${deductRow('勞保費', r.laborInsurance)}
-      ${deductRow('健保費', r.healthInsurance)}
-      ${deductRow('眷屬健保費', r.dependentHealth)}
+      ${deductRow('健保費（本人）', r.healthInsurance)}
+      ${deductRow('健保費（眷屬）', r.dependentHealth)}
       ${deductRow('便當費', r.lunchFee)}
       ${deductRow('房租（外勞）', r.foreignRent)}
       ${deductRow('水費', r.waterFee)}

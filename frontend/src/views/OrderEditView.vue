@@ -21,6 +21,14 @@
           :to="`/orders/${route.params.id}/drawing`"
           >📏 繪圖</RouterLink
         >
+        <button
+          v-if="isEdit"
+          class="btn-aux"
+          :disabled="loading || signedScanUploading"
+          @click="openSignedScanPicker"
+        >
+          {{ signedScanUploading ? '回簽上傳中…' : '📎 上傳回簽' }}
+        </button>
         <button v-if="canSendConfirmation" class="btn-aux" @click="onSendConfirmation">📨 傳確定單</button>
         <button v-if="canIssue" class="btn-primary btn-issue" @click="showIssuanceDialog = true">✅ 發單</button>
         <button v-if="canRenameIssuedOrderNo" class="btn-aux" @click="onRenameOrderNo">
@@ -87,12 +95,48 @@
 
         <div class="row">
           <label>安裝地點</label>
-          <input v-model="form.siteAddress" type="text" />
+          <div>
+            <input
+              v-model="form.siteAddress"
+              type="text"
+              @input="onSiteAddressInput"
+              @blur="checkDuplicateSiteAddress"
+            />
+            <div v-if="siteAddressChecking" class="muted small" style="margin-top: 6px">檢查現有地址中…</div>
+            <div v-else-if="siteAddressDuplicates.length" class="site-address-warning">
+              <div class="site-address-warning-title">
+                注意：此安裝地點已存在 {{ siteAddressDuplicates.length }} 筆訂單
+              </div>
+              <ul class="site-address-warning-list">
+                <li v-for="dup in siteAddressDuplicates" :key="dup.id">
+                  <RouterLink :to="`/orders/${dup.id}/edit`">
+                    {{ dup.orderNo || dup.id }}
+                  </RouterLink>
+                  <span>{{ dup.customerName || "未填客戶" }}</span>
+                  <span>{{ dup.promisedAt || dup.orderedAt || "未填日期" }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <label>下單日</label>
+          <input v-model="form.orderedAt" type="date" />
         </div>
 
         <div class="row">
           <label>預交日</label>
           <input v-model="form.promisedAt" type="date" />
+        </div>
+
+        <div class="row">
+          <label>未安裝責任</label>
+          <select v-model="form.installDelayResponsibility">
+            <option value="unknown">未判定</option>
+            <option value="customer">客戶因素</option>
+            <option value="internal">我方因素</option>
+          </select>
         </div>
 
         <div class="row">
@@ -337,9 +381,74 @@
         </div>
       </section>
 
+      <section v-if="isEdit" class="card card-receivable full">
+        <header class="card-head">
+          <h3>應收摘要</h3>
+          <div class="inline-actions">
+            <RouterLink class="btn-aux" to="/receivable-items">應收明細</RouterLink>
+            <RouterLink v-if="latestArBillId" class="btn-aux" :to="`/receivable-bills/${latestArBillId}`">查看帳單</RouterLink>
+            <button class="btn-mini" type="button" :disabled="creatingReceivableItem" @click="onCreateReceivableItem">
+              {{ creatingReceivableItem ? "建立中…" : "建立應收明細" }}
+            </button>
+          </div>
+        </header>
+
+        <div class="summary-grid-4">
+          <div class="summary-tile">
+            <span class="summary-label">應收狀態</span>
+            <strong>{{ receivableStatusLabel }}</strong>
+          </div>
+          <div class="summary-tile">
+            <span class="summary-label">應收總額</span>
+            <strong>{{ formatCurrency(form.receivableTotal) }}</strong>
+          </div>
+          <div class="summary-tile">
+            <span class="summary-label">已收總額</span>
+            <strong>{{ formatCurrency(form.receivedTotal) }}</strong>
+          </div>
+          <div class="summary-tile">
+            <span class="summary-label">未收金額</span>
+            <strong>{{ formatCurrency(form.balanceDue) }}</strong>
+          </div>
+        </div>
+
+        <div class="row">
+          <label>可請款原因</label>
+          <div class="muted">{{ form.billingEligibleReason || "尚未符合可請款條件" }}</div>
+        </div>
+      </section>
+
       <!-- 附件（原始圖檔 / 打板照）-->
       <section v-if="isEdit" class="card card-attachments full">
         <h3>附件</h3>
+
+        <div class="attach-section">
+          <div class="attach-head">
+            <span class="attach-label">回簽檔</span>
+            <button class="btn-mini" @click="signedScanInputRef.click()">+ 上傳</button>
+            <input
+              ref="signedScanInputRef"
+              type="file"
+              accept="image/*,.pdf"
+              multiple
+              style="display:none"
+              @change="onSignedScans"
+            />
+            <span v-if="latestSignedScanEntry" class="muted small">
+              最新：{{ formatSignedScanTime(latestSignedScanEntry.uploadedAt || form.customerSignedAt) }}
+            </span>
+          </div>
+          <p v-if="signedScanUploading" class="hint">上傳中…</p>
+          <p v-if="orderStatus === 'pendingSign'" class="muted small">上傳回簽後，若要正式發單，仍請按上方「✅ 發單」。</p>
+          <ul v-if="signedScans.length" class="file-list">
+            <li v-for="(scan, index) in signedScans" :key="scan.url || `${scan.name}-${index}`">
+              <a :href="scan.url" target="_blank" rel="noopener">{{ signedScanDisplayName(scan, index) }}</a>
+              <span class="muted small">{{ formatSignedScanTime(scan.uploadedAt) }}</span>
+              <span v-if="index === 0" class="scan-latest-tag">最新</span>
+            </li>
+          </ul>
+          <p v-else-if="!signedScanUploading" class="muted small">尚無回簽檔</p>
+        </div>
 
         <!-- 原始圖檔 -->
         <div class="attach-section">
@@ -660,12 +769,14 @@ import {
   createSalesOrder,
   updateSalesOrder,
   getSalesOrder,
+  findSalesOrdersBySiteAddress,
   listInventoryColors,
   getBrandMaterials,
   getOrderOptions,
   auth,
   getUserByUid,
   uploadOrderAttachment,
+  appendSignedScanToOrder,
   listOrderAttachments,
   deleteOrderAttachment,
   listStaffByDept,
@@ -675,6 +786,7 @@ import {
   updateCustomerPricing,
   listOrderDrawings,
   updateIssuedOrderNo,
+  createReceivableItemFromOrder,
 } from "../firebase";
 import IssuanceDialog from "../components/IssuanceDialog.vue";
 import { SINK_STATUS_LIST } from "../utils/sinkStatus";
@@ -688,6 +800,7 @@ import {
 } from "../utils/orderOptions";
 
 const userRole = ref("");
+const creatingReceivableItem = ref(false);
 const customerPricing = ref(null);
 
 // 上次對當前石材的建議價格
@@ -721,6 +834,36 @@ const canRenameIssuedOrderNo = computed(() =>
   !!currentOrderNo.value &&
   ["confirmed", "inProduction", "delivered"].includes(orderStatus.value),
 );
+const latestArBillId = computed(() => String(form.value.latestArBillId || "").trim());
+const receivableStatusLabel = computed(() => ({
+  none: "未建立",
+  pending: "待併帳",
+  grouped: "已成帳單",
+  partial: "部分收款",
+  paid: "已收清",
+}[form.value.receivableStatus] || form.value.receivableStatus || "未建立"));
+
+function formatCurrency(value) {
+  const amount = Number(value) || 0;
+  return `${amount.toLocaleString()} 元`;
+}
+
+async function onCreateReceivableItem() {
+  if (!isEdit.value) return;
+  creatingReceivableItem.value = true;
+  try {
+    await updateSalesOrder(route.params.id, toPayload());
+    await createReceivableItemFromOrder(route.params.id, { force: true });
+    const refreshed = await getSalesOrder(route.params.id);
+    if (refreshed) Object.assign(form.value, refreshed);
+    alert("已建立或更新此訂單的應收明細。");
+  } catch (e) {
+    console.error(e);
+    alert("建立應收明細失敗：" + (e?.message || e));
+  } finally {
+    creatingReceivableItem.value = false;
+  }
+}
 
 async function onSendConfirmation() {
   if (!confirm("確定要傳送確定單給客戶簽回嗎？\n（系統將記錄目前資料快照，狀態改為「待客戶簽回」）")) return;
@@ -738,14 +881,25 @@ async function onSendConfirmation() {
   }
 }
 
-function onIssued(orderNo) {
+async function onIssued(orderNo) {
   showIssuanceDialog.value = false;
   orderStatus.value = "confirmed";
   form.value.orderNo = orderNo;
-  // 自動建立生產工單
-  createProductionJob(route.params.id, { ...toPayload(), orderNo }).catch(console.error);
-  alert(`發單成功！訂單號：${orderNo}\n即將跳轉確定單頁面封存PDF。`);
-  router.push({ name: "order-confirmation", params: { id: route.params.id } });
+  const payload = {
+    ...toPayload(),
+    orderNo,
+    status: "confirmed",
+  };
+  try {
+    await updateSalesOrder(route.params.id, payload);
+    // 自動建立生產工單
+    await createProductionJob(route.params.id, payload);
+    alert(`發單成功！訂單號：${orderNo}\n即將跳轉確定單頁面封存PDF。`);
+    router.push({ name: "order-confirmation", params: { id: route.params.id } });
+  } catch (e) {
+    console.error(e);
+    alert("發單失敗：" + (e?.message || e));
+  }
 }
 
 async function onRenameOrderNo() {
@@ -774,11 +928,81 @@ async function onRenameOrderNo() {
 // ─── 附件 ────────────────────────────────────────────────
 const designFileInputRef = ref(null);
 const samplePhotoInputRef = ref(null);
+const signedScanInputRef = ref(null);
 const designFiles = ref([]);
 const samplePhotos = ref([]);
+const signedScans = ref([]);
 const designUploading = ref(false);
 const sampleUploading = ref(false);
+const signedScanUploading = ref(false);
 const lightboxUrl = ref("");
+
+const latestSignedScanEntry = computed(() => signedScans.value[0] || null);
+
+function signedScanTimeMs(value) {
+  if (!value) return 0;
+  if (typeof value?.toDate === "function") return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "object" && Number.isFinite(Number(value.seconds))) {
+    return Number(value.seconds) * 1000;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function normalizeSignedScans(order = {}) {
+  const scans = Array.isArray(order?.signedScans)
+    ? order.signedScans.filter((item) => item?.url)
+    : [];
+  if (scans.length) {
+    return [...scans].sort((a, b) => signedScanTimeMs(b.uploadedAt) - signedScanTimeMs(a.uploadedAt));
+  }
+  return order?.signedScanUrl
+    ? [{
+        url: order.signedScanUrl,
+        uploadedAt: order.customerSignedAt || null,
+        name: "回簽檔",
+      }]
+    : [];
+}
+
+function formatSignedScanTime(value) {
+  const ts = signedScanTimeMs(value);
+  if (!ts) return "—";
+  const date = new Date(ts);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function signedScanDisplayName(scan = {}, index = 0) {
+  if (scan.name) return scan.name;
+  const ext = String(scan.url || "").split("?")[0].split(".").pop();
+  return `回簽檔 ${index + 1}${ext ? `.${ext}` : ""}`;
+}
+
+async function onSignedScans(e) {
+  const files = [...(e.target.files || [])];
+  e.target.value = "";
+  if (!files.length) return;
+  signedScanUploading.value = true;
+  try {
+    for (const file of files) {
+      const item = await appendSignedScanToOrder(route.params.id, file);
+      signedScans.value = [...signedScans.value, item].sort(
+        (a, b) => signedScanTimeMs(b.uploadedAt) - signedScanTimeMs(a.uploadedAt),
+      );
+      form.value.signedScanUrl = item.url;
+      form.value.customerSignedAt = item.uploadedAt;
+    }
+  } catch (err) {
+    alert("回簽上傳失敗：" + (err?.message || err));
+  } finally {
+    signedScanUploading.value = false;
+  }
+}
+
+function openSignedScanPicker() {
+  signedScanInputRef.value?.click();
+}
 
 async function onDesignFiles(e) {
   const files = [...(e.target.files || [])];
@@ -878,6 +1102,9 @@ const inventoryColors = ref([]);
 const customBrandMap = ref({});
 const staffDept1 = ref([]);
 const staffDept2 = ref([]);
+const siteAddressChecking = ref(false);
+const siteAddressDuplicates = ref([]);
+const lastSiteAddressAlertKey = ref("");
 
 // 唯一品牌清單
 const brands = computed(() => {
@@ -901,6 +1128,52 @@ function colorsForBrand(brand) {
 
 const customerKeyword = ref("");
 const showCustomerList = ref(false);
+
+function normalizeSiteAddress(value) {
+  return String(value || "").trim();
+}
+
+function onSiteAddressInput() {
+  siteAddressDuplicates.value = [];
+  lastSiteAddressAlertKey.value = "";
+}
+
+async function checkDuplicateSiteAddress() {
+  const siteAddress = normalizeSiteAddress(form.value.siteAddress);
+  if (!siteAddress) {
+    siteAddressDuplicates.value = [];
+    lastSiteAddressAlertKey.value = "";
+    return;
+  }
+
+  siteAddressChecking.value = true;
+  try {
+    const matches = await findSalesOrdersBySiteAddress(siteAddress, {
+      excludeId: isEdit.value ? route.params.id : "",
+      limit: 8,
+    });
+    siteAddressDuplicates.value = matches;
+
+    if (!matches.length) {
+      lastSiteAddressAlertKey.value = "";
+      return;
+    }
+
+    const alertKey = matches.map((item) => item.id).sort().join("|");
+    if (lastSiteAddressAlertKey.value === alertKey) return;
+    lastSiteAddressAlertKey.value = alertKey;
+
+    const summary = matches
+      .slice(0, 5)
+      .map((item) => `${item.orderNo || item.id} ${item.customerName || ""}`.trim())
+      .join("\n");
+    alert(`此安裝地點已存在相同資料，請先確認是否重複建單。\n\n${summary}`);
+  } catch (e) {
+    console.warn("check duplicate site address failed", e);
+  } finally {
+    siteAddressChecking.value = false;
+  }
+}
 
 function newSink() {
   return {
@@ -936,6 +1209,7 @@ const form = ref({
   siteAddress: "",
   category: "",
   customerOrderNo: "",
+  orderedAt: "",
   stones: [],
   countertop: { type: "", totalCm: null },
   rearTreatment: "flush",
@@ -949,6 +1223,7 @@ const form = ref({
   templatingStaff: "",
   drawingStaff: "",
   installStaff: [],
+  installDelayResponsibility: "unknown",
   promisedAt: "",
   sinkReceivedAt: "",
   specialNotes: "",
@@ -1651,6 +1926,7 @@ function toPayload() {
     siteAddress: f.siteAddress || "",
     category: f.category || "",
     customerOrderNo: f.customerOrderNo || "",
+    orderedAt: trimDate(f.orderedAt),
     stones: f.stones.map((s) => ({ ...s })),
     countertop: { ...f.countertop },
     rearTreatment: f.rearTreatment || "flush",
@@ -1664,6 +1940,7 @@ function toPayload() {
     templatingStaff: f.templatingStaff || "",
     drawingStaff: f.drawingStaff || "",
     installStaff: Array.isArray(f.installStaff) ? f.installStaff : (f.installStaff ? [f.installStaff] : []),
+    installDelayResponsibility: f.installDelayResponsibility || "unknown",
     promisedAt: trimDate(f.promisedAt),
     sinkReceivedAt: trimDate(f.sinkReceivedAt),
     specialNotes: f.specialNotes || "",
@@ -1801,6 +2078,7 @@ async function loadAll() {
         orderStatus.value = doc.status || "";
         pendingSignSnapshot.value = doc.pendingSignSnapshot || null;
         pendingSignDrawingVersions.value = doc.pendingSignDrawingVersions || {};
+        signedScans.value = normalizeSignedScans(doc);
         Object.assign(form.value, doc, {
           customerContact: {
             ...form.value.customerContact,
@@ -1818,11 +2096,16 @@ async function loadAll() {
           installStaff: Array.isArray(doc.installStaff)
             ? doc.installStaff
             : (doc.installStaff ? [doc.installStaff] : []),
+          installDelayResponsibility: doc.installDelayResponsibility || "unknown",
           lineItems: Array.isArray(doc.lineItems) ? doc.lineItems.map((li) => ({ ...li })) : [],
           invoiceRequired: doc.invoiceRequired !== false,
+          orderedAt: doc.orderedAt || "",
         });
         customerKeyword.value =
           `${doc.customerId || ""} ${doc.customerName || ""}`.trim();
+        if (form.value.orderedAt) {
+          form.value.orderedAt = toDateInputStr(form.value.orderedAt);
+        }
         // 統一將 promisedAt 轉成 YYYY-MM-DD（相容 Excel 序號、毫秒時間戳）
         if (form.value.promisedAt) {
           form.value.promisedAt = toDateInputStr(form.value.promisedAt);
@@ -2183,6 +2466,33 @@ onMounted(loadAll);
   margin-top: 8px;
   font-size: 12px;
   color: #1976d2;
+}
+.site-address-warning {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #f4c7a1;
+  border-radius: 12px;
+  background: #fff8f1;
+}
+.site-address-warning-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b45309;
+  margin-bottom: 6px;
+}
+.site-address-warning-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #92400e;
+  font-size: 12px;
+}
+.site-address-warning-list li {
+  margin-bottom: 4px;
+}
+.site-address-warning-list a {
+  margin-right: 6px;
+  color: #b45309;
+  font-weight: 600;
 }
 .muted {
   color: #999;

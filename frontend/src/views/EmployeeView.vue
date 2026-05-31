@@ -1,14 +1,14 @@
 <template>
   <section class="page-card">
     <div class="page-head sticky-page-head">
-      <h1>員工專區 — 資料查詢</h1>
+      <h1>安裝查詢</h1>
       <a
         href="/help.html"
         target="_blank"
         rel="noopener"
         class="btn-aux"
         style="text-decoration: none"
-        title="開啟員工使用說明"
+        title="開啟安裝查詢使用說明"
         >📖 使用說明</a
       >
     </div>
@@ -135,9 +135,12 @@
       <div v-if="results.length === 0">沒有資料</div>
       <div v-else>
         <div class="summary-row">
-          <span>總金額：{{ formatAmount(resultStats.totalAmount) }}</span>
+          <span v-if="canViewPrice"
+            >總金額：{{ formatAmount(resultStats.totalAmount) }}</span
+          >
           <span>件數：{{ resultStats.count }}</span>
           <span
+            v-if="canViewPrice"
             >平均金額/件數：{{ formatAmount(resultStats.averageAmount) }}</span
           >
           <span>{{ resultSourceLabel }}</span>
@@ -458,6 +461,7 @@ import {
   ROLES,
   subscribeAuthState,
   getUserByUid,
+  getCurrentPerspectiveRole,
   userHasAnyRole,
   getAllPendingOrdersForSearch,
   listOrderCompletionPhotos,
@@ -484,7 +488,11 @@ const results = ref([]);
 const loading = ref(false);
 const queryElapsed = ref(null);
 const roles = ROLES;
-const availableFields = ref([
+const currentUserDoc = ref(null);
+const canViewPrice = computed(() =>
+  userHasAnyRole(currentUserDoc.value || {}, ["價格"]),
+);
+const BASE_AVAILABLE_FIELDS = [
   "安裝日",
   "訂單號碼",
   "客戶名稱",
@@ -504,7 +512,12 @@ const availableFields = ref([
   "裁切者",
   "水刀者",
   "驗收者",
-]);
+];
+const availableFields = computed(() =>
+  canViewPrice.value
+    ? BASE_AVAILABLE_FIELDS
+    : BASE_AVAILABLE_FIELDS.filter((field) => field !== "銷售額"),
+);
 
 // Map short display header names to actual data field names
 const headerFieldMap = {
@@ -566,7 +579,7 @@ function buildTableHeaders() {
   return headers;
 }
 
-const tableHeaders = ref(buildTableHeaders());
+const tableHeaders = computed(() => buildTableHeaders());
 
 // 可排序欄位（顯示用 header 名稱）
 const SORTABLE_HEADERS = new Set([
@@ -795,6 +808,9 @@ function parseAmount(value) {
 
 const resultStats = computed(() => {
   const count = results.value.length;
+  if (!canViewPrice.value) {
+    return { count, totalAmount: 0, averageAmount: 0 };
+  }
   const totalAmount = results.value.reduce(
     (sum, doc) => sum + parseAmount(doc["銷售額"]),
     0,
@@ -821,6 +837,9 @@ function formatAmount(value) {
 }
 
 function formatCellValue(field, value) {
+  if (field === "銷售額" && !canViewPrice.value) {
+    return "";
+  }
   if (field === "銷售額" || field === "公分數") {
     if (value === null || value === undefined || String(value).trim() === "") {
       return "";
@@ -890,7 +909,10 @@ async function openOrderPdf(orderNumber) {
       return;
     }
     const token = await user.getIdToken();
-    const url = `https://asia-east1-jh-stone.cloudfunctions.net/serveOrderPdf?orderNumber=${encodeURIComponent(orderNumber)}&token=${encodeURIComponent(token)}`;
+    const userDoc = await getUserByUid(user.uid);
+    const perspectiveRole = getCurrentPerspectiveRole(userDoc || {});
+    const cacheBust = Date.now();
+    const url = `https://asia-east1-jh-stone.cloudfunctions.net/serveOrderPdf?orderNumber=${encodeURIComponent(orderNumber)}&token=${encodeURIComponent(token)}&perspectiveRole=${encodeURIComponent(perspectiveRole || "")}&t=${cacheBust}`;
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (e) {
     console.error("openOrderPdf failed", e);
@@ -2374,8 +2396,12 @@ async function searchSpecificDate() {
 onMounted(() => {
   // default to orders preset for ease of use
   subscribeAuthState(async (user) => {
-    if (!user) return;
+    if (!user) {
+      currentUserDoc.value = null;
+      return;
+    }
     const doc = await getUserByUid(user.uid);
+    currentUserDoc.value = doc || null;
     if (!doc || !userHasAnyRole(doc, ["員工", "管理者", "admin"])) {
       // 非員工仍可嘗試，但通常路由會阻擋
       console.warn("非員工帳號存取員工頁面");

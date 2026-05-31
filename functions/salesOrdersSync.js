@@ -133,6 +133,18 @@ function buildMirrorPayload(orderId, orderData) {
   const siteAddress = String(pickFirst(d, ["installAddress", "安裝地點", "安裝地址", "地址", "siteAddress"]) || "").trim();
   const contactPhone = String(pickFirst(d, ["contactPhone", "電話", "客戶電話", "聯絡電話", "phone"]) || "").trim();
   const contactName = String(pickFirst(d, ["contactName", "聯絡人", "聯絡人姓名"]) || "").trim();
+  const orderedAtRaw = pickFirst(d, [
+    "orderedAt",
+    "下單日",
+    "下單日期",
+    "建單日",
+    "建立日期",
+    "建立時間",
+    "createdAt",
+    "createdTime",
+  ]);
+  const orderedAtTs = toTimestamp(orderedAtRaw);
+  const orderedAt = normalizeYmd(orderedAtRaw) || (orderedAtTs ? normalizeYmd(orderedAtTs.toDate()) : null);
   const promisedAtRaw = pickFirst(d, ["installDate", "安裝日", "預定安裝日", "promisedAt", "預定日"]);
   const promisedAt = normalizeYmd(promisedAtRaw);
   const rawStatus = String(pickFirst(d, ["status", "狀態", "施工狀態"]) || "").trim();
@@ -156,6 +168,7 @@ function buildMirrorPayload(orderId, orderData) {
     contactName: contactName || "",
     contactPhone: contactPhone || "",
     siteAddress: siteAddress || "",
+    orderedAt: orderedAt || null,
     promisedAt: promisedAt || null,
     status,
 

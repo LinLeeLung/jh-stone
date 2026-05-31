@@ -14,40 +14,86 @@ service cloud.firestore {
       return signedIn() ? userDoc().data.role : null;
     }
 
+    function myRoles() {
+      return !signedIn()
+        ? []
+        : (userDoc().data.roles is list)
+          ? userDoc().data.roles
+          : (myRole() != null ? [myRole()] : []);
+    }
+
+    function hasRole(role) {
+      return signedIn() && role in myRoles();
+    }
+
     function myCompanyId() {
       return signedIn() ? userDoc().data.companyId : null;
     }
 
     function isAdmin() {
-      return signedIn() && myRole() == 'admin';
+      return hasRole('admin');
     }
 
     function isStaff() {
-      return signedIn() && myRole() in ['admin', '管理者', '員工'];
+      return hasRole('admin') || hasRole('管理者') || hasRole('員工');
+    }
+
+    function isAccounting() {
+      return hasRole('admin') || hasRole('管理者') || hasRole('會計');
     }
 
     // 行動角色：只能存取打卡/請假/加班（幫員工個人手機用帳號）
     function isMobileStaff() {
-      return signedIn() && myRole() == '行動';
+      return hasRole('行動');
     }
 
     function isAdminOrManager() {
-      return signedIn() && myRole() in ['admin', '管理者'];
+      return hasRole('admin') || hasRole('管理者');
+    }
+
+    function isReceivableOrderUpdate() {
+      return request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'billingEligible',
+          'billingTriggerType',
+          'billingEligibleReason',
+          'staleBillingEligibleAt',
+          'receivableStatus',
+          'receivableTotal',
+          'receivedTotal',
+          'balanceDue',
+          'latestArBillId',
+          'latestInvoiceNo',
+          'updatedAt',
+          'updatedByUid',
+        ]);
     }
 
     // 廠內員工（部門 3）或一般員工以上角色
     function isFactoryOrStaff() {
       return isStaff()
-        || (signedIn() && userDoc().data.dept == '3');
+        || hasDepartment('3');
     }
 
     function myDept() {
       return signedIn() ? userDoc().data.dept : null;
     }
 
+    function myDepartments() {
+      return !signedIn()
+        ? []
+        : (userDoc().data.departments is list)
+          ? userDoc().data.departments
+          : (myDept() != null ? [myDept()] : []);
+    }
+
+    function hasDepartment(dept) {
+      return signedIn() && dept in myDepartments();
+    }
+
     function isApprovedCustomer() {
       return signedIn()
-        && myRole() == '客戶'
+        && hasRole('客戶')
         && userDoc().data.customerApproved == true
         && myCompanyId() != null
         && myCompanyId() != '';
@@ -118,6 +164,9 @@ service cloud.firestore {
     }
     match /SystemSettings/orderCounter {
       allow read, write: if isStaff();
+    }
+    match /SystemSettings/receivableBillCounter {
+      allow read, write: if isAccounting();
     }
 
     // Client-side upload diagnostics for intermittent device/network issues.
@@ -225,8 +274,8 @@ service cloud.firestore {
 
     // 新 ERP 主檔：客戶資料、產品型號、石材狀態（所有員工可讀，admin/manager 可寫）
     match /customers/{docId} {
-      allow read: if isStaff();
-      allow write: if isAdminOrManager() || (isStaff() && myDept() == '1');
+      allow read: if isStaff() || isAccounting();
+      allow write: if isAdminOrManager() || (isStaff() && hasDepartment('1'));
     }
 
     match /productModels/{docId} {
@@ -241,10 +290,11 @@ service cloud.firestore {
 
     // 銷售訂單（新 ERP）：員工可讀寫；admin/manager 可刪
     match /salesOrders/{docId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isAccounting();
       allow create: if isStaff()
         && request.resource.data.createdByUid == request.auth.uid;
       allow update: if isAdminOrManager()
+        || (isAccounting() && isReceivableOrderUpdate())
         || (isStaff() && request.resource.data.updatedByUid == request.auth.uid);
       allow delete: if isAdminOrManager();
 
@@ -311,6 +361,38 @@ service cloud.firestore {
       allow write: if isStaff();
     }
 
+    // 應收帳：會計 / 管理者 / admin 可讀寫；刪除僅管理者以上
+    match /accountsReceivableItems/{docId} {
+      allow read: if isAccounting();
+      allow create: if isAccounting()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.updatedByUid == request.auth.uid;
+      allow update: if isAccounting()
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.createdByUid == resource.data.createdByUid;
+      allow delete: if isAdminOrManager();
+    }
+
+    match /accountsReceivableBills/{docId} {
+      allow read: if isAccounting();
+      allow create: if isAccounting()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.updatedByUid == request.auth.uid;
+      allow update: if isAccounting()
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.createdByUid == resource.data.createdByUid;
+      allow delete: if isAdminOrManager();
+    }
+
+    match /accountingNotifications/{docId} {
+      allow read: if isAccounting();
+      allow create: if false;
+      allow update: if isAccounting()
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.createdByUid == resource.data.createdByUid;
+      allow delete: if isAdminOrManager();
+    }
+
     // System configuration（路由權限等）：所有已登入員工可讀；只有 admin/manager 可寫
     match /Config/{docId} {
       allow read: if isStaff() || isMobileStaff();
@@ -321,10 +403,10 @@ service cloud.firestore {
     // 可建立/排程；被指派的 assignedCrew 可更新自己任務的狀態與完工資料
     function isService() {
       return signedIn()
-        && (myRole() == 'admin'
-            || myRole() == '管理者'
-            || ((myRole() == '員工' || myRole() == '行動')
-                && userDoc().data.get('dept', '') == '2'));
+        && (hasRole('admin')
+            || hasRole('管理者')
+            || ((hasRole('員工') || hasRole('行動'))
+                && hasDepartment('2')));
     }
     function isInstaller() {
       return isService();

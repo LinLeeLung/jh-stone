@@ -22,12 +22,12 @@
 
     <!-- 功能區塊 -->
     <div v-if="userDoc" class="about-grid">
-      <!-- 員工查詢 -->
+      <!-- 安裝查詢 -->
       <div v-if="isStaff" class="about-card feature-main">
         <div class="about-card-icon">🔍</div>
-        <h2>員工查詢</h2>
+        <h2>安裝查詢</h2>
         <p class="about-card-desc">
-          員工專屬的訂單查詢中心，提供多種快捷方式快速找到資料。
+          安裝作業用的訂單查詢中心，提供多種快捷方式快速找到資料。
         </p>
         <ul class="feature-list">
           <li>

@@ -192,6 +192,7 @@
       <table class="jobs-table">
         <thead>
           <tr>
+            <th>下單日</th>
             <th>預交日</th>
             <th>訂單號</th>
             <th>客戶</th>
@@ -207,6 +208,7 @@
             :key="job.id"
             :class="{ 'row-overdue': isDateOverdue(job.promisedAt) }"
           >
+            <td class="col-date">{{ fmtDateMd(job.orderedAt) || '—' }}</td>
             <td class="col-date">
               <span class="date-badge" :class="dateBadgeClass(job.promisedAt)">
                 {{ fmtDateMd(job.promisedAt) || '—' }}
@@ -427,16 +429,24 @@ function groupByDate(jobs) {
   });
 }
 
+function stageStatus(job, stageKey) {
+  return String(job?.stages?.[stageKey]?.status || "pending").trim() || "pending";
+}
+
+function isPendingForStage(job, stageKey) {
+  return stageStatus(job, stageKey) !== "done";
+}
+
 // ── computed ─────────────────────────────────────────────────────────
 
 const stageName = computed(() => STAGES.find((s) => s.key === activeStage.value)?.label || "");
 
 function pendingCount(stageKey) {
-  return allJobs.value.filter((j) => j.currentStage === stageKey).length;
+  return allJobs.value.filter((j) => isPendingForStage(j, stageKey)).length;
 }
 
 const pendingJobs = computed(() =>
-  allJobs.value.filter((j) => j.currentStage === activeStage.value)
+  allJobs.value.filter((j) => isPendingForStage(j, activeStage.value))
 );
 
 const porcelainJobs = computed(() =>
@@ -467,7 +477,7 @@ const completedSearchJobs = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
   if (!kw) return [];
   return allJobs.value
-    .filter((j) => j.currentStage === "done" && matchJobKeyword(j, kw))
+    .filter((j) => stageStatus(j, "qc") === "done" && matchJobKeyword(j, kw))
     .sort((a, b) => {
       const aTs = tsToDate(a.stages?.qc?.doneAt)?.getTime() || 0;
       const bTs = tsToDate(b.stages?.qc?.doneAt)?.getTime() || 0;

@@ -62,6 +62,13 @@ export const storage = getStorage(app);
 // NAS 在台灣，部署到 asia-east1 可大幅降低延遲
 export const functionsInstance = getFunctions(app, "asia-east1");
 
+const DEFAULT_PRICE_REDACT_BOX = {
+  xPct: 0,
+  yPct: 0,
+  wPct: 1,
+  hPct: 0.17,
+};
+
 const MULTIPART_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 
 const authReadyPromise = new Promise((resolve) => {
@@ -101,8 +108,26 @@ const PERSPECTIVE_STORAGE_PREFIX = "jh-stone:perspective-role:";
 const DEPARTMENT_PERSPECTIVE_STORAGE_PREFIX = "jh-stone:perspective-department:";
 
 // allowed roles in the system
-export const ROLES = ["admin", "管理者", "員工", "行動", "客戶", "遊客"];
+export const ROLES = ["admin", "管理者", "會計", "價格", "員工", "行動", "客戶", "遊客"];
 export const DEPARTMENTS = ["1", "2", "3", "4"];
+
+export const RECEIVABLE_BILLING_CYCLE_OPTIONS = [
+  { value: "cutoff25", label: "26-25 區間，次月請款" },
+  { value: "monthEnd", label: "月底結算，次月請款" },
+  { value: "installCompleted", label: "安裝完收款（完工即請款）" },
+];
+
+export const RECEIVABLE_INVOICE_PREFERENCE_OPTIONS = [
+  { value: "required", label: "固定開發票" },
+  { value: "optional", label: "依客戶需求" },
+  { value: "none", label: "不開發票" },
+];
+
+export const RECEIVABLE_PAYMENT_METHOD_OPTIONS = [
+  { value: "transfer", label: "匯款" },
+  { value: "check", label: "支票" },
+  { value: "cutTicketDeduction", label: "切口票扣款" },
+];
 
 function uniqueRoles(list = []) {
   return Array.from(new Set(list.filter((role) => ROLES.includes(role))));
@@ -1421,6 +1446,7 @@ export async function getSystemSettings() {
     return {
       nasStoragePath: "",
       nasOrderPath: "",
+      priceRedactBox: { ...DEFAULT_PRICE_REDACT_BOX },
     };
   }
 
@@ -1431,10 +1457,18 @@ export async function getSystemSettings() {
     nasStoragePath: data.nasStoragePath || "",
     nasOrderPath: data.nasOrderPath || "",
     priceRedactBox: {
-      xPct: Number.isFinite(Number(box.xPct)) ? Number(box.xPct) : 0.2,
-      yPct: Number.isFinite(Number(box.yPct)) ? Number(box.yPct) : 0.04,
-      wPct: Number.isFinite(Number(box.wPct)) ? Number(box.wPct) : 0.45,
-      hPct: Number.isFinite(Number(box.hPct)) ? Number(box.hPct) : 0.13,
+      xPct: Number.isFinite(Number(box.xPct))
+        ? Number(box.xPct)
+        : DEFAULT_PRICE_REDACT_BOX.xPct,
+      yPct: Number.isFinite(Number(box.yPct))
+        ? Number(box.yPct)
+        : DEFAULT_PRICE_REDACT_BOX.yPct,
+      wPct: Number.isFinite(Number(box.wPct))
+        ? Number(box.wPct)
+        : DEFAULT_PRICE_REDACT_BOX.wPct,
+      hPct: Number.isFinite(Number(box.hPct))
+        ? Number(box.hPct)
+        : DEFAULT_PRICE_REDACT_BOX.hPct,
     },
     punchLocation: {
       enabled: loc.enabled === true,
@@ -1742,16 +1776,35 @@ export async function listCustomers() {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+export async function getCustomerById(id) {
+  if (!id) return null;
+  const snap = await getDoc(doc(db, "customers", id));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+function isActiveStaffRecord(staff = {}) {
+  const status = String(staff?.status || "").trim();
+  return !status.includes("離職");
+}
+
 // 依部門讀取在職員工（dept: "1" = 辦公室, "2" = 安裝, "3" = 廠內, "4" = 外勞）
 export async function listStaffByDept(dept) {
   const snap = await getDocs(collection(db, "staff"));
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter(
-      (s) =>
-        String(s.dept ?? "") === String(dept) &&
-        String(s.status || "") !== "離職",
+      (s) => String(s.dept ?? "") === String(dept) && isActiveStaffRecord(s),
     )
+    .sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"),
+    );
+}
+
+export async function listActiveStaff() {
+  const snap = await getDocs(collection(db, "staff"));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((s) => isActiveStaffRecord(s))
     .sort((a, b) =>
       String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"),
     );
@@ -1772,6 +1825,26 @@ export async function getSalesOrder(id) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
+export async function findSalesOrdersBySiteAddress(siteAddress, options = {}) {
+  const cleanAddress = String(siteAddress || "").trim();
+  if (!cleanAddress) return [];
+
+  const excludeId = String(options.excludeId || "").trim();
+  const lim = Math.max(1, Math.min(20, Number(options.limit || 8)));
+  const snap = await getDocs(
+    query(
+      collection(db, "salesOrders"),
+      where("siteAddress", "==", cleanAddress),
+      limit(lim),
+    ),
+  );
+
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((order) => order.id !== excludeId)
+    .sort((a, b) => String(b.orderedAt || "").localeCompare(String(a.orderedAt || "")));
+}
+
 // 列出銷售訂單（依建檔時間倒序，預設 100 筆）
 export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
   const ref = collection(db, "salesOrders");
@@ -1781,6 +1854,968 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
   constraints.push(limit(lim));
   const snap = await getDocs(query(ref, ...constraints));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+function _coerceJsDate(input) {
+  if (!input) return null;
+  if (input instanceof Date) return Number.isNaN(input.getTime()) ? null : input;
+  if (typeof input?.toDate === "function") {
+    const date = input.toDate();
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof input === "object" && Number.isFinite(Number(input.seconds))) {
+    const date = new Date(Number(input.seconds) * 1000);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof input === "string") {
+    const raw = input.trim();
+    if (!raw) return null;
+    if (/^\d{1,5}$/.test(raw)) {
+      const excelSerial = Number(raw);
+      if (excelSerial > 0) {
+        const date = new Date((excelSerial - 25569) * 86400 * 1000);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+    }
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? `${raw}T00:00:00`
+      : raw;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof input === "number") {
+    if (input > 0 && input < 100000) {
+      const date = new Date((input - 25569) * 86400 * 1000);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const date = new Date(input);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
+function _addMonths(date, months) {
+  const source = _coerceJsDate(date);
+  if (!source) return null;
+  return new Date(
+    source.getFullYear(),
+    source.getMonth() + months,
+    source.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+}
+
+function _formatMonthKey(date) {
+  const source = _coerceJsDate(date);
+  if (!source) return "";
+  return `${source.getFullYear()}-${String(source.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function _formatDateKey(date) {
+  const source = _coerceJsDate(date);
+  if (!source) return "";
+  return `${source.getFullYear()}-${String(source.getMonth() + 1).padStart(2, "0")}-${String(source.getDate()).padStart(2, "0")}`;
+}
+
+export function normalizeCustomerReceivableSettings(customer = {}) {
+  const allowedMethods = Array.isArray(customer.paymentMethodsAllowed)
+    ? customer.paymentMethodsAllowed
+        .map((method) => String(method || "").trim())
+        .filter(Boolean)
+    : [];
+
+  return {
+    billingCycleType:
+      customer.billingCycleType === "monthEnd" || customer.billingCycleType === "installCompleted"
+        ? customer.billingCycleType
+        : "cutoff25",
+    invoicePreference:
+      customer.invoicePreference === "required" || customer.invoicePreference === "none"
+        ? customer.invoicePreference
+        : "optional",
+    paymentTerms: String(customer.paymentTerms || "").trim(),
+    paymentMethodsAllowed: allowedMethods.length
+      ? allowedMethods
+      : RECEIVABLE_PAYMENT_METHOD_OPTIONS.map((item) => item.value),
+    accountingNotes: String(customer.accountingNotes || "").trim(),
+  };
+}
+
+export function computeReceivableBillingMonth(dateInput, cycleType = "cutoff25") {
+  const date = _coerceJsDate(dateInput);
+  if (!date) return "";
+  const result =
+    cycleType === "installCompleted"
+      ? new Date(date.getFullYear(), date.getMonth(), 1)
+      : cycleType === "monthEnd"
+      ? new Date(date.getFullYear(), date.getMonth() + 1, 1)
+      : new Date(
+          date.getFullYear(),
+          date.getMonth() + (date.getDate() >= 26 ? 2 : 1),
+          1,
+        );
+  return _formatMonthKey(result);
+}
+
+function _parseBillingMonth(monthKey = "") {
+  const match = String(monthKey || "").match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+  };
+}
+
+export function getReceivableBillingPeriod(monthKey = "", cycleType = "cutoff25") {
+  const parsed = _parseBillingMonth(monthKey);
+  if (!parsed) return { start: null, end: null };
+  if (cycleType === "installCompleted") {
+    return {
+      start: new Date(parsed.year, parsed.month - 1, 1),
+      end: new Date(parsed.year, parsed.month, 0),
+    };
+  }
+  if (cycleType === "monthEnd") {
+    return {
+      start: new Date(parsed.year, parsed.month - 2, 1),
+      end: new Date(parsed.year, parsed.month - 1, 0),
+    };
+  }
+  return {
+    start: new Date(parsed.year, parsed.month - 3, 26),
+    end: new Date(parsed.year, parsed.month - 2, 25),
+  };
+}
+
+function _normalizeReceivableLineItems(order = {}) {
+  const rows = Array.isArray(order.lineItems)
+    ? order.lineItems
+        .map((item) => ({
+          id: item.id || "",
+          category: item.category || "other",
+          description: item.description || "",
+          unit: item.unit || "",
+          qty: Number(item.qty) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          amount: Number(item.amount) || 0,
+          refId: item.refId || null,
+        }))
+        .filter((item) => item.description || item.amount)
+    : [];
+
+  if (rows.length) return rows;
+
+  const baseAmount = Number.isFinite(Number(order.subtotal))
+    ? Number(order.subtotal)
+    : Number.isFinite(Number(order.total))
+      ? Number(order.total)
+      : 0;
+  const description = [
+    order.category || "訂單",
+    order.countertop?.type || "",
+    order.orderNo || "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return [
+    {
+      id: "main",
+      category: "other",
+      description: description || "訂單金額",
+      unit: "式",
+      qty: 1,
+      unitPrice: baseAmount,
+      amount: baseAmount,
+      refId: null,
+    },
+  ];
+}
+
+export function getReceivableEligibility(order = {}, customer = null) {
+  if (!order || !order.id) {
+    return {
+      eligible: false,
+      billingMonth: "",
+      billingDate: null,
+      billingTriggerType: "",
+      billingEligibleReason: "缺少訂單資料",
+    };
+  }
+
+  if (order.chargeable === false) {
+    return {
+      eligible: false,
+      billingMonth: "",
+      billingDate: null,
+      billingTriggerType: "",
+      billingEligibleReason: "此訂單不收費",
+    };
+  }
+
+  const customerSettings = normalizeCustomerReceivableSettings(customer || {});
+  const installedAt = _coerceJsDate(order.installedAt);
+  const legacyCompletedAt = _coerceJsDate(order.promisedAt);
+  const normalizedStatus = String(order.status || "").trim().toLowerCase();
+  const effectiveInstalledAt = installedAt || (
+    legacyCompletedAt && ["done", "delivered", "completed"].includes(normalizedStatus)
+      ? legacyCompletedAt
+      : null
+  );
+  if (effectiveInstalledAt) {
+    const immediateBilling = customerSettings.billingCycleType === "installCompleted";
+    return {
+      eligible: true,
+      billingMonth: computeReceivableBillingMonth(
+        effectiveInstalledAt,
+        customerSettings.billingCycleType,
+      ),
+      billingDate: effectiveInstalledAt,
+      billingTriggerType: installedAt ? "installed" : "legacyCompleted",
+      billingEligibleReason: immediateBilling
+        ? "安裝完工即請款"
+        : installedAt
+          ? "完工可請款"
+          : "舊資料以安裝日/交期欄位視為完工可請款",
+    };
+  }
+
+  const responsibility = String(order.installDelayResponsibility || "unknown").trim() || "unknown";
+  const staleEligibleAt =
+    _coerceJsDate(order.staleBillingEligibleAt) || _addMonths(order.createdAt, 3);
+  if (
+    staleEligibleAt &&
+    staleEligibleAt.getTime() <= Date.now() &&
+    responsibility === "customer"
+  ) {
+    return {
+      eligible: true,
+      billingMonth: computeReceivableBillingMonth(
+        staleEligibleAt,
+        customerSettings.billingCycleType,
+      ),
+      billingDate: staleEligibleAt,
+      billingTriggerType: "staleUninstalled",
+      billingEligibleReason: "超過三個月未安裝，且責任在客戶",
+    };
+  }
+
+  return {
+    eligible: false,
+    billingMonth: "",
+    billingDate: staleEligibleAt,
+    billingTriggerType: "",
+    billingEligibleReason:
+      responsibility === "customer"
+        ? "尚未到三個月可請款門檻"
+        : "尚未完工或未標記客戶延遲",
+  };
+}
+
+async function _refreshOrderReceivableSummary(orderId) {
+  if (!orderId) return;
+  const [itemSnap, billSnap] = await Promise.all([
+    getDocs(
+      query(
+        collection(db, "accountsReceivableItems"),
+        where("sourceOrderId", "==", orderId),
+      ),
+    ),
+    getDocs(
+      query(
+        collection(db, "accountsReceivableBills"),
+        where("orderIds", "array-contains", orderId),
+      ),
+    ),
+  ]);
+
+  const items = itemSnap.docs
+    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+    .filter((item) => item.itemStatus !== "void");
+  const bills = billSnap.docs
+    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+    .filter((bill) => bill.paymentStatus !== "void");
+
+  const receivableTotal = bills.length
+    ? bills.reduce((sum, bill) => sum + (Number(bill.amountTotal) || 0), 0)
+    : items.reduce((sum, item) => sum + (Number(item.amountTotal) || 0), 0);
+  const receivedTotal = bills.reduce(
+    (sum, bill) => sum + (Number(bill.paidAmount) || 0),
+    0,
+  );
+  const balanceDue = Math.max(receivableTotal - receivedTotal, 0);
+
+  let receivableStatus = "none";
+  if (items.length && !bills.length) {
+    receivableStatus = "pending";
+  } else if (receivableTotal > 0 && receivedTotal <= 0) {
+    receivableStatus = "grouped";
+  } else if (receivableTotal > 0 && balanceDue > 0) {
+    receivableStatus = "partial";
+  } else if (receivableTotal > 0) {
+    receivableStatus = "paid";
+  }
+
+  const latestBill = bills.sort((a, b) => {
+    const aTime = _coerceJsDate(a.updatedAt || a.createdAt)?.getTime() || 0;
+    const bTime = _coerceJsDate(b.updatedAt || b.createdAt)?.getTime() || 0;
+    return bTime - aTime;
+  })[0] || null;
+
+  await updateDoc(doc(db, "salesOrders", orderId), {
+    receivableStatus,
+    receivableTotal,
+    receivedTotal,
+    balanceDue,
+    latestArBillId: latestBill?.id || "",
+    latestInvoiceNo: latestBill?.invoiceNo || "",
+    updatedAt: serverTimestamp(),
+    updatedByUid: auth.currentUser?.uid || null,
+  });
+}
+
+async function _buildReceivableItemPayload(order, customer = null) {
+  const customerDoc = customer || (await getCustomerById(order.customerId));
+  const settings = normalizeCustomerReceivableSettings(customerDoc || {});
+  const eligibility = getReceivableEligibility(order, customerDoc);
+  const lineItems = _normalizeReceivableLineItems(order);
+  const amountUntaxed = Number.isFinite(Number(order.subtotal))
+    ? Number(order.subtotal)
+    : lineItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const invoiceRequired =
+    settings.invoicePreference === "required"
+      ? true
+      : settings.invoicePreference === "none"
+        ? false
+        : order.invoiceRequired !== false;
+  const amountTotal = Number.isFinite(Number(order.grandTotal))
+    ? Number(order.grandTotal)
+    : invoiceRequired
+      ? Math.round(amountUntaxed * 1.05)
+      : amountUntaxed;
+  const taxAmount = Math.max(amountTotal - amountUntaxed, 0);
+
+  return {
+    sourceOrderId: order.id,
+    sourceOrderNo: order.orderNo || "",
+    customerId: order.customerId || "",
+    customerName: order.customerName || customerDoc?.name || "",
+    customerSnapshot: customerDoc
+      ? {
+          id: customerDoc.id,
+          code: customerDoc.code || customerDoc.id,
+          name: customerDoc.name || "",
+          taxId: customerDoc.taxId || "",
+          contactPerson: customerDoc.contactPerson || "",
+          phone: customerDoc.phone || "",
+          address: customerDoc.address || "",
+          billingCycleType: settings.billingCycleType,
+          invoicePreference: settings.invoicePreference,
+          paymentTerms: settings.paymentTerms,
+          paymentMethodsAllowed: settings.paymentMethodsAllowed,
+        }
+      : null,
+    billingMonth: eligibility.billingMonth,
+    billingCycleType: settings.billingCycleType,
+    billingTriggerType: eligibility.billingTriggerType,
+    billingDate: eligibility.billingDate,
+    billingEligibleReason: eligibility.billingEligibleReason,
+    lineItems,
+    amountUntaxed,
+    taxAmount,
+    amountTotal,
+    invoiceRequired,
+    itemStatus: "pending",
+    pricingReviewStatus: "pending",
+    pricingReviewedAt: null,
+    pricingReviewedByUid: "",
+    billId: "",
+    notes: String(order.paymentNotes || "").trim(),
+    orderSnapshot: {
+      orderNo: order.orderNo || "",
+      customerName: order.customerName || "",
+      siteAddress: order.siteAddress || "",
+      installedAt: order.installedAt || null,
+      createdAt: order.createdAt || null,
+      subtotal: amountUntaxed,
+      taxAmount,
+      amountTotal,
+      depositPaid: Number(order.depositPaid) || 0,
+      paymentNotes: String(order.paymentNotes || "").trim(),
+    },
+  };
+}
+
+export async function listReceivableItems({
+  billingMonth = "",
+  status = "",
+  customerId = "",
+  limit: lim = 500,
+} = {}) {
+  await authReadyPromise;
+  const snap = await getDocs(
+    query(collection(db, "accountsReceivableItems"), orderBy("createdAt", "desc"), limit(lim)),
+  );
+  return snap.docs
+    .map((docSnap) => _normalizeReceivableItemReview({ id: docSnap.id, ...docSnap.data() }))
+    .filter((item) => (!billingMonth || item.billingMonth === billingMonth))
+    .filter((item) => (!status || item.itemStatus === status))
+    .filter((item) => (!customerId || item.customerId === customerId));
+}
+
+export async function markReceivableItemPricingReviewed(itemId, reviewed = true) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  if (!itemId) throw new Error("缺少應收明細 id");
+  await updateDoc(doc(db, "accountsReceivableItems", itemId), {
+    pricingReviewStatus: reviewed ? "reviewed" : "pending",
+    pricingReviewedAt: reviewed ? serverTimestamp() : null,
+    pricingReviewedByUid: reviewed ? uid || "" : "",
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+export async function listAccountingNotifications({ status = "", limit: lim = 50 } = {}) {
+  await authReadyPromise;
+  const snap = await getDocs(
+    query(collection(db, "accountingNotifications"), orderBy("createdAt", "desc"), limit(lim)),
+  );
+  return snap.docs
+    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+    .filter((item) => (!status || item.status === status));
+}
+
+export async function markAccountingNotificationRead(notificationId) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  if (!notificationId) throw new Error("缺少通知 id");
+  await updateDoc(doc(db, "accountingNotifications", notificationId), {
+    status: "read",
+    readAt: serverTimestamp(),
+    readByUid: uid || "",
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+export async function createReceivableItemFromOrder(orderOrId, options = {}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const order =
+    typeof orderOrId === "string" ? await getSalesOrder(orderOrId) : orderOrId;
+  if (!order?.id) throw new Error("找不到訂單");
+
+  const customer = options.customer || (await getCustomerById(order.customerId));
+  const eligibility = getReceivableEligibility(order, customer);
+  if (!eligibility.eligible && options.allowIneligible !== true) {
+    throw new Error(eligibility.billingEligibleReason || "此訂單目前不可請款");
+  }
+
+  const itemRef = doc(db, "accountsReceivableItems", order.id);
+  const existingSnap = await getDoc(itemRef);
+  if (existingSnap.exists() && options.force !== true) {
+    return { id: existingSnap.id, ...existingSnap.data(), skipped: true };
+  }
+
+  const payload = await _buildReceivableItemPayload(order, customer);
+  await setDoc(itemRef, {
+    ...payload,
+    createdAt: existingSnap.exists() ? existingSnap.data().createdAt || serverTimestamp() : serverTimestamp(),
+    createdByUid: existingSnap.exists() ? existingSnap.data().createdByUid || uid : uid,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+
+  await updateDoc(doc(db, "salesOrders", order.id), {
+    billingEligible: eligibility.eligible,
+    billingTriggerType: eligibility.billingTriggerType,
+    billingEligibleReason: eligibility.billingEligibleReason,
+    staleBillingEligibleAt: _addMonths(order.createdAt, 3),
+    receivableStatus: "pending",
+    receivableTotal: payload.amountTotal,
+    receivedTotal: 0,
+    balanceDue: payload.amountTotal,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+
+  return { id: itemRef.id, ...payload };
+}
+
+export async function generateReceivableItemsFromEligibleOrders({
+  billingMonth = "",
+  customerId = "",
+} = {}) {
+  await authReadyPromise;
+  const [orderSnap, customerList] = await Promise.all([
+    getDocs(query(collection(db, "salesOrders"), orderBy("createdAt", "desc"))),
+    listCustomers(),
+  ]);
+  const existingSnap = await getDocs(collection(db, "accountsReceivableItems"));
+  const existingIds = new Set(existingSnap.docs.map((docSnap) => docSnap.id));
+  const customerMap = new Map(customerList.map((customer) => [customer.id, customer]));
+
+  let created = 0;
+  let skipped = 0;
+  for (const orderDoc of orderSnap.docs) {
+    const order = { id: orderDoc.id, ...orderDoc.data() };
+    if (!order.customerId || existingIds.has(order.id)) {
+      skipped += 1;
+      continue;
+    }
+    if (customerId && order.customerId !== customerId) {
+      skipped += 1;
+      continue;
+    }
+    const customer = customerMap.get(order.customerId) || null;
+    const eligibility = getReceivableEligibility(order, customer);
+    if (!eligibility.eligible) {
+      skipped += 1;
+      continue;
+    }
+    if (billingMonth && eligibility.billingMonth !== billingMonth) {
+      skipped += 1;
+      continue;
+    }
+    await createReceivableItemFromOrder(order, { customer });
+    created += 1;
+  }
+
+  return { created, skipped };
+}
+
+export async function listReceivableBills({
+  billingMonth = "",
+  status = "",
+  customerId = "",
+  limit: lim = 300,
+} = {}) {
+  await authReadyPromise;
+  const snap = await getDocs(
+    query(collection(db, "accountsReceivableBills"), orderBy("createdAt", "desc"), limit(lim)),
+  );
+  return snap.docs
+    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+    .filter((bill) => (!billingMonth || bill.billingMonth === billingMonth))
+    .filter((bill) => (!status || bill.paymentStatus === status))
+    .filter((bill) => (!customerId || bill.customerId === customerId));
+}
+
+export async function getReceivableBill(id) {
+  await authReadyPromise;
+  if (!id) return null;
+  const snap = await getDoc(doc(db, "accountsReceivableBills", id));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+export async function listReceivableItemsByBill(billId) {
+  await authReadyPromise;
+  if (!billId) return [];
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, "accountsReceivableItems"),
+        where("billId", "==", billId),
+      ),
+    );
+    return snap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .sort((a, b) =>
+        String(a.sourceOrderNo || a.sourceOrderId || "").localeCompare(
+          String(b.sourceOrderNo || b.sourceOrderId || ""),
+          "zh-Hant",
+        ),
+      );
+  } catch (error) {
+    const bill = await getReceivableBill(billId);
+    const itemIds = Array.isArray(bill?.itemIds) ? bill.itemIds : [];
+    if (!itemIds.length) return [];
+
+    const rows = await Promise.all(
+      itemIds.map(async (itemId) => {
+        const snap = await getDoc(doc(db, "accountsReceivableItems", itemId));
+        return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+      }),
+    );
+
+    return rows
+      .filter(Boolean)
+      .sort((a, b) =>
+        String(a.sourceOrderNo || a.sourceOrderId || "").localeCompare(
+          String(b.sourceOrderNo || b.sourceOrderId || ""),
+          "zh-Hant",
+        ),
+      );
+  }
+}
+
+function _computeAdjustmentDelta(adjustments = []) {
+  return (adjustments || []).reduce((sum, item) => {
+    const amount = Number(item.amount) || 0;
+    return sum + amount;
+  }, 0);
+}
+
+function _normalizeReceivableItemReview(item = {}) {
+  const status = String(item.pricingReviewStatus || "").trim() || "pending";
+  return {
+    ...item,
+    pricingReviewStatus: status,
+    pricingReviewedAt: item.pricingReviewedAt || null,
+    pricingReviewedByUid: String(item.pricingReviewedByUid || "").trim(),
+  };
+}
+
+function _computeBillEffectiveTotal(bill = {}) {
+  const baseAmount = Number(bill.amountTotal) || 0;
+  const adjustedAmountTotal = Number(bill.adjustedAmountTotal);
+  if (Number.isFinite(adjustedAmountTotal) && adjustedAmountTotal > 0) {
+    return adjustedAmountTotal;
+  }
+  return Math.max(baseAmount + _computeAdjustmentDelta(bill.adjustments || []), 0);
+}
+
+function _deriveReceivableBillStatus(bill = {}, preferredStatus = "draft") {
+  const paidAmount = Number(bill.paidAmount) || 0;
+  const balanceAmount = Math.max(Number(bill.balanceAmount) || 0, 0);
+  const normalizedPreferred = String(preferredStatus || bill.paymentStatus || "draft").trim() || "draft";
+
+  if (normalizedPreferred === "void") {
+    return "void";
+  }
+  if (paidAmount > 0) {
+    return balanceAmount > 0 ? "partial" : "paid";
+  }
+  return normalizedPreferred === "paid" || normalizedPreferred === "partial"
+    ? "issued"
+    : normalizedPreferred;
+}
+
+function _formatReceivableBillNo(seq, billingMonth = "") {
+  const parsed = _parseBillingMonth(billingMonth);
+  const yy = parsed ? String(parsed.year).slice(-2) : String(new Date().getFullYear()).slice(-2);
+  const mm = parsed ? String(parsed.month).padStart(2, "0") : String(new Date().getMonth() + 1).padStart(2, "0");
+  return `ARB${yy}${mm}${String(seq).padStart(3, "0")}`;
+}
+
+export async function generateReceivableBills({ billingMonth = "", customerId = "" } = {}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const [items, existingBills] = await Promise.all([
+    listReceivableItems({ billingMonth, status: "pending", customerId, limit: 2000 }),
+    listReceivableBills({ billingMonth, customerId, limit: 1000 }),
+  ]);
+
+  const groups = new Map();
+  items.forEach((item) => {
+    const key = [item.customerId, item.billingMonth, item.billingCycleType || "cutoff25"].join("::");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+
+  let created = 0;
+  let skipped = 0;
+  for (const [groupKey, groupItems] of groups.entries()) {
+    if (!groupItems.length) continue;
+    const [groupCustomerId, groupBillingMonth, groupCycleType] = groupKey.split("::");
+    const hasActiveBill = existingBills.some(
+      (bill) =>
+        bill.groupKey === groupKey &&
+        bill.paymentStatus !== "void",
+    );
+    if (hasActiveBill) {
+      skipped += groupItems.length;
+      continue;
+    }
+
+    const customerSnapshot = groupItems[0].customerSnapshot || null;
+    const totals = groupItems.reduce(
+      (sum, item) => {
+        sum.amountUntaxed += Number(item.amountUntaxed) || 0;
+        sum.taxAmount += Number(item.taxAmount) || 0;
+        sum.amountTotal += Number(item.amountTotal) || 0;
+        return sum;
+      },
+      { amountUntaxed: 0, taxAmount: 0, amountTotal: 0 },
+    );
+    const period = getReceivableBillingPeriod(groupBillingMonth, groupCycleType);
+    const billRef = doc(collection(db, "accountsReceivableBills"));
+    const counterRef = doc(db, "SystemSettings", "receivableBillCounter");
+
+    await runTransaction(db, async (tx) => {
+      const counterSnap = await tx.get(counterRef);
+      const nextSeq = (counterSnap.exists() ? Number(counterSnap.data().seq) || 0 : 0) + 1;
+      const billNo = _formatReceivableBillNo(nextSeq, groupBillingMonth);
+
+      tx.set(counterRef, { seq: nextSeq, updatedAt: serverTimestamp() }, { merge: true });
+      tx.set(billRef, {
+        billNo,
+        groupKey,
+        customerId: groupCustomerId,
+        customerSnapshot,
+        billingMonth: groupBillingMonth,
+        billingPeriodStart: period.start,
+        billingPeriodEnd: period.end,
+        cycleType: groupCycleType,
+        itemIds: groupItems.map((item) => item.id),
+        orderIds: groupItems.map((item) => item.sourceOrderId),
+        orderCount: groupItems.length,
+        amountUntaxed: totals.amountUntaxed,
+        taxAmount: totals.taxAmount,
+        amountTotal: totals.amountTotal,
+        adjustedAmountTotal: totals.amountTotal,
+        invoiceRequired: groupItems.some((item) => item.invoiceRequired === true),
+        invoiceNo: "",
+        invoiceIssuedAt: null,
+        paymentStatus: "draft",
+        paidAmount: 0,
+        balanceAmount: totals.amountTotal,
+        payments: [],
+        adjustments: [],
+        notes: "",
+        createdAt: serverTimestamp(),
+        createdByUid: uid,
+        updatedAt: serverTimestamp(),
+        updatedByUid: uid,
+      });
+
+      groupItems.forEach((item) => {
+        tx.update(doc(db, "accountsReceivableItems", item.id), {
+          itemStatus: "grouped",
+          billId: billRef.id,
+          updatedAt: serverTimestamp(),
+          updatedByUid: uid,
+        });
+      });
+    });
+
+    for (const orderId of groupItems.map((item) => item.sourceOrderId)) {
+      await _refreshOrderReceivableSummary(orderId);
+    }
+    created += 1;
+  }
+
+  return { created, skipped };
+}
+
+export async function recordReceivablePayment(billId, paymentInput = {}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const ref = doc(db, "accountsReceivableBills", billId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("找不到帳單");
+  const bill = { id: snap.id, ...snap.data() };
+
+  const amount = Number(paymentInput.amount) || 0;
+  if (amount <= 0) throw new Error("收款金額必須大於 0");
+  const payment = {
+    paidAt: _coerceJsDate(paymentInput.paidAt) || new Date(),
+    method: String(paymentInput.method || "transfer").trim() || "transfer",
+    amount,
+    referenceNo: String(paymentInput.referenceNo || "").trim(),
+    note: String(paymentInput.note || "").trim(),
+    recordedByUid: uid,
+  };
+  const payments = [...(Array.isArray(bill.payments) ? bill.payments : []), payment];
+  const paidAmount = payments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const billTotal = _computeBillEffectiveTotal(bill);
+  const balanceAmount = Math.max(billTotal - paidAmount, 0);
+  const paymentStatus = _deriveReceivableBillStatus(
+    { ...bill, paidAmount, balanceAmount },
+    paidAmount > 0 ? bill.paymentStatus : (bill.paymentStatus === "void" ? "void" : "issued"),
+  );
+
+  await updateDoc(ref, {
+    payments,
+    paidAmount,
+    balanceAmount,
+    paymentStatus,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+
+  for (const orderId of bill.orderIds || []) {
+    await _refreshOrderReceivableSummary(orderId);
+  }
+}
+
+export async function updateReceivablePayment(billId, paymentIndex, paymentInput = {}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const ref = doc(db, "accountsReceivableBills", billId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("找不到帳單");
+  const bill = { id: snap.id, ...snap.data() };
+  const payments = Array.isArray(bill.payments) ? [...bill.payments] : [];
+  const index = Number(paymentIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= payments.length) {
+    throw new Error("找不到收款紀錄");
+  }
+
+  const currentPayment = payments[index] || {};
+  const amount = Number(paymentInput.amount ?? currentPayment.amount) || 0;
+  if (amount <= 0) throw new Error("收款金額必須大於 0");
+
+  payments[index] = {
+    ...currentPayment,
+    paidAt: _coerceJsDate(paymentInput.paidAt ?? currentPayment.paidAt) || new Date(),
+    method: String(paymentInput.method ?? currentPayment.method ?? "transfer").trim() || "transfer",
+    amount,
+    referenceNo: String(paymentInput.referenceNo ?? currentPayment.referenceNo ?? "").trim(),
+    note: String(paymentInput.note ?? currentPayment.note ?? "").trim(),
+    recordedByUid: currentPayment.recordedByUid || uid,
+    updatedByUid: uid,
+    updatedAt: new Date(),
+  };
+
+  const paidAmount = payments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const billTotal = _computeBillEffectiveTotal(bill);
+  const balanceAmount = Math.max(billTotal - paidAmount, 0);
+  const paymentStatus = _deriveReceivableBillStatus(
+    { ...bill, paidAmount, balanceAmount },
+    bill.paymentStatus || "draft",
+  );
+
+  await updateDoc(ref, {
+    payments,
+    paidAmount,
+    balanceAmount,
+    paymentStatus,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+
+  for (const orderId of bill.orderIds || []) {
+    await _refreshOrderReceivableSummary(orderId);
+  }
+}
+
+export async function deleteReceivablePayment(billId, paymentIndex) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const ref = doc(db, "accountsReceivableBills", billId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("找不到帳單");
+  const bill = { id: snap.id, ...snap.data() };
+  const payments = Array.isArray(bill.payments) ? [...bill.payments] : [];
+  const index = Number(paymentIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= payments.length) {
+    throw new Error("找不到收款紀錄");
+  }
+
+  payments.splice(index, 1);
+  const paidAmount = payments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const billTotal = _computeBillEffectiveTotal(bill);
+  const balanceAmount = Math.max(billTotal - paidAmount, 0);
+  const fallbackStatus = bill.paymentStatus === "void"
+    ? "void"
+    : payments.length
+      ? bill.paymentStatus
+      : (bill.invoiceNo || bill.invoiceIssuedAt ? "issued" : "draft");
+  const paymentStatus = _deriveReceivableBillStatus(
+    { ...bill, paidAmount, balanceAmount },
+    fallbackStatus,
+  );
+
+  await updateDoc(ref, {
+    payments,
+    paidAmount,
+    balanceAmount,
+    paymentStatus,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+
+  for (const orderId of bill.orderIds || []) {
+    await _refreshOrderReceivableSummary(orderId);
+  }
+}
+
+export async function updateReceivableBill(billId, payload = {}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const current = await getReceivableBill(billId);
+  if (!current) throw new Error("找不到帳單");
+
+  const nextInvoiceNo = String(payload.invoiceNo ?? current.invoiceNo ?? "").trim();
+  const nextNotes = String(payload.notes ?? current.notes ?? "").trim();
+  const nextInvoiceRequired =
+    typeof payload.invoiceRequired === "boolean"
+      ? payload.invoiceRequired
+      : current.invoiceRequired === true;
+  const nextPaymentStatus = String(payload.paymentStatus || current.paymentStatus || "draft").trim();
+  const nextInvoiceIssuedAt = payload.invoiceIssuedAt === null
+    ? null
+    : _coerceJsDate(payload.invoiceIssuedAt || current.invoiceIssuedAt || null);
+  const billTotal = _computeBillEffectiveTotal(current);
+  const paidAmount = Number(current.paidAmount) || 0;
+  const balanceAmount = Math.max(billTotal - paidAmount, 0);
+  const paymentStatus = _deriveReceivableBillStatus(
+    { ...current, paidAmount, balanceAmount },
+    payload.paymentStatus || current.paymentStatus || "draft",
+  );
+
+  await updateDoc(doc(db, "accountsReceivableBills", billId), {
+    invoiceNo: nextInvoiceNo,
+    notes: nextNotes,
+    invoiceRequired: nextInvoiceRequired,
+    invoiceIssuedAt: nextInvoiceIssuedAt,
+    paymentStatus,
+    balanceAmount,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+
+  for (const orderId of current.orderIds || []) {
+    await _refreshOrderReceivableSummary(orderId);
+  }
+}
+
+export async function addReceivableBillAdjustment(billId, adjustmentInput = {}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const current = await getReceivableBill(billId);
+  if (!current) throw new Error("找不到帳單");
+
+  const amount = Number(adjustmentInput.amount) || 0;
+  if (!amount) throw new Error("調整金額不可為 0");
+
+  const adjustments = [
+    ...(Array.isArray(current.adjustments) ? current.adjustments : []),
+    {
+      type: String(adjustmentInput.type || "manualAdd").trim() || "manualAdd",
+      amount,
+      note: String(adjustmentInput.note || "").trim(),
+      at: _coerceJsDate(adjustmentInput.at) || new Date(),
+      byUid: uid,
+    },
+  ];
+  const adjustedAmountTotal = Math.max(
+    (Number(current.amountTotal) || 0) + _computeAdjustmentDelta(adjustments),
+    0,
+  );
+  const paidAmount = Number(current.paidAmount) || 0;
+  const balanceAmount = Math.max(adjustedAmountTotal - paidAmount, 0);
+  const paymentStatus = _deriveReceivableBillStatus(
+    { ...current, paidAmount, balanceAmount },
+    current.paymentStatus || "draft",
+  );
+
+  await updateDoc(doc(db, "accountsReceivableBills", billId), {
+    adjustments,
+    adjustedAmountTotal,
+    balanceAmount,
+    paymentStatus,
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+
+  for (const orderId of current.orderIds || []) {
+    await _refreshOrderReceivableSummary(orderId);
+  }
 }
 
 // ─── legacy Orders 直接列表 (給 OrdersView 合併顯示用) ──────────────────────
@@ -1854,6 +2889,17 @@ function _ordersMapDoc(id, d) {
       "siteAddress",
     ]) || "",
   ).trim();
+  const orderedAtRaw = _ordersPickFirst(d, [
+    "orderedAt",
+    "下單日",
+    "下單日期",
+    "建單日",
+    "建立日期",
+    "建立時間",
+    "createdAt",
+    "createdTime",
+  ]);
+  const orderedAt = _ordersNormalizeYmd(orderedAtRaw);
   const promisedAtRaw = _ordersPickFirst(d, [
     "installDate",
     "安裝日",
@@ -1879,6 +2925,7 @@ function _ordersMapDoc(id, d) {
     orderNo: orderNo || null,
     customerName,
     siteAddress,
+    orderedAt: orderedAt || null,
     promisedAt: promisedAt || null,
     status,
     rawStatus: rawStatus || null,
@@ -2435,6 +3482,44 @@ export async function uploadSignedScan(orderId, file) {
   return { url: await getDownloadURL(ref), storagePath: path };
 }
 
+export async function appendSignedScanToOrder(orderId, file) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const uploadedAt = new Date();
+  const { url, storagePath } = await uploadSignedScan(orderId, file);
+  const orderRef = doc(db, "salesOrders", orderId);
+
+  const nextEntry = {
+    url,
+    storagePath,
+    name: String(file?.name || "").trim(),
+    contentType: String(file?.type || "").trim(),
+    uploadedAt,
+    uploadedByUid: uid,
+  };
+
+  await runTransaction(db, async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists()) {
+      throw new Error("找不到訂單");
+    }
+    const existingOrder = orderSnap.data() || {};
+    const existingSignedScans = Array.isArray(existingOrder.signedScans)
+      ? existingOrder.signedScans.filter(Boolean)
+      : [];
+
+    tx.update(orderRef, {
+      signedScanUrl: url,
+      signedScans: [...existingSignedScans, nextEntry],
+      customerSignedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      updatedByUid: uid,
+    });
+  });
+
+  return nextEntry;
+}
+
 // 封存確定單 PDF（發單後自動呼叫）
 export async function uploadConfirmedPdf(orderId, blob) {
   await authReadyPromise;
@@ -2498,6 +3583,8 @@ export async function issueOrder(
   const counterRef = doc(db, "SystemSettings", "orderCounter");
 
   await runTransaction(db, async (tx) => {
+    const orderRef = doc(db, "salesOrders", orderId);
+    const orderSnap = await tx.get(orderRef);
     if (autoIncrement) {
       const snap = await tx.get(counterRef);
       const seq = (snap.exists() ? Number(snap.data().seq) : 0) + 1;
@@ -2508,13 +3595,29 @@ export async function issueOrder(
       finalOrderNo = `${String(seq).padStart(3, "0")}${alpha3}`;
       tx.set(counterRef, { seq }, { merge: true });
     }
-    const orderRef = doc(db, "salesOrders", orderId);
+
+    const existingOrder = orderSnap.exists() ? orderSnap.data() || {} : {};
+    const existingSignedScans = Array.isArray(existingOrder.signedScans)
+      ? existingOrder.signedScans.filter(Boolean)
+      : [];
+    const nextSignedScans = signedScanUrl
+      ? [
+          ...existingSignedScans,
+          {
+            url: signedScanUrl,
+            uploadedAt: new Date(),
+            uploadedByUid: uid,
+          },
+        ]
+      : existingSignedScans;
+
     tx.update(orderRef, {
       ...updatedData,
       orderNo: finalOrderNo,
       status: "confirmed",
       customerSignedAt: serverTimestamp(),
       signedScanUrl: signedScanUrl || null,
+      signedScans: nextSignedScans,
       updatedAt: serverTimestamp(),
       updatedByUid: uid,
     });
@@ -2652,7 +3755,8 @@ export async function batchImportSalesOrders(records, onProgress) {
     for (const rec of chunk) {
       const ref = doc(collection(db, "salesOrders"));
       batch.set(ref, {
-        status: "confirmed",
+        status: "draft",
+        dispatchedAt: null,
         ...rec,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),

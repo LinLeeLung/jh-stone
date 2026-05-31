@@ -292,7 +292,7 @@
             <input type="number" v-model.number="form.laborInsurance" min="0" />
           </label>
           <label
-            >健保費扣（元）
+            >健保費扣（本人）（元）
             <input
               type="number"
               v-model.number="form.healthInsurance"
@@ -427,8 +427,8 @@ const FIELDS = [
   { key: "laborInsuranceSalary", label: "勞保薪資", type: "number" },
   { key: "healthInsuranceSalary", label: "健保薪資", type: "number" },
   { key: "laborInsurance", label: "勞保費扣", type: "number" },
-  { key: "healthInsurance", label: "健保費扣", type: "number" },
-  { key: "dependentHealth", label: "眷屬健保費", type: "number" },
+  { key: "healthInsurance", label: "健保費扣（本人）", type: "number" },
+  { key: "dependentHealth", label: "健保費扣（眷屬）", type: "number" },
   { key: "lunchFee", label: "便當費扣", type: "number" },
   { key: "foreignRent", label: "房租-外勞", type: "number" },
   { key: "waterFee", label: "水費", type: "number" },

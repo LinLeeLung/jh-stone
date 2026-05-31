@@ -62,6 +62,9 @@
                 @change="toggleAll"
               />
             </th>
+            <th class="sortable" @click="setSort('orderedAt')">
+              下單日{{ sortIcon("orderedAt") }}
+            </th>
             <th class="sortable" @click="setSort('promisedAt')">
               預交日{{ sortIcon("promisedAt") }}
             </th>
@@ -105,6 +108,7 @@
                 @change="toggleSelect(o.id)"
               />
             </td>
+            <td class="col-date">{{ fmtDate(o.orderedAt) }}</td>
             <td class="col-date">{{ fmtDate(o.promisedAt) }}</td>
             <td class="col-no">
               <span class="order-no">{{ o.orderNo || "—" }}</span>
@@ -203,6 +207,43 @@ const sortDir = ref(1); // 1=asc (nearest deadline first)
 const dispatching = ref(false);
 const pdfProgress = ref("");
 const errorMsg = ref("");
+// 發單 PDF 給生產單位使用，價格區與客戶回簽區可一起遮住，
+// 讓右下角先洗白，再疊上站別浮水印。
+const DEFAULT_DISPATCH_REDACT_BOX = {
+  xPct: 0.158,
+  yPct: 0,
+  wPct: 0.84,
+  hPct: 0.136,
+};
+const priceRedactBox = ref({ ...DEFAULT_DISPATCH_REDACT_BOX });
+
+function normalizeDispatchRedactBox(box = {}) {
+  const normalized = {
+    xPct: Number.isFinite(Number(box.xPct))
+      ? Number(box.xPct)
+      : DEFAULT_DISPATCH_REDACT_BOX.xPct,
+    yPct: Number.isFinite(Number(box.yPct))
+      ? Number(box.yPct)
+      : DEFAULT_DISPATCH_REDACT_BOX.yPct,
+    wPct: Number.isFinite(Number(box.wPct))
+      ? Number(box.wPct)
+      : DEFAULT_DISPATCH_REDACT_BOX.wPct,
+    hPct: Number.isFinite(Number(box.hPct))
+      ? Number(box.hPct)
+      : DEFAULT_DISPATCH_REDACT_BOX.hPct,
+  };
+
+  normalized.xPct = Math.min(Math.max(normalized.xPct, 0.15), 0.175);
+  normalized.yPct = Math.min(Math.max(normalized.yPct, 0), 0.004);
+  normalized.wPct = Math.min(Math.max(normalized.wPct, 0.79), 0.85);
+  normalized.hPct = Math.min(Math.max(normalized.hPct, 0.12), 0.14);
+
+  if (normalized.xPct + normalized.wPct > 0.995) {
+    normalized.wPct = 0.995 - normalized.xPct;
+  }
+
+  return normalized;
+}
 
 const selectedIds = computed(
   () =>
@@ -260,6 +301,7 @@ function toggleSelect(id) {
 onMounted(async () => {
   try {
     rows.value = await listSalesOrders({ limit: 300 });
+    priceRedactBox.value = normalizeDispatchRedactBox();
   } finally {
     loading.value = false;
     applyFilter();
@@ -296,6 +338,15 @@ function applyFilter() {
 
 function sortVal(o, col) {
   switch (col) {
+    case "orderedAt": {
+      const v = o.orderedAt;
+      if (!v) return Infinity;
+      if (v?.toDate) return v.toDate().getTime();
+      const n = Number(v);
+      if (!isNaN(n) && n > 0 && n < 100000) return (n - 25569) * 86400 * 1000;
+      if (!isNaN(n) && n >= 1000000000000) return n;
+      return new Date(String(v).slice(0, 10)).getTime();
+    }
     case "promisedAt": {
       const v = o.promisedAt;
       if (!v) return Infinity;
@@ -501,13 +552,14 @@ async function buildDispatchPdf(orders, stations) {
       for (const page of copiedPages) {
         mergedDoc.addPage(page);
         const { width, height } = page.getSize();
+        const box = priceRedactBox.value;
 
         // 1. 遮蓋價格區域（白色矩形，pdf-lib 座標原點在左下）
         page.drawRectangle({
-          x: 0.2 * width,
-          y: 0.04 * height,
-          width: 0.45 * width,
-          height: 0.13 * height,
+          x: box.xPct * width,
+          y: box.yPct * height,
+          width: box.wPct * width,
+          height: box.hPct * height,
           color: rgb(1, 1, 1),
           opacity: 1,
           borderWidth: 0,

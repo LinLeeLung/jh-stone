@@ -1,6 +1,6 @@
 <template>
-  <div class="app-shell">
-    <nav ref="navRef" class="top-nav">
+  <div class="app-shell" :class="{ 'print-layout': isPrintLayout }">
+    <nav v-if="!isPrintLayout" ref="navRef" class="top-nav">
       <button
         class="nav-toggle"
         type="button"
@@ -16,35 +16,35 @@
         <RouterLink class="nav-link" to="/about" @click="closeNav"
           >說明</RouterLink
         >
-        <RouterLink v-if="navAccess.admin" class="nav-link" to="/admin" @click="closeNav"
+        <RouterLink v-if="navAccess.admin" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/admin') }]" to="/admin" @click="closeNav"
           >管理介面</RouterLink
         >
-        <RouterLink v-if="navAccess.orders" class="nav-link" to="/orders" @click="closeNav"
+        <RouterLink v-if="navAccess.orders" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/orders') }]" to="/orders" @click="closeNav"
           >訂單</RouterLink
         >
         <RouterLink
-          v-if="navAccess.orderDispatch"
-          class="nav-link"
-          to="/orders/dispatch"
+          v-if="navAccess.receivables"
+          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/receivable-bills') }]"
+          to="/receivable-bills"
           @click="closeNav"
-          >發單作業</RouterLink
+          >應收帳</RouterLink
         >
         <RouterLink
           v-if="navAccess.production"
-          class="nav-link"
+          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/production') }]"
           to="/production"
           @click="closeNav"
           >生產</RouterLink
         >
         <RouterLink
           v-if="navAccess.customers"
-          class="nav-link"
+          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/customers') }]"
           to="/customers"
           @click="closeNav"
           >客戶</RouterLink
         >
         <a
-          class="nav-link"
+          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/quote') }]"
           v-if="navAccess.quote"
           href="https://mystone.web.app/"
           target="_blank"
@@ -52,38 +52,38 @@
           @click="closeNav"
           >估價</a
         >
-        <RouterLink v-if="navAccess.settings" class="nav-link" to="/settings" @click="closeNav"
+        <RouterLink v-if="navAccess.settings" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/settings') }]" to="/settings" @click="closeNav"
           >系統設定</RouterLink
         >
         <RouterLink
           v-if="navAccess.attendance"
-          class="nav-link"
+          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/attendance') }]"
           to="/attendance"
           @click="closeNav"
           >{{ t("nav_attendance") }}</RouterLink
         >
-        <RouterLink v-if="navAccess.leave" class="nav-link" to="/leave" @click="closeNav"
+        <RouterLink v-if="navAccess.leave" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/leave') }]" to="/leave" @click="closeNav"
           >{{ t("nav_leave") }}</RouterLink
         >
-        <RouterLink v-if="navAccess.payroll" class="nav-link" to="/payroll" @click="closeNav"
+        <RouterLink v-if="navAccess.payroll" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/payroll') }]" to="/payroll" @click="closeNav"
           >{{ t("nav_payroll") }}</RouterLink
         >
-        <RouterLink v-if="navAccess.staff" class="nav-link" to="/staff" @click="closeNav"
+        <RouterLink v-if="navAccess.staff" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/staff') }]" to="/staff" @click="closeNav"
           >員工資料</RouterLink
         >
-        <RouterLink v-if="navAccess.employee" class="nav-link" to="/employee" @click="closeNav"
+        <RouterLink v-if="navAccess.employee" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/employee') }]" to="/employee" @click="closeNav"
           >{{ t("nav_employee") }}</RouterLink
         >
         <RouterLink
           v-if="navAccess.inventory"
-          class="nav-link"
+          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/inventory') }]"
           to="/inventory"
           @click="closeNav"
           >{{ t("nav_inventory") }}</RouterLink
         >
         <RouterLink
           v-if="navAccess.drawing"
-          class="nav-link"
+          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/drawing/straight') }]"
           to="/drawing/straight"
           @click="closeNav"
           >{{ t("nav_drawing") }}</RouterLink
@@ -149,7 +149,12 @@
       </div>
     </nav>
 
-    <main class="app-main">
+    <div v-if="!isPrintLayout && currentGroupLabel" class="section-bar">
+      <span class="section-group-pill">{{ currentGroupLabel }}</span>
+      <span class="section-page-title">{{ currentPageTitle }}</span>
+    </div>
+
+    <main class="app-main" :class="{ 'print-main': isPrintLayout }">
       <RouterView />
     </main>
   </div>
@@ -157,6 +162,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from "vue";
+import { useRoute } from "vue-router";
 import {
   logout,
   subscribeAuthState,
@@ -168,8 +174,14 @@ import {
   setStoredPerspectiveDepartment,
   canAccessPermission,
 } from "./firebase";
-import { DEFAULT_ROUTE_PERMISSIONS, findPermission } from "./config/routePermissions";
+import {
+  DEFAULT_ROUTE_PERMISSIONS,
+  findPermission,
+  mergeRoutePermissions,
+} from "./config/routePermissions";
 import { lang, setLang, t } from "./locale";
+const route = useRoute();
+
 function toggleLang() {
   setLang(lang.value === "zh" ? "vi" : "zh");
 }
@@ -215,6 +227,10 @@ const perspectiveDepartment = computed({
 const displayRoleLabel = computed(() =>
   perspectiveRole.value || userDoc.value?.activeRole || userDoc.value?.role || "",
 );
+const isPrintLayout = computed(() => route.meta?.printLayout === true);
+const currentPermission = computed(() => findPermission(routePermissions.value, route.path));
+const currentGroupLabel = computed(() => currentPermission.value?.group || "");
+const currentPageTitle = computed(() => currentPermission.value?.title || String(route.meta?.title || ""));
 
 function departmentLabel(value) {
   return {
@@ -236,9 +252,14 @@ function hasPerspectiveAccess(path, fallbackPermission = {}) {
   });
 }
 
+function isNavItemActive(basePath) {
+  return route.path === basePath || route.path.startsWith(`${basePath}/`);
+}
+
 const navAccess = computed(() => ({
   admin: hasPerspectiveAccess("/admin"),
   orders: hasPerspectiveAccess("/orders"),
+  receivables: hasPerspectiveAccess("/receivable-bills"),
   orderDispatch: hasPerspectiveAccess("/orders/dispatch"),
   production: hasPerspectiveAccess("/production"),
   customers: hasPerspectiveAccess("/customers"),
@@ -258,8 +279,11 @@ const navAccess = computed(() => ({
 
 async function loadRoutePermissions() {
   try {
-    routePermissions.value =
-      (await getRoutePermissionsConfig()) || DEFAULT_ROUTE_PERMISSIONS;
+    const stored = await getRoutePermissionsConfig();
+    routePermissions.value = mergeRoutePermissions(
+      DEFAULT_ROUTE_PERMISSIONS,
+      stored || [],
+    );
   } catch {
     routePermissions.value = DEFAULT_ROUTE_PERMISSIONS;
   }
@@ -370,5 +394,48 @@ onUnmounted(() => {
 }
 .btn-lang:hover {
   background: #d1d5db;
+}
+
+.nav-link-group-active {
+  background: #fff7ed;
+  color: #c2410c;
+  box-shadow: inset 0 -2px 0 #ea580c;
+}
+
+.section-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #fff7ed 0%, #fffbeb 100%);
+  border-bottom: 1px solid #fed7aa;
+}
+
+.section-group-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #ea580c;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.section-page-title {
+  color: #7c2d12;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.print-layout {
+  min-height: auto;
+}
+
+.print-main {
+  max-width: none;
+  padding: 0;
 }
 </style>

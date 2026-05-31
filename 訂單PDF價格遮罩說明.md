@@ -52,7 +52,7 @@ serveOrderPdf: price redact failed, serving original
 
 新存的 PDF 結構已被 Chrome 攤平為標準格式，pdf-lib 可正常處理。
 
-**影響範圍**：受影響時系統會安全降級，直接回傳原始（未遮罩）PDF，員工仍可看到價格。替換檔案後即恢復正常遮罩。
+**影響範圍**：受影響時系統會直接阻擋 PDF 輸出，不再回傳原始（未遮罩）PDF，避免員工看到價格。替換檔案後即恢復正常遮罩。
 
 ---
 
@@ -67,5 +67,5 @@ PDF header 驗證（是否為 %PDF-）
   ↓ 是
 pdf-lib 載入 → 各頁面畫白色矩形（依旋轉角度換算座標）
   ↓ 若 parse 失敗
-回傳原始 PDF（不遮罩，僅記錄 warn log）
+阻擋輸出並提示需重新另存 PDF
 ```

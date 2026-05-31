@@ -25,6 +25,7 @@ const REGION = "asia-east1";
 const TZ = "Asia/Taipei";
 const STAFF_ROLES = new Set(["admin", "管理者", "員工"]);
 const SERVICE_OK_ROLES = new Set(["admin", "管理者", "員工"]);
+const RECEIVABLE_PAYMENT_METHOD_OPTIONS = ["transfer", "check", "cutTicketDeduction"];
 
 // ─── 共用 helper ────────────────────────────────────────────────────────────
 
@@ -34,6 +35,265 @@ function db() {
 
 function nowTs() {
   return admin.firestore.FieldValue.serverTimestamp();
+}
+
+function coerceJsDate(input) {
+  if (!input) return null;
+  if (input instanceof Date) return Number.isNaN(input.getTime()) ? null : input;
+  if (typeof input?.toDate === "function") {
+    const date = input.toDate();
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof input === "object" && Number.isFinite(Number(input.seconds))) {
+    const date = new Date(Number(input.seconds) * 1000);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof input === "string") {
+    const raw = input.trim();
+    if (!raw) return null;
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? `${raw}T00:00:00`
+      : raw;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof input === "number") {
+    const date = new Date(input);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
+function formatMonthKey(date) {
+  const source = coerceJsDate(date);
+  if (!source) return "";
+  return `${source.getFullYear()}-${String(source.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function normalizeCustomerReceivableSettings(customer = {}) {
+  const allowedMethods = Array.isArray(customer.paymentMethodsAllowed)
+    ? customer.paymentMethodsAllowed
+        .map((method) => String(method || "").trim())
+        .filter(Boolean)
+    : [];
+
+  return {
+    billingCycleType:
+      customer.billingCycleType === "monthEnd" || customer.billingCycleType === "installCompleted"
+        ? customer.billingCycleType
+        : "cutoff25",
+    invoicePreference:
+      customer.invoicePreference === "required" || customer.invoicePreference === "none"
+        ? customer.invoicePreference
+        : "optional",
+    paymentTerms: String(customer.paymentTerms || "").trim(),
+    paymentMethodsAllowed: allowedMethods.length
+      ? allowedMethods
+      : RECEIVABLE_PAYMENT_METHOD_OPTIONS,
+  };
+}
+
+function computeReceivableBillingMonth(dateInput, cycleType = "cutoff25") {
+  const date = coerceJsDate(dateInput);
+  if (!date) return "";
+  const result =
+    cycleType === "installCompleted"
+      ? new Date(date.getFullYear(), date.getMonth(), 1)
+      : cycleType === "monthEnd"
+      ? new Date(date.getFullYear(), date.getMonth() + 1, 1)
+      : new Date(
+          date.getFullYear(),
+          date.getMonth() + (date.getDate() >= 26 ? 2 : 1),
+          1,
+      );
+  return formatMonthKey(result);
+}
+
+function normalizeReceivableLineItems(order = {}) {
+  const rows = Array.isArray(order.lineItems)
+    ? order.lineItems
+        .map((item) => ({
+          id: item.id || "",
+          category: item.category || "other",
+          description: item.description || "",
+          unit: item.unit || "",
+          qty: Number(item.qty) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          amount: Number(item.amount) || 0,
+          refId: item.refId || null,
+        }))
+        .filter((item) => item.description || item.amount)
+    : [];
+
+  if (rows.length) return rows;
+
+  const baseAmount = Number.isFinite(Number(order.subtotal))
+    ? Number(order.subtotal)
+    : Number.isFinite(Number(order.total))
+      ? Number(order.total)
+      : 0;
+  const description = [
+    order.category || "訂單",
+    order.countertop?.type || "",
+    order.orderNo || "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return [{
+    id: "main",
+    category: "other",
+    description: description || "訂單金額",
+    unit: "式",
+    qty: 1,
+    unitPrice: baseAmount,
+    amount: baseAmount,
+    refId: null,
+  }];
+}
+
+async function autoCreateReceivableItemForOrder(orderId) {
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanOrderId) return {created: false, reason: "missing-order-id"};
+
+  const orderRef = db().collection("salesOrders").doc(cleanOrderId);
+  const itemRef = db().collection("accountsReceivableItems").doc(cleanOrderId);
+  const [orderSnap, itemSnap] = await Promise.all([orderRef.get(), itemRef.get()]);
+  if (!orderSnap.exists) return {created: false, reason: "order-not-found"};
+  if (itemSnap.exists) return {created: false, reason: "item-exists"};
+
+  const order = {id: orderSnap.id, ...orderSnap.data()};
+  if (!order.customerId) return {created: false, reason: "missing-customer"};
+
+  const customerSnap = await db().collection("customers").doc(order.customerId).get();
+  const customer = customerSnap.exists ? {id: customerSnap.id, ...customerSnap.data()} : null;
+  const settings = normalizeCustomerReceivableSettings(customer || {});
+  if (settings.billingCycleType !== "installCompleted") {
+    return {created: false, reason: "billing-cycle-not-install-completed"};
+  }
+  const installedAt = coerceJsDate(order.installedAt) || new Date();
+  const lineItems = normalizeReceivableLineItems(order);
+  const amountUntaxed = Number.isFinite(Number(order.subtotal))
+    ? Number(order.subtotal)
+    : lineItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const invoiceRequired =
+    settings.invoicePreference === "required"
+      ? true
+      : settings.invoicePreference === "none"
+        ? false
+        : order.invoiceRequired !== false;
+  const amountTotal = Number.isFinite(Number(order.grandTotal))
+    ? Number(order.grandTotal)
+    : invoiceRequired
+      ? Math.round(amountUntaxed * 1.05)
+      : amountUntaxed;
+  const taxAmount = Math.max(amountTotal - amountUntaxed, 0);
+  const billingMonth = computeReceivableBillingMonth(installedAt, settings.billingCycleType);
+  const billingReason = "安裝完工即請款";
+
+  await itemRef.set({
+    sourceOrderId: order.id,
+    sourceOrderNo: order.orderNo || "",
+    customerId: order.customerId || "",
+    customerName: order.customerName || customer?.name || "",
+    customerSnapshot: customer
+      ? {
+          id: customer.id,
+          code: customer.code || customer.id,
+          name: customer.name || "",
+          taxId: customer.taxId || "",
+          contactPerson: customer.contactPerson || "",
+          phone: customer.phone || "",
+          address: customer.address || "",
+          billingCycleType: settings.billingCycleType,
+          invoicePreference: settings.invoicePreference,
+          paymentTerms: settings.paymentTerms,
+          paymentMethodsAllowed: settings.paymentMethodsAllowed,
+        }
+      : null,
+    billingMonth,
+    billingCycleType: settings.billingCycleType,
+    billingTriggerType: "installed",
+    billingDate: admin.firestore.Timestamp.fromDate(installedAt),
+    billingEligibleReason: billingReason,
+    lineItems,
+    amountUntaxed,
+    taxAmount,
+    amountTotal,
+    invoiceRequired,
+    itemStatus: "pending",
+    pricingReviewStatus: "pending",
+    pricingReviewedAt: null,
+    pricingReviewedByUid: "",
+    billId: "",
+    notes: String(order.paymentNotes || "").trim(),
+    orderSnapshot: {
+      orderNo: order.orderNo || "",
+      customerName: order.customerName || "",
+      siteAddress: order.siteAddress || "",
+      installedAt: order.installedAt || admin.firestore.Timestamp.fromDate(installedAt),
+      createdAt: order.createdAt || null,
+      subtotal: amountUntaxed,
+      taxAmount,
+      amountTotal,
+      depositPaid: Number(order.depositPaid) || 0,
+      paymentNotes: String(order.paymentNotes || "").trim(),
+    },
+    createdAt: nowTs(),
+    createdByUid: "system",
+    updatedAt: nowTs(),
+    updatedByUid: "system",
+  });
+
+  await orderRef.set({
+    billingEligible: true,
+    billingTriggerType: "installed",
+    billingEligibleReason: billingReason,
+    receivableStatus: "pending",
+    receivableTotal: amountTotal,
+    receivedTotal: 0,
+    balanceDue: amountTotal,
+    updatedAt: nowTs(),
+    updatedByUid: "system",
+  }, {merge: true});
+
+  return {created: true, amountTotal, billingMonth};
+}
+
+async function createAccountingNotification(task = {}, order = {}, receivableResult = {}) {
+  const orderId = String(order.id || task.salesOrderId || "").trim();
+  if (!orderId) return {created: false, reason: "missing-order-id"};
+
+  const ref = db().collection("accountingNotifications").doc(`installCompleted_${orderId}`);
+  const amountTotal = Number(receivableResult.amountTotal || order.grandTotal || order.total || 0) || 0;
+  const message = [
+    "安裝完工即請款",
+    order.orderNo || task.salesOrderNo || orderId,
+    order.customerName || task.customerName || "",
+  ].filter(Boolean).join("｜");
+
+  await ref.set({
+    type: "installCompletedReceivable",
+    status: "unread",
+    title: "安裝完工請會計收款",
+    message,
+    salesOrderId: orderId,
+    salesOrderNo: order.orderNo || task.salesOrderNo || "",
+    taskId: task.id || "",
+    taskNo: task.taskNo || "",
+    customerId: order.customerId || task.customerId || "",
+    customerName: order.customerName || task.customerName || "",
+    siteAddress: order.siteAddress || task.siteAddress || "",
+    amountTotal,
+    billingMonth: receivableResult.billingMonth || "",
+    createdAt: nowTs(),
+    createdByUid: "system",
+    updatedAt: nowTs(),
+    updatedByUid: "system",
+    readAt: null,
+    readByUid: "",
+  }, {merge: true});
+
+  return {created: true, id: ref.id};
 }
 
 async function readUserProfile(uid) {
@@ -364,7 +624,8 @@ const onInstallTaskWritten = onDocumentWritten(
       after.salesOrderId
       ) {
         try {
-          await db().collection("salesOrders").doc(after.salesOrderId).set(
+          const orderRef = db().collection("salesOrders").doc(after.salesOrderId);
+          await orderRef.set(
               {
                 installedAt: after.completedAt || nowTs(),
                 installTaskCompletedAt: after.completedAt || nowTs(),
@@ -374,10 +635,32 @@ const onInstallTaskWritten = onDocumentWritten(
               },
               {merge: true},
           );
+          const orderSnap = await orderRef.get();
+          const orderData = orderSnap.exists ? {id: orderSnap.id, ...orderSnap.data()} : {id: after.salesOrderId};
           logger.info(`installTask completed → salesOrder updated`, {
             taskId,
             salesOrderId: after.salesOrderId,
           });
+
+          const receivableResult = await autoCreateReceivableItemForOrder(after.salesOrderId);
+          logger.info(`installTask completed → auto receivable checked`, {
+            taskId,
+            salesOrderId: after.salesOrderId,
+            receivableResult,
+          });
+
+          if (receivableResult.created) {
+            const notificationResult = await createAccountingNotification(
+                {id: taskId, ...after},
+                orderData,
+                receivableResult,
+            );
+            logger.info(`installTask completed → accounting notification created`, {
+              taskId,
+              salesOrderId: after.salesOrderId,
+              notificationResult,
+            });
+          }
         } catch (err) {
           logger.error(`failed to update salesOrder on install completion`, {taskId, err});
         }

@@ -7,6 +7,23 @@
       </div>
     </header>
 
+    <section class="installer-phone-panel">
+      <div class="installer-phone-title">安裝人員手機</div>
+      <div v-if="installerContacts.length" class="installer-phone-list">
+        <a
+          v-for="installer in installerContacts"
+          :key="installer.id"
+          class="installer-phone-chip"
+          :href="installer.phone ? `tel:${installer.phone}` : null"
+          :aria-disabled="!installer.phone"
+        >
+          <span class="installer-phone-name">{{ installer.name || installer.id }}</span>
+          <span class="installer-phone-number">{{ installer.phone || "未填手機" }}</span>
+        </a>
+      </div>
+      <div v-else class="installer-phone-empty">尚無安裝人員資料</div>
+    </section>
+
     <!-- 日期選擇列 -->
     <div class="date-bar">
       <label class="lbl">日期</label>
@@ -142,13 +159,17 @@ import {
   loadDispatchByDate,
   saveDispatchEntry,
   deleteDispatchEntry,
+  listActiveStaff,
   listStaffByDept,
+  fetchAllUsers,
+  userHasAnyDept,
   importDispatchRowsToOrders,
 } from "../firebase";
 
 const date = ref(todayStr());
 const rows = ref([]);
 const installers = ref([]);
+const installerContacts = ref([]);
 const loading = ref(false);
 const loaded = ref(false);
 const errMsg = ref("");
@@ -156,6 +177,12 @@ const bulkSaving = ref(false);
 const bulkMsg = ref("");
 const importSaving = ref(false);
 const importMsg = ref("");
+const installerContactNameOverrides = new Set([
+  "楊家斌",
+  "王冠堯",
+  "傅子洋",
+  "顏呈翰",
+]);
 const installerSlots = [
   { key: "1", label: "安1", index: 0 },
   { key: "2", label: "安2", index: 1 },
@@ -177,10 +204,47 @@ function setTomorrow() {
 
 async function loadInstallers() {
   try {
-    installers.value = await listStaffByDept("2");
+    const [staffList, allStaff, users] = await Promise.all([
+      listStaffByDept("2"),
+      listActiveStaff(),
+      fetchAllUsers(),
+    ]);
+    installers.value = staffList;
+    installerContacts.value = buildInstallerContacts(allStaff, users);
   } catch (e) {
     console.warn("load installers failed", e);
   }
+}
+
+function buildInstallerContacts(staffList, users) {
+  const installUsers = (Array.isArray(users) ? users : []).filter((user) =>
+    userHasAnyDept(user, ["2"]),
+  );
+  const emailSet = new Set(
+    installUsers
+      .map((user) => String(user.email || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const nameSet = new Set(
+    installUsers
+      .map((user) => normalizeInstallerName(user.displayName || user.name || ""))
+      .filter(Boolean),
+  );
+
+  return (Array.isArray(staffList) ? staffList : []).filter((staff) => {
+    const email = String(staff.email || "").trim().toLowerCase();
+    const name = normalizeInstallerName(staff.name || "");
+    return (email && emailSet.has(email))
+      || (name && nameSet.has(name))
+      || installerContactNameOverrides.has(name);
+  });
+}
+
+function normalizeInstallerName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/顔/g, "顏");
 }
 
 function syncInstallerNames(r) {
@@ -339,6 +403,50 @@ onMounted(async () => {
 .header-actions {
   display: flex;
   gap: 8px;
+}
+.installer-phone-panel {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f8fbff 0%, #eef4ff 100%);
+}
+.installer-phone-title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+.installer-phone-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.installer-phone-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  padding: 8px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f172a;
+  text-decoration: none;
+}
+.installer-phone-chip[aria-disabled="true"] {
+  cursor: default;
+}
+.installer-phone-name {
+  font-weight: 600;
+}
+.installer-phone-number {
+  color: #475569;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.installer-phone-empty {
+  color: #64748b;
+  font-size: 13px;
 }
 
 /* 日期列 */

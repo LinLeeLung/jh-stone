@@ -525,15 +525,24 @@ async function readUserProfile(uid) {
     return {
       uid: "",
       role: "",
+      roles: [],
       companyIds: [],
       customerApproved: false,
     };
   }
   const snap = await admin.firestore().collection("Users").doc(uid).get();
   const data = snap.exists ? snap.data() || {} : {};
+  const roles = Array.isArray(data.roles)
+    ? data.roles.map((role) => String(role || "").trim()).filter(Boolean)
+    : [];
+  const legacyRole = String(data.role || "").trim();
+  if (legacyRole && !roles.includes(legacyRole)) {
+    roles.push(legacyRole);
+  }
   return {
     uid,
-    role: String(data.role || "").trim(),
+    role: legacyRole,
+    roles,
     companyIds: collectCompanyIdsFromSource(data),
     customerApproved: data.customerApproved === true,
   };
@@ -6226,6 +6235,7 @@ exports.serveOrderPdf = onRequestV2(
     }
 
     let callerRole = null;
+    let callerProfile = null;
     if (token) {
       // Firebase ID token path (EmployeeView)
       let uid;
@@ -6236,7 +6246,14 @@ exports.serveOrderPdf = onRequestV2(
         res.status(401).send("invalid token");
         return;
       }
-      callerRole = await readUserRole(uid);
+      const profile = await readUserProfile(uid);
+      callerProfile = profile;
+      const perspectiveRole = String(req.query.perspectiveRole || "").trim();
+      if (perspectiveRole && profile.roles.includes(perspectiveRole)) {
+        callerRole = perspectiveRole;
+      } else {
+        callerRole = profile.role || null;
+      }
       if (!callerRole) {
         res.status(403).send("forbidden");
         return;
@@ -6377,8 +6394,10 @@ exports.serveOrderPdf = onRequestV2(
       let body = Buffer.from(await downloadResp.arrayBuffer());
       const fileName = pdfPath.split("/").pop() || `${orderNumber}.pdf`;
 
-      // 員工角色：套用價格遮罩（白色矩形覆蓋合計區塊）
-      if (callerRole === "員工") {
+      const canViewPrice = Boolean(callerProfile?.roles?.includes("價格"));
+
+      // 只有價格角色可看原始 PDF，其餘身分一律套用白色矩形價格遮罩。
+      if (!canViewPrice) {
         try {
           const settingsSnap = await admin
             .firestore()
@@ -6388,28 +6407,45 @@ exports.serveOrderPdf = onRequestV2(
           const box = settingsSnap.exists
             ? settingsSnap.data()?.priceRedactBox || {}
             : {};
-          const xPct =
+          let xPct =
             Number.isFinite(Number(box.xPct)) && box.xPct !== undefined
               ? Number(box.xPct)
-              : 0.2;
-          const yPct =
+              : 0;
+          let yPct =
             Number.isFinite(Number(box.yPct)) && box.yPct !== undefined
               ? Number(box.yPct)
-              : 0.04;
-          const wPct =
+              : 0;
+          let wPct =
             Number.isFinite(Number(box.wPct)) && box.wPct !== undefined
               ? Number(box.wPct)
-              : 0.45;
-          const hPct =
+              : 1;
+          let hPct =
             Number.isFinite(Number(box.hPct)) && box.hPct !== undefined
               ? Number(box.hPct)
-              : 0.13;
+              : 0.17;
+
+          // 先前曾誤把發單 PDF 的座標存進這組員工遮罩設定，這裡回退到原本的員工 PDF 遮罩框。
+          const looksLikeMistakenDispatchBox =
+            Math.abs(xPct - 0.59) < 0.0001 &&
+            Math.abs(yPct - 0.01) < 0.0001 &&
+            Math.abs(wPct - 0.27) < 0.0001 &&
+            Math.abs(hPct - 0.12) < 0.0001;
+          if (looksLikeMistakenDispatchBox) {
+            xPct = 0;
+            yPct = 0;
+            wPct = 1;
+            hPct = 0.17;
+          }
           if (wPct > 0 && hPct > 0) {
             const pdfHeader = body.slice(0, 5).toString("ascii");
             if (!pdfHeader.startsWith("%PDF-")) {
-              logger.warn("serveOrderPdf: not a valid PDF, skipping redact", {
+              logger.warn("serveOrderPdf: not a valid PDF, redact required", {
                 orderNumber,
               });
+              res
+                .status(415)
+                .send("此訂單 PDF 無法套用價格遮罩，請通知管理者重新輸出 PDF 後再試。");
+              return;
             } else {
               const pdfDoc = await PDFDocument.load(body, {
                 ignoreEncryption: true,
@@ -6509,14 +6545,20 @@ exports.serveOrderPdf = onRequestV2(
             } // end if valid PDF header
           }
         } catch (redactErr) {
-          logger.warn("serveOrderPdf: price redact failed, serving original", {
+          logger.warn("serveOrderPdf: price redact failed, blocking original", {
             orderNumber,
             error: redactErr?.message,
           });
+          res
+            .status(409)
+            .send("此訂單 PDF 無法套用價格遮罩，已阻擋原始檔案輸出，請通知管理者重新另存 PDF。");
+          return;
         }
       }
 
-      res.set("Cache-Control", "private, max-age=120");
+      res.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+      res.set("Pragma", "no-cache");
+      res.set("Expires", "0");
       res.set("Content-Type", "application/pdf");
       res.set(
         "Content-Disposition",
@@ -7034,7 +7076,7 @@ function buildMinimalPendingData(data = {}) {
     customerPhone: String(data.customerPhone || "").trim(),
     installAddress: String(data.installAddress || "").trim(),
     dueDate: String(data.dueDate || "").trim(),
-    orderDate: String(data.orderDate || "").trim(),
+    orderedAt: String(data.orderedAt || "").trim(),
     salesAmount: String(data.salesAmount || "").trim(),
     color: String(data.color || "").trim(),
     stoneBrand: String(data.stoneBrand || "").trim(),
@@ -7077,7 +7119,7 @@ function mapPendingRow(raw) {
     docId,
     data: {
       orderNo,
-      orderDate: getByAliases(row, ["下單日"]),
+      orderedAt: getByAliases(row, ["下單日"]),
       dueDate,
       salesAmount: getByAliases(row, ["銷售額"]),
       category: getByAliases(row, ["類別"]),
@@ -9175,6 +9217,21 @@ async function runPayrollCalculation(yyyyMM) {
     ? Number(settingsData.loanInterestRate)
     : 2;
   const annualInterestRate = annualInterestRatePct / 100;
+  const healthInsuranceRatePct = Number.isFinite(
+    Number(settingsData.healthInsuranceRate),
+  )
+    ? Number(settingsData.healthInsuranceRate)
+    : 5.17;
+  const rawHealthInsuranceEmployeeShare = Number(
+    settingsData.healthInsuranceEmployeeShare,
+  );
+  const healthInsuranceEmployeeShare = Number.isFinite(
+    rawHealthInsuranceEmployeeShare,
+  )
+    ? rawHealthInsuranceEmployeeShare > 1
+      ? rawHealthInsuranceEmployeeShare / 100
+      : rawHealthInsuranceEmployeeShare
+    : 0.3;
 
   // 將 "HH:MM" 轉成分鐘數
   function toMins(hhmm) {
@@ -9497,7 +9554,22 @@ async function runPayrollCalculation(yyyyMM) {
 
     // Fixed monthly deductions (勞保、健保、眷屬健保)
     const laborInsurance = Math.max(0, Number(s.laborInsurance) || 0);
-    const healthInsurance = Math.max(0, Number(s.healthInsurance) || 0);
+    const hasManualHealthInsurance =
+      s.healthInsurance !== undefined &&
+      s.healthInsurance !== null &&
+      String(s.healthInsurance).trim() !== "";
+    const healthInsuranceBase = Math.max(
+      0,
+      Number(s.healthInsuranceSalary) || 0,
+    );
+    const autoHealthInsurance = Math.round(
+      healthInsuranceBase *
+        (healthInsuranceRatePct / 100) *
+        healthInsuranceEmployeeShare,
+    );
+    const healthInsurance = hasManualHealthInsurance
+      ? Math.max(0, Number(s.healthInsurance) || 0)
+      : autoHealthInsurance;
     const dependentHealth = Math.max(0, Number(s.dependentHealth) || 0);
 
     // Foreign worker monthly deductions

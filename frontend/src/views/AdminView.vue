@@ -719,7 +719,11 @@ import { deleteTestOrders } from "../firebase";
 import { resetAllOrderStatusToDraft } from "../firebase";
 import { functionsInstance } from "../firebase";
 import { httpsCallable } from "firebase/functions";
-import { DEFAULT_ROUTE_PERMISSIONS, ALL_ROLES as PERM_ALL_ROLES } from "../config/routePermissions";
+import {
+  DEFAULT_ROUTE_PERMISSIONS,
+  ALL_ROLES as PERM_ALL_ROLES,
+  mergeRoutePermissions,
+} from "../config/routePermissions";
 import { invalidatePermissionsCache } from "../router/index";
 
 const users = ref([]);
@@ -1315,10 +1319,9 @@ const permSaveMsg = ref('');
 
 async function loadPermissions() {
   const firestoreRoutes = await getRoutePermissionsConfig();
-  if (firestoreRoutes) {
-    permRoutes.value = deepCloneRoutes(firestoreRoutes);
-  }
-  // 若 Firestore 無資料，保留已顯示的預設值
+  permRoutes.value = deepCloneRoutes(
+    mergeRoutePermissions(DEFAULT_ROUTE_PERMISSIONS, firestoreRoutes || []),
+  );
 }
 
 const permGroups = computed(() => {

@@ -53,6 +53,11 @@
         <thead>
           <tr>
             <th></th>
+            <th>打板</th>
+            <th>對圖</th>
+            <th class="sortable" @click="setSort('orderedAt')">
+              下單日{{ sortIcon("orderedAt") }}
+            </th>
             <th class="sortable" @click="setSort('promisedAt')">
               預交日{{ sortIcon("promisedAt") }}
             </th>
@@ -83,8 +88,6 @@
             <th class="sortable" @click="setSort('siteAddress')">
               施工地址{{ sortIcon("siteAddress") }}
             </th>
-            <th>打板</th>
-            <th>對圖</th>
           </tr>
         </thead>
         <tbody>
@@ -112,6 +115,9 @@
                 >舊單</span
               >
             </td>
+            <td class="col-staff">{{ o.templatingStaff || "—" }}</td>
+            <td class="col-staff">{{ o.drawingStaff || "—" }}</td>
+            <td class="col-date">{{ fmtDate(o.orderedAt) }}</td>
             <td class="col-date">{{ fmtDate(o.promisedAt) }}</td>
             <td>
               <select
@@ -176,8 +182,6 @@
               <span v-else class="dim">—</span>
             </td>
             <td class="col-addr">{{ o.siteAddress || "—" }}</td>
-            <td class="col-staff">{{ o.templatingStaff || "—" }}</td>
-            <td class="col-staff">{{ o.drawingStaff || "—" }}</td>
           </tr>
         </tbody>
       </table>
@@ -250,6 +254,15 @@ const STATUS_ORDER = [
 
 function sortVal(o, col) {
   switch (col) {
+    case "orderedAt": {
+      const v = o.orderedAt;
+      if (!v) return Infinity;
+      if (v?.toDate) return v.toDate().getTime();
+      const n = Number(v);
+      if (!isNaN(n) && n > 0 && n < 100000) return (n - 25569) * 86400 * 1000;
+      if (!isNaN(n) && n >= 1000000000000) return n;
+      return new Date(String(v).slice(0, 10)).getTime();
+    }
     case "promisedAt": {
       const v = o.promisedAt;
       if (!v) return Infinity;
@@ -413,9 +426,11 @@ function fmtDate(val) {
 
 <style scoped>
 .orders-view {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px 16px 60px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 20px 8px 60px;
+  box-sizing: border-box;
 }
 .page-header {
   display: flex;
@@ -449,10 +464,12 @@ function fmtDate(val) {
   background: #fff;
 }
 .table-wrap {
+  width: 100%;
   overflow-x: auto;
 }
 .orders-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 13.5px;
 }
@@ -669,5 +686,14 @@ function fmtDate(val) {
 .hint-more {
   font-size: 13px;
   padding: 12px 0;
+}
+
+@media (min-width: 1200px) {
+  .orders-view {
+    width: calc(100vw - 24px);
+    margin-left: calc(50% - 50vw + 12px);
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 }
 </style>

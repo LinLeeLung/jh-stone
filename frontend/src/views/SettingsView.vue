@@ -1022,10 +1022,10 @@ const form = ref({
   nasOrderPath: "",
   lunchSheetCsvUrl: "",
   priceRedactBox: {
-    xPct: 0.2,
-    yPct: 0.04,
-    wPct: 0.45,
-    hPct: 0.13,
+    xPct: 0,
+    yPct: 0,
+    wPct: 1,
+    hPct: 0.17,
   },
   punchLocation: {
     enabled: false,
@@ -1467,10 +1467,10 @@ async function loadSettings() {
     form.value.lunchSheetCsvUrl = data.lunchSheetCsvUrl || "";
     const box = data.priceRedactBox || {};
     form.value.priceRedactBox = {
-      xPct: Number.isFinite(Number(box.xPct)) ? Number(box.xPct) : 0.2,
-      yPct: Number.isFinite(Number(box.yPct)) ? Number(box.yPct) : 0.04,
-      wPct: Number.isFinite(Number(box.wPct)) ? Number(box.wPct) : 0.45,
-      hPct: Number.isFinite(Number(box.hPct)) ? Number(box.hPct) : 0.13,
+      xPct: Number.isFinite(Number(box.xPct)) ? Number(box.xPct) : 0,
+      yPct: Number.isFinite(Number(box.yPct)) ? Number(box.yPct) : 0,
+      wPct: Number.isFinite(Number(box.wPct)) ? Number(box.wPct) : 1,
+      hPct: Number.isFinite(Number(box.hPct)) ? Number(box.hPct) : 0.17,
     };
     const loc = data.punchLocation || {};
     form.value.punchLocation = {

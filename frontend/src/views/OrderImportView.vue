@@ -10,6 +10,12 @@
       <p class="hint-sm">
         支援 Excel (.xlsx / .xls) 或 CSV 格式。請確保第一列為標題列。
       </p>
+      <p class="hint-sm">
+        匯入後會建立為草稿訂單，等同手動一筆一筆新建，不會直接變成已確認訂單。
+      </p>
+      <p class="hint-sm">
+        匯入後預設會保留為未發單，發單紀錄會先留空。
+      </p>
       <div
         class="drop-zone"
         :class="{ dragging }"
@@ -98,6 +104,20 @@
       <p v-if="parsed.length > 10" class="hint-sm">
         僅顯示前 10 筆預覽，共 {{ parsed.length }} 筆將被匯入。
       </p>
+      <div v-if="matchedHeaders.length || ignoredHeaders.length" class="column-report">
+        <div class="column-card">
+          <strong>會匯入的欄位</strong>
+          <div class="chip-list">
+            <span v-for="header in matchedHeaders" :key="`matched-${header}`" class="chip chip-ok">{{ header }}</span>
+          </div>
+        </div>
+        <div v-if="ignoredHeaders.length" class="column-card">
+          <strong>目前忽略的欄位</strong>
+          <div class="chip-list">
+            <span v-for="header in ignoredHeaders" :key="`ignored-${header}`" class="chip chip-muted">{{ header }}</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Step 3: Importing -->
@@ -133,12 +153,68 @@ const parseError = ref("");
 const parsed = ref([]); // valid rows
 const skipped = ref([]); // skipped rows
 const importDone = ref(0);
+const detectedHeaders = ref([]);
 
 const previewRows = computed(() => parsed.value.slice(0, 10));
 const progressPct = computed(() =>
   parsed.value.length
     ? Math.round((importDone.value / parsed.value.length) * 100)
     : 0,
+);
+
+const SUPPORTED_IMPORT_COLUMN_KEYS = [
+  "下單日",
+  "預交日",
+  "銷售額",
+  "打板日",
+  "打板人",
+  "類別",
+  "訂單號碼",
+  "客戶代碼",
+  "客戶名稱",
+  "客戶電話",
+  "業主",
+  "業主電話",
+  "安裝地點",
+  "石材品牌",
+  "顏色",
+  "水槽1型號",
+  "水槽1工法",
+  "水槽1到貨方式/日期",
+  "水槽1到貨方式",
+  "水槽2型號",
+  "水槽2工法",
+  "水槽2到貨方式/日期",
+  "水槽2到貨方式",
+  "水槽3型號",
+  "水槽3工法",
+  "水槽3到貨方式/日期",
+  "水槽3到貨方式",
+  "爐子型號1",
+  "挖孔尺寸1",
+  "爐子1工法",
+  "爐子型號2",
+  "挖孔尺寸2",
+  "爐子2工法",
+  "爐子型號3",
+  "挖孔尺寸3",
+  "爐子3工法",
+  "檯面型別",
+  "特殊作法",
+  "台面cm數",
+  "保證書申請日期",
+];
+
+function headerIsSupported(header) {
+  const normalized = normHeader(header);
+  return SUPPORTED_IMPORT_COLUMN_KEYS.some((key) => normalized.startsWith(normHeader(key)));
+}
+
+const matchedHeaders = computed(() =>
+  detectedHeaders.value.filter((header) => headerIsSupported(header)),
+);
+const ignoredHeaders = computed(() =>
+  detectedHeaders.value.filter((header) => !headerIsSupported(header)),
 );
 
 // ── Column helpers ─────────────────────────────────────────────────────────
@@ -274,12 +350,13 @@ function rowToOrder(row, colMap) {
   const cmNum = parseNum(s("台面cm數"));
 
   return {
-    orderDate: parseDateStr(s("下單日")),
+    orderedAt: parseDateStr(s("下單日")),
     promisedAt: parseDateStr(s("預交日")),
     amount: parseNum(s("銷售額")),
     templatingDate: parseDateStr(s("打板日")),
     templatingPerson: s("打板人"),
     category: s("類別"),
+    orderNo: s("訂單號碼"),
     customerOrderNo: s("訂單號碼"),
     customerId: s("客戶代碼"),
     customerName: s("客戶名稱"),
@@ -317,7 +394,8 @@ function processWorkbook(wb) {
     }
   }
 
-  const headerRow = raw[headerIdx].map(normHeader);
+  const headerRow = raw[headerIdx].map((value) => String(value ?? "").trim());
+  detectedHeaders.value = headerRow.filter(Boolean);
   const colMap = buildColMap(raw[headerIdx]);
   const dataRows = raw.slice(headerIdx + 1);
 
@@ -406,6 +484,7 @@ function reset() {
   parsed.value = [];
   skipped.value = [];
   importDone.value = 0;
+  detectedHeaders.value = [];
   parseError.value = "";
   if (fileInput.value) fileInput.value.value = "";
 }
@@ -472,6 +551,38 @@ function stoneLabel(r) {
   font-size: 13px;
   color: #9ca3af;
   margin: 0 0 4px;
+}
+.column-report {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.column-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fafafa;
+}
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+.chip-ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+.chip-muted {
+  background: #f3f4f6;
+  color: #6b7280;
 }
 .preview-header {
   display: flex;

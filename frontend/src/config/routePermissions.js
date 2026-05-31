@@ -5,7 +5,7 @@
  * 路由守衛會優先使用 Firestore 設定，找不到時 fallback 至此預設值。
  */
 
-export const ALL_ROLES = ['admin', '管理者', '員工', '行動', '客戶', '遊客'];
+export const ALL_ROLES = ['admin', '管理者', '會計', '員工', '行動', '客戶', '遊客'];
 
 /**
  * @typedef {Object} RoutePermDef
@@ -24,7 +24,7 @@ export const DEFAULT_ROUTE_PERMISSIONS = [
   { path: '/staff',             title: '員工基本資料',   group: '系統管理', roles: ['admin', '管理者'] },
 
   // ── 人事 ──────────────────────────────────────────────────────────────
-  { path: '/employee',          title: '員工查詢',       group: '人事',     roles: ['員工', 'admin', '管理者'] },
+  { path: '/employee',          title: '安裝查詢',       group: '人事',     roles: ['員工', 'admin', '管理者'] },
   { path: '/attendance',        title: '打卡系統',       group: '人事',     roles: ['員工', '行動', 'admin', '管理者'] },
   { path: '/leave',             title: '請假/加班',      group: '人事',     roles: ['員工', '行動', 'admin', '管理者'] },
   { path: '/payroll',           title: '薪資單',         group: '人事',     roles: ['admin', '管理者'] },
@@ -40,9 +40,20 @@ export const DEFAULT_ROUTE_PERMISSIONS = [
   { path: '/orders/:id/drawing',      title: '訂單繪圖',   group: '訂單', roles: ['admin', '管理者'], depts: ['1'] },
   { path: '/orders/:id/confirmation', title: '生產確定單', group: '訂單', roles: ['admin', '管理者'], depts: ['1'] },
 
+  // ── 會計 ──────────────────────────────────────────────────────────────
+  { path: '/receivable-items',   title: '應收明細',       group: '會計',     roles: ['admin', '管理者', '會計'] },
+  { path: '/receivable-bills',   title: '應收帳單',       group: '會計',     roles: ['admin', '管理者', '會計'] },
+  { path: '/receivable/help',    title: '應收帳說明',     group: '會計',     roles: ['admin', '管理者', '會計'] },
+  { path: '/receivable-bills/:id', title: '帳單詳情',     group: '會計',     roles: ['admin', '管理者', '會計'] },
+  { path: '/receivable-bills/:id/print', title: '應收總表', group: '會計',   roles: ['admin', '管理者', '會計'] },
+  { path: '/receivable-bills/:id/sign-print', title: '回簽列印', group: '會計', roles: ['admin', '管理者', '會計'] },
+
+  // ── 生產 ──────────────────────────────────────────────────────────────
+  { path: '/production',        title: '生產流程',       group: '生產',     roles: ['員工', 'admin', '管理者'], depts: ['3'] },
+
   // ── 客戶 ──────────────────────────────────────────────────────────────
-  { path: '/customers',         title: '客戶管理',       group: '客戶',     roles: ['員工', 'admin', '管理者'], depts: ['1'] },
-  { path: '/quote',             title: '估價單',         group: '客戶',     roles: ['員工', 'admin', '管理者'], depts: ['1'] },
+  { path: '/customers',         title: '客戶管理',       group: '客戶',     roles: ['admin', '管理者'], depts: ['1'] },
+  { path: '/quote',             title: '估價單',         group: '客戶',     roles: ['admin', '管理者'], depts: ['1'] },
 
   // ── 庫存 ──────────────────────────────────────────────────────────────
   { path: '/inventory',         title: '庫存查詢',       group: '庫存',     roles: ['員工', 'admin', '管理者'] },
@@ -54,10 +65,10 @@ export const DEFAULT_ROUTE_PERMISSIONS = [
   { path: '/install-tasks/my-today', title: '今日我的任務', group: '派車', roles: ['admin'] },
   { path: '/vehicles',               title: '車輛管理',     group: '派車', roles: ['admin', '管理者'] },
   // ── 繪圖 ──────────────────────────────────────────────────────────────
-  { path: '/drawing/straight',  title: '一字型繪圖',     group: '繪圖',     roles: ['員工', 'admin', '管理者'] },
-  { path: '/drawing/l-shape',   title: 'L 型繪圖',       group: '繪圖',     roles: ['員工', 'admin', '管理者'] },
-  { path: '/drawing/m-shape',   title: 'M 型繪圖',       group: '繪圖',     roles: ['員工', 'admin', '管理者'] },
-  { path: '/drawing/island',    title: '中島繪圖',       group: '繪圖',     roles: ['員工', 'admin', '管理者'] },
+  { path: '/drawing/straight',  title: '一字型繪圖',     group: '繪圖',     roles: ['admin', '管理者'], depts: ['1'] },
+  { path: '/drawing/l-shape',   title: 'L 型繪圖',       group: '繪圖',     roles: ['admin', '管理者'], depts: ['1'] },
+  { path: '/drawing/m-shape',   title: 'M 型繪圖',       group: '繪圖',     roles: ['admin', '管理者'], depts: ['1'] },
+  { path: '/drawing/island',    title: '中島繪圖',       group: '繪圖',     roles: ['admin', '管理者'], depts: ['1'] },
 ];
 
 /**
@@ -82,4 +93,29 @@ export function findPermission(permissions, realPath) {
   if (match) return match;
   // 再嘗試 :param 樣式
   return permissions.find((p) => p.path.includes(':') && pathToRegex(p.path).test(realPath));
+}
+
+export function mergeRoutePermissions(defaults = [], overrides = []) {
+  const merged = new Map();
+
+  for (const item of defaults) {
+    if (!item?.path) continue;
+    merged.set(item.path, {
+      ...item,
+      roles: Array.isArray(item.roles) ? [...item.roles] : [],
+      depts: Array.isArray(item.depts) ? [...item.depts] : undefined,
+    });
+  }
+
+  for (const item of overrides) {
+    if (!item?.path) continue;
+    merged.set(item.path, {
+      ...(merged.get(item.path) || {}),
+      ...item,
+      roles: Array.isArray(item.roles) ? [...item.roles] : [],
+      depts: Array.isArray(item.depts) ? [...item.depts] : undefined,
+    });
+  }
+
+  return [...merged.values()];
 }

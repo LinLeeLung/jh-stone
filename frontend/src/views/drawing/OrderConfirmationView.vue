@@ -487,12 +487,16 @@
 
             <!-- 安裝地點 -->
             <div class="install-row">
-              <span class="lbl">安裝地點</span>
-              <span class="val site-val">{{ order?.siteAddress || "" }}</span>
-              <span class="lbl-s">業主</span
-              ><span class="val-s">{{ order?.owner?.name || "" }}</span>
-              <span class="lbl-s">電話</span
-              ><span class="val-s">{{ order?.owner?.phone || "" }}</span>
+              <div class="install-main-row">
+                <span class="lbl">安裝地點</span>
+                <span class="val site-val">{{ order?.siteAddress || "" }}</span>
+              </div>
+              <div class="install-meta-row">
+                <span class="lbl-s">業主</span
+                ><span class="val-s owner-val">{{ order?.owner?.name || "" }}</span>
+                <span class="lbl-s">電話</span
+                ><span class="val-s phone-val">{{ order?.owner?.phone || "" }}</span>
+              </div>
             </div>
 
             <!-- 交期說明 -->
@@ -2182,16 +2186,17 @@ onUnmounted(() => {
 .lbl-s {
   background: #e8e8e8;
   font-weight: 600;
-  width: 28px;
+  width: 24px;
   white-space: nowrap;
   text-align: center;
+  font-size: 10px;
 }
 .val {
   font-size: 11px;
 }
 .val-s {
-  width: 70px;
-  font-size: 11px;
+  width: 58px;
+  font-size: 10px;
 }
 .ii {
   border: none;
@@ -2326,20 +2331,51 @@ onUnmounted(() => {
 /* ══ 安裝地點 ══ */
 .install-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
   border-top: 1px solid #000;
   border-bottom: 1px solid #888;
-  padding: 1px 4px;
-  gap: 3px;
-  height: 22px;
+  padding: 1px 4px 2px;
+  gap: 2px;
+  min-height: 40px;
   font-size: 11px;
   flex-shrink: 0;
 }
+.install-main-row,
+.install-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.install-main-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+  gap: 0;
+}
+.install-meta-row {
+  width: 100%;
+  justify-content: flex-end;
+  font-size: 9px;
+}
 .site-val {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: block;
+  min-width: 0;
+  overflow: visible;
+  white-space: normal;
+  line-height: 1.15;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  font-size: 14px;
+  padding-left: 3px;
+}
+.owner-val {
+  min-width: 48px;
+}
+.phone-val {
+  min-width: 52px;
 }
 
 /* ══ 交期說明 ══ */

@@ -9,6 +9,7 @@ import AttendanceView from "../views/AttendanceView.vue";
 import LeaveView from "../views/LeaveView.vue";
 import PayrollView from "../views/PayrollView.vue";
 import PayrollHelpView from "../views/PayrollHelpView.vue";
+import ReceivableHelpView from "../views/ReceivableHelpView.vue";
 import DrawingLayout from "../views/drawing/DrawingLayout.vue";
 import StraightDrawingView from "../views/drawing/StraightDrawingView.vue";
 import LShapeDrawingView from "../views/drawing/LShapeDrawingView.vue";
@@ -23,6 +24,11 @@ import RepairListView from "../views/RepairListView.vue";
 import RepairPrintView from "../views/RepairPrintView.vue";
 import DispatchView from "../views/DispatchView.vue";
 import ProductionView from "../views/ProductionView.vue";
+import ReceivableItemsView from "../views/ReceivableItemsView.vue";
+import ReceivableBillsView from "../views/ReceivableBillsView.vue";
+import ReceivableBillDetailView from "../views/ReceivableBillDetailView.vue";
+import ReceivableBillPrintView from "../views/ReceivableBillPrintView.vue";
+import ReceivableBillSignedPrintView from "../views/ReceivableBillSignedPrintView.vue";
 import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
 import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
 import CustomerMgmtView from "../views/CustomerMgmtView.vue";
@@ -38,7 +44,11 @@ import {
   getRoutePermissionsConfig,
   canAccessPermission,
 } from "../firebase";
-import { DEFAULT_ROUTE_PERMISSIONS, findPermission } from "../config/routePermissions";
+import {
+  DEFAULT_ROUTE_PERMISSIONS,
+  findPermission,
+  mergeRoutePermissions,
+} from "../config/routePermissions";
 
 // 記憶體快取：Firestore 設定讀取一次後存在此，null 表示「尚未載入」
 let _permCache = null;  // false = 已確認 Firestore 無資料；陣列 = 已取得設定
@@ -46,7 +56,10 @@ async function getEffectivePermissions() {
   if (_permCache !== null) return _permCache;
   try {
     const firestoreRoutes = await getRoutePermissionsConfig();
-    _permCache = firestoreRoutes ?? DEFAULT_ROUTE_PERMISSIONS;
+    _permCache = mergeRoutePermissions(
+      DEFAULT_ROUTE_PERMISSIONS,
+      firestoreRoutes || [],
+    );
   } catch {
     _permCache = DEFAULT_ROUTE_PERMISSIONS;
   }
@@ -82,7 +95,7 @@ const router = createRouter({
       path: "/employee",
       name: "employee",
       component: EmployeeView,
-      meta: { roles: ["員工", "admin", "管理者"], title: "員工查詢" },
+      meta: { roles: ["員工", "admin", "管理者"], title: "安裝查詢" },
     },
     {
       path: "/inventory",
@@ -165,6 +178,12 @@ const router = createRouter({
       meta: { roles: ["admin", "管理者"], title: "薪資計算說明" },
     },
     {
+      path: "/receivable/help",
+      name: "receivable-help",
+      component: ReceivableHelpView,
+      meta: { roles: ["admin", "管理者", "會計"], title: "應收帳說明" },
+    },
+    {
       path: "/orders",
       name: "orders",
       component: OrdersView,
@@ -201,6 +220,36 @@ const router = createRouter({
       meta: { roles: ["admin", "管理者"], title: "匯入訂單" },
     },
     {
+      path: "/receivable-items",
+      name: "receivable-items",
+      component: ReceivableItemsView,
+      meta: { roles: ["admin", "管理者", "會計"], title: "應收明細" },
+    },
+    {
+      path: "/receivable-bills",
+      name: "receivable-bills",
+      component: ReceivableBillsView,
+      meta: { roles: ["admin", "管理者", "會計"], title: "應收帳單" },
+    },
+    {
+      path: "/receivable-bills/:id",
+      name: "receivable-bill-detail",
+      component: ReceivableBillDetailView,
+      meta: { roles: ["admin", "管理者", "會計"], title: "帳單詳情" },
+    },
+    {
+      path: "/receivable-bills/:id/print",
+      name: "receivable-bill-print",
+      component: ReceivableBillPrintView,
+      meta: { roles: ["admin", "管理者", "會計"], title: "應收總表", printLayout: true },
+    },
+    {
+      path: "/receivable-bills/:id/sign-print",
+      name: "receivable-bill-sign-print",
+      component: ReceivableBillSignedPrintView,
+      meta: { roles: ["admin", "管理者", "會計"], title: "回簽列印", printLayout: true },
+    },
+    {
       path: "/orders/repair",
       name: "order-repair",
       component: RepairListView,
@@ -222,7 +271,7 @@ const router = createRouter({
       path: "/orders/repair/:id/print",
       name: "order-repair-print",
       component: RepairPrintView,
-      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "列印維修單" },
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "列印維修單", printLayout: true },
     },
     {
       path: "/production",

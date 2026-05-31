@@ -7,7 +7,10 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "migrate:ordered-at": "node backfill-ordered-at.mjs",
+    "migrate:legacy-ordered-at": "node backfill-legacy-ordered-at.mjs",
+    "migrate:issued-ordered-at": "node backfill-issued-ordered-at.mjs"
   },
   "engines": {
     "node": "24"
