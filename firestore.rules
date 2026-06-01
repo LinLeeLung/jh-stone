@@ -23,7 +23,7 @@ service cloud.firestore {
     }
 
     function hasRole(role) {
-      return signedIn() && role in myRoles();
+      return signedIn() && (role in myRoles() || myRole() == role);
     }
 
     function myCompanyId() {
@@ -45,6 +45,20 @@ service cloud.firestore {
     // 行動角色：只能存取打卡/請假/加班（幫員工個人手機用帳號）
     function isMobileStaff() {
       return hasRole('行動');
+    }
+
+    function hasEmployeeProfile() {
+      return signedIn()
+        && (
+          (userDoc().data.staffRole is string && userDoc().data.staffRole != '')
+          || (userDoc().data.dept is string && userDoc().data.dept != '')
+          || (userDoc().data.empNo is string && userDoc().data.empNo != '')
+          || ((userDoc().data.departments is list) && userDoc().data.departments.size() > 0)
+        );
+    }
+
+    function canUseAttendance() {
+      return isStaff() || isMobileStaff() || hasEmployeeProfile();
     }
 
     function isAdminOrManager() {
@@ -159,7 +173,7 @@ service cloud.firestore {
     // System settings (e.g. NAS path): staff can read (needed for punchLocation geofencing); only admin/manager can write
     // Exception: orderCounter can be written by any staff (needed for issueOrder transaction)
     match /SystemSettings/{docId} {
-      allow read: if isStaff() || isMobileStaff();
+      allow read: if canUseAttendance();
       allow write: if isAdminOrManager();
     }
     match /SystemSettings/orderCounter {
@@ -212,11 +226,11 @@ service cloud.firestore {
     // Attendance (打卡): staff can create/read their own record; admin/manager can read/write all
     match /attendance/{docId} {
       allow create: if isAdminOrManager()
-        || ((isStaff() || isMobileStaff()) && request.resource.data.uid == request.auth.uid);
+        || (canUseAttendance() && request.resource.data.uid == request.auth.uid);
       allow update: if isAdminOrManager()
-        || ((isStaff() || isMobileStaff()) && resource.data.uid == request.auth.uid);
+        || (canUseAttendance() && resource.data.uid == request.auth.uid);
       // resource == null when the doc doesn't exist yet; allow the read so getDoc returns "not found"
-      allow read: if (isStaff() || isMobileStaff())
+      allow read: if canUseAttendance()
         && (resource == null || resource.data.uid == request.auth.uid || isAdminOrManager());
       allow delete: if isAdminOrManager();
     }

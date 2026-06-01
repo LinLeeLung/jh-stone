@@ -1472,7 +1472,7 @@ export async function getSystemSettings() {
     },
     punchLocation: {
       enabled: loc.enabled === true,
-      allowOnFail: loc.allowOnFail !== false,
+      allowOnFail: false,
       lat: Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null,
       lng: Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null,
       radiusMeters: Number.isFinite(Number(loc.radiusMeters))
@@ -1535,7 +1535,7 @@ export async function saveSystemSettings(payload = {}) {
         const pl = payload.punchLocation || {};
         return {
           enabled: pl.enabled === true,
-          allowOnFail: pl.allowOnFail !== false,
+          allowOnFail: false,
           lat: Number.isFinite(Number(pl.lat)) ? Number(pl.lat) : null,
           lng: Number.isFinite(Number(pl.lng)) ? Number(pl.lng) : null,
           radiusMeters: Number.isFinite(Number(pl.radiusMeters))
@@ -1850,10 +1850,28 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
   const ref = collection(db, "salesOrders");
   const constraints = [];
   if (status) constraints.push(where("status", "==", status));
-  constraints.push(orderBy("createdAt", "desc"));
-  constraints.push(limit(lim));
-  const snap = await getDocs(query(ref, ...constraints));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const limitValue = Number(lim);
+
+  if (Number.isFinite(limitValue) && limitValue > 0) {
+    constraints.push(orderBy("createdAt", "desc"));
+    constraints.push(limit(limitValue));
+    const snap = await getDocs(query(ref, ...constraints));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }
+
+  const snap = constraints.length
+    ? await getDocs(query(ref, ...constraints))
+    : await getDocs(ref);
+
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const ta =
+        _coerceJsDate(a.createdAt || a.updatedAt || a.orderedAt)?.getTime() || 0;
+      const tb =
+        _coerceJsDate(b.createdAt || b.updatedAt || b.orderedAt)?.getTime() || 0;
+      return tb - ta;
+    });
 }
 
 function _coerceJsDate(input) {
@@ -3747,10 +3765,69 @@ export async function updateIssuedOrderNo(orderId, nextOrderNo) {
 // onProgress(done, total) 可選的進度回呼
 export async function batchImportSalesOrders(records, onProgress) {
   const uid = auth.currentUser?.uid || null;
+  const importRows = Array.isArray(records) ? records : [];
+  const normalizeOrderNo = (value) => String(value || "").trim().toUpperCase();
+
+  const uniqueRows = [];
+  const seenImportOrderNos = new Set();
+  let skippedWithinImport = 0;
+
+  for (const rawRecord of importRows) {
+    const normalizedOrderNo = normalizeOrderNo(
+      rawRecord?.orderNo || rawRecord?.customerOrderNo,
+    );
+
+    if (normalizedOrderNo) {
+      if (seenImportOrderNos.has(normalizedOrderNo)) {
+        skippedWithinImport += 1;
+        continue;
+      }
+      seenImportOrderNos.add(normalizedOrderNo);
+    }
+
+    uniqueRows.push({
+      ...rawRecord,
+      orderNo: normalizedOrderNo || String(rawRecord?.orderNo || "").trim(),
+      customerOrderNo:
+        normalizedOrderNo || String(rawRecord?.customerOrderNo || "").trim(),
+    });
+  }
+
+  const existingOrderNos = new Set();
+  const lookupOrderNos = Array.from(seenImportOrderNos);
+  const LOOKUP_CHUNK = 30;
+
+  for (let i = 0; i < lookupOrderNos.length; i += LOOKUP_CHUNK) {
+    const orderNoChunk = lookupOrderNos.slice(i, i + LOOKUP_CHUNK);
+    if (!orderNoChunk.length) continue;
+    const snap = await getDocs(
+      query(
+        collection(db, "salesOrders"),
+        where("orderNo", "in", orderNoChunk),
+      ),
+    );
+    snap.docs.forEach((docSnap) => {
+      existingOrderNos.add(normalizeOrderNo(docSnap.data()?.orderNo));
+    });
+  }
+
+  const rowsToImport = [];
+  let skippedExisting = 0;
+  for (const record of uniqueRows) {
+    const normalizedOrderNo = normalizeOrderNo(
+      record?.orderNo || record?.customerOrderNo,
+    );
+    if (normalizedOrderNo && existingOrderNos.has(normalizedOrderNo)) {
+      skippedExisting += 1;
+      continue;
+    }
+    rowsToImport.push(record);
+  }
+
   const CHUNK = 499;
   let done = 0;
-  for (let i = 0; i < records.length; i += CHUNK) {
-    const chunk = records.slice(i, i + CHUNK);
+  for (let i = 0; i < rowsToImport.length; i += CHUNK) {
+    const chunk = rowsToImport.slice(i, i + CHUNK);
     const batch = writeBatch(db);
     for (const rec of chunk) {
       const ref = doc(collection(db, "salesOrders"));
@@ -3767,9 +3844,14 @@ export async function batchImportSalesOrders(records, onProgress) {
     }
     await batch.commit();
     done += chunk.length;
-    onProgress?.(done, records.length);
+    onProgress?.(done, rowsToImport.length);
   }
-  return done;
+  return {
+    created: done,
+    skippedExisting,
+    skippedWithinImport,
+    requested: importRows.length,
+  };
 }
 
 // ── 訂單繪圖子集合（salesOrders/:id/drawings）─────────────────────────────

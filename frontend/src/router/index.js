@@ -31,6 +31,7 @@ import ReceivableBillPrintView from "../views/ReceivableBillPrintView.vue";
 import ReceivableBillSignedPrintView from "../views/ReceivableBillSignedPrintView.vue";
 import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
 import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
+import OrderSinkPrintView from "../views/OrderSinkPrintView.vue";
 import CustomerMgmtView from "../views/CustomerMgmtView.vue";
 import QuotePageView from "../views/QuotePageView.vue";
 import InstallTasksView from "../views/InstallTasksView.vue";
@@ -302,6 +303,12 @@ const router = createRouter({
       name: "order-confirmation",
       component: OrderConfirmationView,
       meta: { roles: ["admin", "管理者"], depts: ["1"], title: "生產確定單" },
+    },
+    {
+      path: "/orders/:id/sink-print",
+      name: "order-sink-print",
+      component: OrderSinkPrintView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "列印水槽", printLayout: true },
     },
     {
       path: "/install-tasks",

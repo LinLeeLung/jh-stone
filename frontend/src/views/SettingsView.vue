@@ -117,10 +117,7 @@
             <input type="checkbox" v-model="form.punchLocation.enabled" />
             啟用地址驗證
           </label>
-          <label class="check-row">
-            <input type="checkbox" v-model="form.punchLocation.allowOnFail" />
-            定位失敗時仍允許打卡（記錄未驗證標註）
-          </label>
+          <div class="section-desc">定位失敗時不可打卡。</div>
         </div>
         <div
           style="
@@ -1029,7 +1026,7 @@ const form = ref({
   },
   punchLocation: {
     enabled: false,
-    allowOnFail: true,
+    allowOnFail: false,
     lat: null,
     lng: null,
     radiusMeters: 200,
@@ -1475,7 +1472,7 @@ async function loadSettings() {
     const loc = data.punchLocation || {};
     form.value.punchLocation = {
       enabled: loc.enabled === true,
-      allowOnFail: loc.allowOnFail !== false,
+      allowOnFail: false,
       lat: Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null,
       lng: Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null,
       radiusMeters: Number.isFinite(Number(loc.radiusMeters))

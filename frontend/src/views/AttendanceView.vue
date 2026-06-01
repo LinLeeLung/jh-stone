@@ -437,7 +437,7 @@ const isAdminOrManager = ref(false);
 
 let punchLocationCfg = {
   enabled: false,
-  allowOnFail: true,
+  allowOnFail: false,
   lat: null,
   lng: null,
   radiusMeters: 200,
@@ -608,11 +608,15 @@ onUnmounted(() => clearInterval(clockTimer));
 async function loadTodayRec() {
   loaded.value = false;
   punchErr.value = "";
-  const id = `${todayStr()}_${currentUser.uid}`;
   try {
-    const { getDoc } = await import("firebase/firestore");
-    const snap = await getDoc(doc(db, "attendance", id));
-    todayRec.value = snap.exists() ? snap.data() : null;
+    const snaps = await getDocs(
+      query(
+        collection(db, "attendance"),
+        where("uid", "==", currentUser.uid),
+        where("date", "==", todayStr()),
+      ),
+    );
+    todayRec.value = snaps.empty ? null : snaps.docs[0].data();
   } catch (e) {
     punchErr.value = "讀取失敗：" + e.message;
   } finally {
@@ -694,7 +698,6 @@ async function loadPendingCounts() {
 }
 
 // ── GPS 地理圍欄驗證 ──────────────────────────────────────
-// 回傳 { ok: true } 或 { ok: false, warn: '...' }（allowOnFail 時）
 function haversineDistance(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -714,10 +717,6 @@ function checkGeofence() {
       return;
     }
     if (!navigator.geolocation) {
-      if (cfg.allowOnFail) {
-        resolve({ ok: false, warn: "瀏覽器不支援 GPS，位置未驗證" });
-        return;
-      }
       reject(new Error(t("geo_unsupported")));
       return;
     }
@@ -744,11 +743,7 @@ function checkGeofence() {
           geoBlocked.value = true;
         } else if (err.code === 2) msg = t("geo_no_signal");
         else if (err.code === 3) msg = t("geo_timeout_msg");
-        if (cfg.allowOnFail) {
-          resolve({ ok: false, warn: msg + t("geo_unverified") });
-        } else {
-          reject(new Error(msg));
-        }
+        reject(new Error(msg));
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
@@ -764,7 +759,7 @@ async function punchIn() {
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
-    if (!geo.ok) throw new Error(geo.warn || t("geo_fail"));
+    const locationVerified = geo.ok === true;
     const id = `${todayStr()}_${currentUser.uid}`;
     const data = {
       uid: currentUser.uid,
@@ -773,8 +768,8 @@ async function punchIn() {
       date: todayStr(),
       punchIn: timeStr(),
       punchOut: null,
-      locationVerified: true,
-      ...(geo.lat != null
+      locationVerified,
+      ...(locationVerified && geo.lat != null
         ? {
             gpsLat: geo.lat,
             gpsLng: geo.lng,
@@ -802,11 +797,14 @@ async function punchOut() {
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
-    if (!geo.ok) throw new Error(geo.warn || t("geo_fail"));
+    const locationVerified = geo.ok === true;
     const id = `${todayStr()}_${currentUser.uid}`;
     const tStr = timeStr();
-    const upd = { punchOut: tStr };
-    if (geo.lat != null) {
+    const upd = {
+      punchOut: tStr,
+      locationVerifiedOut: locationVerified,
+    };
+    if (locationVerified && geo.lat != null) {
       upd.gpsLatOut = geo.lat;
       upd.gpsLngOut = geo.lng;
       upd.gpsAccuracyOut = geo.accuracy;

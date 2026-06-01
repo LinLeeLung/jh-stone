@@ -102,7 +102,10 @@
         </table>
       </div>
       <p v-if="parsed.length > 10" class="hint-sm">
-        僅顯示前 10 筆預覽，共 {{ parsed.length }} 筆將被匯入。
+        僅顯示前 10 筆預覽，共 {{ parsed.length }} 筆待匯入。
+      </p>
+      <p v-if="parsed.length" class="hint-sm">
+        實際匯入時會自動略過重覆的訂單號碼。
       </p>
       <div v-if="matchedHeaders.length || ignoredHeaders.length" class="column-report">
         <div class="column-card">
@@ -123,7 +126,7 @@
     <!-- Step 3: Importing -->
     <div v-if="step === 'importing'" class="card center">
       <p class="importing-label">
-        匯入中… {{ importDone }} / {{ parsed.length }}
+        匯入中… {{ importDone }} / {{ importTotal }}
       </p>
       <div class="progress-bar">
         <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
@@ -133,6 +136,14 @@
     <!-- Step 4: Done -->
     <div v-if="step === 'done'" class="card center">
       <p class="done-label">✓ 成功匯入 {{ importDone }} 筆訂單</p>
+      <p
+        v-if="importStats.skippedExisting || importStats.skippedWithinImport"
+        class="hint-sm done-summary"
+      >
+        略過重覆資料：
+        {{ importStats.skippedWithinImport }} 筆同檔重覆、
+        {{ importStats.skippedExisting }} 筆已存在於訂單資料中。
+      </p>
       <div class="done-actions">
         <RouterLink class="btn-primary" to="/orders">查看訂單列表</RouterLink>
         <button class="btn-secondary" @click="reset">再次匯入</button>
@@ -154,11 +165,18 @@ const parsed = ref([]); // valid rows
 const skipped = ref([]); // skipped rows
 const importDone = ref(0);
 const detectedHeaders = ref([]);
+const importTotal = ref(0);
+const importStats = ref({
+  created: 0,
+  skippedExisting: 0,
+  skippedWithinImport: 0,
+  requested: 0,
+});
 
 const previewRows = computed(() => parsed.value.slice(0, 10));
 const progressPct = computed(() =>
-  parsed.value.length
-    ? Math.round((importDone.value / parsed.value.length) * 100)
+  importTotal.value
+    ? Math.round((importDone.value / importTotal.value) * 100)
     : 0,
 );
 
@@ -405,7 +423,7 @@ function processWorkbook(wb) {
     // Skip blank rows
     if (row.every((c) => !String(c).trim())) continue;
     const order = rowToOrder(row, colMap);
-    if (!order.customerOrderNo && !order.customerName) {
+    if (!order.customerOrderNo) {
       bad.push(row);
     } else {
       good.push(order);
@@ -468,10 +486,15 @@ function readFile(file) {
 async function startImport() {
   step.value = "importing";
   importDone.value = 0;
+  importTotal.value = parsed.value.length;
   try {
-    await batchImportSalesOrders(parsed.value, (done) => {
+    const result = await batchImportSalesOrders(parsed.value, (done, total) => {
       importDone.value = done;
+      importTotal.value = total;
     });
+    importDone.value = result.created;
+    importTotal.value = result.created;
+    importStats.value = result;
     step.value = "done";
   } catch (err) {
     parseError.value = "匯入失敗：" + (err?.message || err);
@@ -484,7 +507,14 @@ function reset() {
   parsed.value = [];
   skipped.value = [];
   importDone.value = 0;
+  importTotal.value = 0;
   detectedHeaders.value = [];
+  importStats.value = {
+    created: 0,
+    skippedExisting: 0,
+    skippedWithinImport: 0,
+    requested: 0,
+  };
   parseError.value = "";
   if (fileInput.value) fileInput.value.value = "";
 }
@@ -657,6 +687,10 @@ function stoneLabel(r) {
   font-size: 1.3rem;
   font-weight: 600;
   color: #16a34a;
+  margin-bottom: 20px;
+}
+.done-summary {
+  margin-top: -8px;
   margin-bottom: 20px;
 }
 .done-actions {

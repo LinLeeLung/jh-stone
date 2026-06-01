@@ -846,12 +846,43 @@ function maskTotal(value) {
   return sensitiveView.value === "hidden" ? "＊＊＊" : value.toLocaleString();
 }
 
+function calcFirstPaymentFixedDeductions(r) {
+  if (!r) return 0;
+  return (
+    (Number(r.laborInsurance) || 0) +
+    (Number(r.healthInsurance) || 0) +
+    (Number(r.dependentHealth) || 0) +
+    (Number(r.lunchFee) || 0) +
+    (Number(r.foreignRent) || 0) +
+    (Number(r.waterFee) || 0) +
+    (Number(r.electricFee) || 0) +
+    (Number(r.foreignMedical) || 0) +
+    (Number(r.foreignService) || 0) +
+    (Number(r.loanPrincipal) || 0) +
+    (Number(r.loanInterest) || 0)
+  );
+}
+
+function calcLaborInsuranceSalaryBase(r) {
+  if (!r) return 0;
+  if (r.laborInsuranceSalaryBase != null) {
+    return Math.max(0, Number(r.laborInsuranceSalaryBase) || 0);
+  }
+  return Math.max(
+    0,
+    (Number(r.firstPayment) || 0) -
+      (Number(r.otPayOfficial) || 0) +
+      calcFirstPaymentFixedDeductions(r) +
+      (Number(r.absentDeduction) || 0),
+  );
+}
+
 function calcReportedIncome(r) {
   if (!r) return 0;
   if (r.laborInsuranceSalaryBase != null) {
     return Math.max(
       0,
-      (Number(r.laborInsuranceSalaryBase) || 0) -
+      calcLaborInsuranceSalaryBase(r) -
         (Number(r.absentDeduction) || 0) -
         (Number(r.lateEarlyDeduction) || 0),
     );
@@ -859,7 +890,9 @@ function calcReportedIncome(r) {
   if (r.reportedIncome != null) return Math.max(0, Number(r.reportedIncome) || 0);
   return Math.max(
     0,
-    (Number(r.firstPayment) || 0) - (Number(r.otPayOfficial) || 0),
+    calcLaborInsuranceSalaryBase(r) -
+      (Number(r.absentDeduction) || 0) -
+      (Number(r.lateEarlyDeduction) || 0),
   );
 }
 
@@ -1799,21 +1832,7 @@ function printSlip(r, mode) {
   let bodyRows = '';
 
   if (mode === 'first') {
-    const deductSum =
-      (Number(r.laborInsurance) || 0) +
-      (Number(r.healthInsurance) || 0) +
-      (Number(r.dependentHealth) || 0) +
-      (Number(r.lunchFee) || 0) +
-      (Number(r.foreignRent) || 0) +
-      (Number(r.waterFee) || 0) +
-      (Number(r.electricFee) || 0) +
-      (Number(r.foreignMedical) || 0) +
-      (Number(r.foreignService) || 0) +
-      (Number(r.loanPrincipal) || 0) +
-      (Number(r.loanInterest) || 0);
-    // 若 Firestore 沒存此欄位（舊資料），由 5日實發 + 各扣款反推
-    const base =
-      Number(r.laborInsuranceSalaryBase) || (Number(r.firstPayment) || 0) + deductSum;
+    const base = calcLaborInsuranceSalaryBase(r);
     const otOffRows = (r.otDetailOfficial || [])
       .map((ot) => `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`)
       .join('');

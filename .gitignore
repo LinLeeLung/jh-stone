@@ -20,6 +20,7 @@ build-error.txt
 build-output.txt
 deploy-error.txt
 deploy-output.txt
+/dist/
 
 # Firebase config
 

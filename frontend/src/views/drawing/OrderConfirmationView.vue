@@ -1746,26 +1746,63 @@ function doPrint() {
       return;
     }
     const html = el.outerHTML;
-    // Collect all scoped <style> from the page
-    const styles = Array.from(document.querySelectorAll("style"))
+    // Production builds extract CSS into <link rel="stylesheet">, so copy both
+    // inline <style> tags and linked stylesheets into the popup document.
+    const inlineStyles = Array.from(document.querySelectorAll("style"))
       .map((s) => s.outerHTML)
       .join("\n");
+    const linkedStyles = Array.from(
+      document.querySelectorAll('link[rel="stylesheet"]'),
+    )
+      .map((link) => {
+        const href = link.href || link.getAttribute("href") || "";
+        return href
+          ? `<link rel="stylesheet" href="${href}">`
+          : "";
+      })
+      .join("\n");
     const win = window.open("", "_blank", "width=1200,height=860");
+    if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head>
       <meta charset="utf-8">
       <title>生產確定單</title>
-      ${styles}
+      ${linkedStyles}
+      ${inlineStyles}
       <style>
         body { margin:0; background:#fff; }
         @page { size: A4 landscape; margin: 0; }
       </style>
     </head><body>${html}</body></html>`);
     win.document.close();
-    win.focus();
-    win.onload = () => {
-      win.print();
-      win.close();
+    const finalizePrint = () => {
+      win.requestAnimationFrame(() => {
+        win.requestAnimationFrame(() => {
+          win.focus();
+          win.print();
+          win.close();
+        });
+      });
     };
+    const pendingLinks = Array.from(
+      win.document.querySelectorAll('link[rel="stylesheet"]'),
+    );
+    if (!pendingLinks.length) {
+      finalizePrint();
+      return;
+    }
+    Promise.all(
+      pendingLinks.map(
+        (link) =>
+          new Promise((resolve) => {
+            if (link.sheet) {
+              resolve();
+              return;
+            }
+            link.addEventListener("load", resolve, { once: true });
+            link.addEventListener("error", resolve, { once: true });
+          }),
+      ),
+    ).finally(finalizePrint);
   }, 80);
 }
 

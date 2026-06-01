@@ -175,7 +175,7 @@ import {
   downloadConfirmedPdfBytes,
 } from "../firebase";
 
-const STATIONS = ["裁切", "水刀", "黏合", "水磨", "套板", "驗收"];
+const STATIONS = ["安裝", "裁切", "水刀", "黏合", "套板", "驗收"];
 
 const STATUS_LABEL = {
   draft: "草稿",
@@ -300,7 +300,7 @@ function toggleSelect(id) {
 
 onMounted(async () => {
   try {
-    rows.value = await listSalesOrders({ limit: 300 });
+    rows.value = await listSalesOrders({ limit: 0 });
     priceRedactBox.value = normalizeDispatchRedactBox();
   } finally {
     loading.value = false;

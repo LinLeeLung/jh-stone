@@ -21,6 +21,12 @@
           :to="`/orders/${route.params.id}/drawing`"
           >📏 繪圖</RouterLink
         >
+        <RouterLink
+          v-if="isEdit"
+          class="btn-aux"
+          :to="`/orders/${route.params.id}/sink-print`"
+          >🖨 印水槽</RouterLink
+        >
         <button
           v-if="isEdit"
           class="btn-aux"

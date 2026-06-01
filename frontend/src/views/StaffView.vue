@@ -125,11 +125,6 @@
     >
       <div class="modal-box" style="max-width: 900px">
         <h2>匯入員工資料 — 欄位對應</h2>
-        <p class="muted-text" style="font-size: 13px">
-          Excel 共
-          {{ importRows.length }} 筆資料。請確認每個系統欄位對應到哪一欄 Excel
-          標題，空白表示不匯入。
-        </p>
 
         <!-- 欄位對應 -->
         <div class="map-grid">
@@ -620,8 +615,10 @@ const importing = ref(false);
 const importErrMsg = ref("");
 
 function triggerImport() {
-  fileInputRef.value.value = "";
-  fileInputRef.value.click();
+  const input = fileInputRef.value;
+  if (!input) return;
+  input.value = "";
+  input.click();
 }
 
 function onFileChange(e) {
@@ -844,13 +841,26 @@ async function syncStaffToUser(s) {
       query(collection(db, "Users"), where("email", "==", s.email)),
     );
     if (snaps.empty) return;
-    const payload = {
-      staffRole: s.staffRole || "",
-      dept: s.dept || "",
-      empNo: s.empNo || "",
-    };
     for (const d of snaps.docs) {
-      await updateDoc(doc(db, "Users", d.id), payload);
+      const user = d.data() || {};
+      const currentRoles = Array.isArray(user.roles)
+        ? user.roles.map((role) => String(role || "").trim()).filter(Boolean)
+        : [];
+      const currentRole = String(user.role || "").trim();
+      const nextRoles = currentRoles.length
+        ? currentRoles
+        : (currentRole && currentRole !== "遊客" ? [currentRole] : ["員工"]);
+      const nextActiveRole = String(user.activeRole || currentRole || "").trim();
+      await updateDoc(doc(db, "Users", d.id), {
+        staffRole: s.staffRole || "",
+        dept: s.dept || "",
+        empNo: s.empNo || "",
+        departments: s.dept ? [String(s.dept)] : (Array.isArray(user.departments) ? user.departments : []),
+        activeDepartment: s.dept || user.activeDepartment || "",
+        roles: nextRoles,
+        activeRole: nextActiveRole && nextRoles.includes(nextActiveRole) ? nextActiveRole : nextRoles[0],
+        role: currentRole && currentRole !== "遊客" ? currentRole : nextRoles[0],
+      });
     }
   } catch (e) {
     console.warn("syncStaffToUser failed for", s.email, e.message);

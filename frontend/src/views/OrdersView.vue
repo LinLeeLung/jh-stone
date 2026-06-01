@@ -169,7 +169,7 @@
               </div>
             </td>
             <td>{{ o.category || "—" }}</td>
-            <td>
+            <td class="col-countertop">
               {{ o.countertop?.type || "—" }}
               <span v-if="o.countertop?.totalCm" class="cm-tag"
                 >{{ o.countertop.totalCm }}cm</span
@@ -506,13 +506,19 @@ function fmtDate(val) {
   color: #1d4ed8;
 }
 .col-stones {
-  min-width: 90px;
-  white-space: nowrap;
+  min-width: 70px;
+  max-width: 92px;
+  white-space: normal;
 }
 .stone-tag {
   font-size: 12px;
   color: #374151;
-  line-height: 1.5;
+  line-height: 1.35;
+}
+.col-customer {
+  min-width: 96px;
+  max-width: 130px;
+  white-space: normal;
 }
 .col-customer .customer-name {
   font-weight: 500;
@@ -521,10 +527,15 @@ function fmtDate(val) {
   font-size: 12px;
   color: #9ca3af;
 }
+.col-countertop {
+  min-width: 54px;
+  max-width: 72px;
+  white-space: normal;
+}
 .cm-tag {
   font-size: 11px;
   color: #6b7280;
-  margin-left: 4px;
+  margin-left: 0;
 }
 .col-price {
   text-align: right;
