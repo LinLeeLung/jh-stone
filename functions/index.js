@@ -19,6 +19,7 @@ const SYNO_USERNAME_SECRET = defineSecret("SYNO_USERNAME");
 const SYNO_PASSWORD_SECRET = defineSecret("SYNO_PASSWORD");
 const PHOTO_URL_SIGNING_SECRET = defineSecret("PHOTO_URL_SIGNING_SECRET");
 const NAS_PDF_API_KEY_SECRET = defineSecret("NAS_PDF_API_KEY");
+const ADMIN_EMAIL = "linlilung@gmail.com";
 
 // Must be called BEFORE any function definitions so it applies to all v2 functions
 setGlobalOptions({ maxInstances: 10, region: "asia-east1" });
@@ -54,6 +55,23 @@ async function cacheOrderFolderPath(orderNumber, folderPath) {
       error: err?.message,
     });
   }
+}
+
+function canViewOrderPdfPrice({ profile = null, viewerEmail = "" } = {}) {
+  const roles = Array.isArray(profile?.roles)
+    ? profile.roles.map((role) => String(role || "").trim())
+    : [];
+  const normalizedEmail = String(viewerEmail || "").trim().toLowerCase();
+
+  if (
+    roles.includes("價格") ||
+    roles.includes("admin") ||
+    roles.includes("管理者")
+  ) {
+    return true;
+  }
+
+  return normalizedEmail === ADMIN_EMAIL;
 }
 
 // 查詢 NAS 是否有包含訂單號碼的資料夾
@@ -6228,6 +6246,11 @@ exports.serveOrderPdf = onRequestV2(
     // Accept either a Firebase ID token (web app) or a static API key (GAS)
     const token = String(req.query.token || "").trim();
     const nasKey = String(req.query.nasKey || "").trim();
+    const viewerEmail = String(
+      req.query.viewerEmail || req.query.email || "",
+    )
+      .trim()
+      .toLowerCase();
 
     if (!token && !nasKey) {
       res.status(401).send("missing token");
@@ -6266,6 +6289,7 @@ exports.serveOrderPdf = onRequestV2(
         expectedLen: expectedKey.length,
         receivedFirst4: nasKey.slice(0, 4),
         expectedFirst4: expectedKey.slice(0, 4),
+        viewerEmail,
       });
       if (!expectedKey || nasKey !== expectedKey) {
         res.status(401).send("invalid api key");
@@ -6309,33 +6333,13 @@ exports.serveOrderPdf = onRequestV2(
     try {
       sid = await synologyLogin(baseUrl, username, password);
 
-      // Strategy 1: Universal search by filename — works regardless of folder structure.
-      // PDF is expected to be named "{orderNumber}.pdf" (e.g. 27361AAJ.pdf).
-      // Search within nasOrderPath (from settings) for faster results.
-      const nasSearchRoot =
-        (await getNasOrderPath()) ||
-        (() => {
-          const parts = (nasOrderFolder || "/峻晟").split("/").filter(Boolean);
-          return "/" + (parts[0] || "峻晟");
-        })();
+      let pdfPath = "";
 
-      let pdfPath = await synologySearchFileByName({
-        baseUrl,
-        sid,
-        rootPath: nasSearchRoot,
-        fileName: `${orderNumber}.pdf`,
-      });
-
-      logger.info("serveOrderPdf: search result", {
-        orderNumber,
-        nasSearchRoot,
-        pdfPath,
-      });
-
-      if (!pdfPath && nasOrderFolder) {
-        // Strategy 2: Direct folder listing — if we have a cached folder path, list it
+      if (nasOrderFolder) {
+        // Strategy 1: Prefer the order's cached NAS folder so we don't accidentally
+        // pick a same-named PDF from outbox or another derived folder.
         logger.info(
-          "serveOrderPdf: search returned null, trying direct folder listing",
+          "serveOrderPdf: trying direct folder listing from cached order folder",
           {
             orderNumber,
             nasOrderFolder,
@@ -6362,13 +6366,38 @@ exports.serveOrderPdf = onRequestV2(
             });
           }
         } catch (listErr) {
-          logger.warn("serveOrderPdf: folder listing fallback failed", {
+          logger.warn("serveOrderPdf: cached folder listing failed", {
             orderNumber,
             nasOrderFolder,
             error: listErr?.message,
           });
         }
       }
+
+      // Strategy 2: Universal search by filename — fallback when the order folder is
+      // missing, stale, or does not contain the PDF.
+      const nasSearchRoot =
+        (await getNasOrderPath()) ||
+        (() => {
+          const parts = (nasOrderFolder || "/峻晟").split("/").filter(Boolean);
+          return "/" + (parts[0] || "峻晟");
+        })();
+
+      if (!pdfPath) {
+        pdfPath = await synologySearchFileByName({
+          baseUrl,
+          sid,
+          rootPath: nasSearchRoot,
+          fileName: `${orderNumber}.pdf`,
+        });
+      }
+
+      logger.info("serveOrderPdf: search result", {
+        orderNumber,
+        nasSearchRoot,
+        nasOrderFolder,
+        pdfPath,
+      });
 
       if (!pdfPath) {
         res.status(404).send("找不到訂單 PDF 檔案");
