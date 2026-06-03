@@ -24,72 +24,140 @@
       <div class="leave-side-panel">
         <div class="side-panel-title">今日請假</div>
         <div v-if="!todayLeaveList.length" class="side-panel-empty">無</div>
-        <div v-for="r in todayLeaveList" :key="r.name + r.type" class="side-panel-item">
+        <div
+          v-for="r in todayLeaveList"
+          :key="r.name + r.type"
+          class="side-panel-item"
+        >
           <span class="side-name">{{ r.name }}</span>
           <span class="side-type">{{ r.type }}</span>
         </div>
       </div>
 
       <div class="punch-card">
-      <div class="punch-date">{{ todayLabel }}</div>
-      <div class="punch-time-now">{{ clockStr }}</div>
+        <div class="punch-date">{{ todayLabel }}</div>
+        <div class="punch-time-now">{{ clockStr }}</div>
 
-      <template v-if="!loaded">
-        <div class="punch-status">{{ t("loading") }}</div>
-      </template>
-      <template v-else-if="!todayRec">
-        <div class="punch-status neutral">{{ t("not_punched") }}</div>
-        <button class="btn-punch in" @click="punchIn" :disabled="punching">
-          {{ punching ? t("processing") : t("punch_in_btn") }}
-        </button>
-      </template>
-      <template v-else-if="!todayRec.punchOut">
-        <div class="punch-status in-office">
-          {{ t("punched_in") }}{{ todayRec.punchIn }}
-        </div>
-        <button class="btn-punch out" @click="punchOut" :disabled="punching">
-          {{ punching ? t("processing") : t("punch_out_btn") }}
-        </button>
-      </template>
-      <template v-else>
-        <div class="punch-status done">
-          <span>{{ t("punched_in") }}{{ todayRec.punchIn }}</span>
-          <span>{{ t("punched_out") }}{{ todayRec.punchOut }}</span>
-          <span class="hours"
-            >{{ t("work_hours_label")
-            }}{{ calcHours(todayRec.punchIn, todayRec.punchOut) }}
-            {{ t("hr_unit") }}</span
+        <template v-if="!loaded">
+          <div class="punch-status">{{ t("loading") }}</div>
+        </template>
+        <template v-else-if="!todayRec">
+          <div class="punch-status neutral">{{ t("not_punched") }}</div>
+          <button class="btn-punch in" @click="punchIn" :disabled="punching">
+            {{ punching ? t("processing") : t("punch_in_btn") }}
+          </button>
+        </template>
+        <template v-else-if="!todayRec.punchOut">
+          <div
+            class="punch-status in-office"
+            :class="{ 'on-leave': todayStatus === 'on_leave' }"
           >
-        </div>
-        <div class="punch-complete">{{ t("punch_complete") }}</div>
-      </template>
+            <template v-if="todayStatus === 'on_leave'">
+              外出中：{{ currentLeaveStartText || "已開始請假" }}
+            </template>
+            <template v-else>
+              {{ t("punched_in") }}{{ displayPunchIn(todayRec) }}
+            </template>
+          </div>
+          <div class="punch-actions">
+            <button
+              v-if="todayStatus === 'on_leave'"
+              class="btn-punch back"
+              @click="resumeWork"
+              :disabled="punching"
+            >
+              {{ punching ? t("processing") : t("resume_work_btn") }}
+            </button>
+            <button
+              v-else
+              class="btn-punch leave"
+              @click="startLeave"
+              :disabled="punching"
+            >
+              {{ punching ? t("processing") : t("start_leave_btn") }}
+            </button>
+            <button
+              class="btn-punch out"
+              @click="punchOut"
+              :disabled="punching"
+            >
+              {{ punching ? t("processing") : t("punch_out_btn") }}
+            </button>
+          </div>
+          <div v-if="todayTimelineText" class="punch-timeline">
+            {{ todayTimelineText }}
+          </div>
+        </template>
+        <template v-else>
+          <div class="punch-status done">
+            <span>{{ t("punched_in") }}{{ displayPunchIn(todayRec) }}</span>
+            <span>{{ t("punched_out") }}{{ displayPunchOut(todayRec) }}</span>
+            <span class="hours"
+              >{{ t("work_hours_label") }}{{ calcRecordHours(todayRec) }}
+              {{ t("hr_unit") }}</span
+            >
+          </div>
+          <div v-if="todayTimelineText" class="punch-timeline">
+            {{ todayTimelineText }}
+          </div>
+          <div class="punch-complete">{{ t("punch_complete") }}</div>
+        </template>
 
-      <div v-if="punchErr" class="err-msg">
-        {{ punchErr }}
-        <div v-if="geoBlocked" class="err-hint">
-          {{ t("geo_hint_chrome") }}<br />
-          {{ t("geo_hint_safari") }}
+        <div v-if="punchErr" class="err-msg">
+          {{ punchErr }}
+          <div v-if="geoBlocked" class="err-hint">
+            {{ t("geo_hint_chrome") }}<br />
+            {{ t("geo_hint_safari") }}
+          </div>
         </div>
-      </div>
       </div>
 
       <!-- 明日請假 / 未打卡 -->
       <div class="side-col-right">
         <div class="leave-side-panel">
           <div class="side-panel-title">明日請假</div>
-          <div v-if="!tomorrowLeaveList.length" class="side-panel-empty">無</div>
-          <div v-for="r in tomorrowLeaveList" :key="r.name + r.type" class="side-panel-item">
+          <div v-if="!tomorrowLeaveList.length" class="side-panel-empty">
+            無
+          </div>
+          <div
+            v-for="r in tomorrowLeaveList"
+            :key="r.name + r.type"
+            class="side-panel-item"
+          >
             <span class="side-name">{{ r.name }}</span>
             <span class="side-type">{{ r.type }}</span>
           </div>
         </div>
-        <div v-if="isApprover" class="leave-side-panel not-punched-panel" style="margin-top:10px">
-          <div class="side-panel-title np-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <div
+          v-if="isApprover"
+          class="leave-side-panel not-punched-panel"
+          style="margin-top: 10px"
+        >
+          <div
+            class="side-panel-title np-title"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
             <span>未打卡 ({{ notPunchedList.length }})</span>
-            <button class="np-refresh-btn" @click="fetchNotPunched" title="刷新">↻</button>
+            <button
+              class="np-refresh-btn"
+              @click="fetchNotPunched"
+              title="刷新"
+            >
+              ↻
+            </button>
           </div>
-          <div v-if="!notPunchedList.length" class="side-panel-empty">全員到齊</div>
-          <div v-for="s in notPunchedList" :key="s.email || s.name" class="side-panel-item">
+          <div v-if="!notPunchedList.length" class="side-panel-empty">
+            全員到齊
+          </div>
+          <div
+            v-for="s in notPunchedList"
+            :key="s.email || s.name"
+            class="side-panel-item"
+          >
             <span class="side-name">{{ s.name }}</span>
           </div>
         </div>
@@ -131,14 +199,10 @@
           >
             <td>{{ r.date }}</td>
             <td>{{ weekDay(r.date) }}</td>
-            <td>{{ r.punchIn || "—" }}</td>
-            <td>{{ r.punchOut || "—" }}</td>
+            <td>{{ displayPunchIn(r) || "—" }}</td>
+            <td>{{ displayPunchOut(r) || "—" }}</td>
             <td>
-              {{
-                r.punchIn && r.punchOut
-                  ? calcHours(r.punchIn, r.punchOut) + " h"
-                  : "—"
-              }}
+              {{ hasCompletedWorkRecord(r) ? calcRecordHours(r) + " h" : "—" }}
             </td>
           </tr>
         </tbody>
@@ -164,8 +228,12 @@
             >姓名
             <input v-model="queryName" placeholder="篩選姓名" />
           </label>
-          <button class="btn-add-punch" @click="openNewRecord">＋ 補打卡</button>
-          <span class="punch-count-badge">打卡人數：{{ allRecords.length }} 人</span>
+          <button class="btn-add-punch" @click="openNewRecord">
+            ＋ 補打卡
+          </button>
+          <span class="punch-count-badge"
+            >打卡人數：{{ allRecords.length }} 人</span
+          >
         </div>
       </div>
 
@@ -186,11 +254,16 @@
           <tr v-for="r in filteredRecords" :key="r.id">
             <td>
               {{ r.name }}
-              <span v-if="r.manualCorrected" class="badge-corrected" :title="'補打/修改 by ' + (r.correctedBy || '管理者')">補打</span>
+              <span
+                v-if="r.manualCorrected"
+                class="badge-corrected"
+                :title="'補打/修改 by ' + (r.correctedBy || '管理者')"
+                >補打</span
+              >
             </td>
             <td>{{ r.email }}</td>
             <td>
-              {{ r.punchIn || "—" }}
+              {{ displayPunchIn(r) || "—" }}
               <span v-if="r.locationVerified === false" class="badge-unverified"
                 >未驗證</span
               >
@@ -199,7 +272,7 @@
               >
             </td>
             <td>
-              {{ r.punchOut || "—" }}
+              {{ displayPunchOut(r) || "—" }}
               <span
                 v-if="r.locationVerifiedOut === false"
                 class="badge-unverified"
@@ -210,11 +283,7 @@
               >
             </td>
             <td>
-              {{
-                r.punchIn && r.punchOut
-                  ? calcHours(r.punchIn, r.punchOut) + " h"
-                  : "—"
-              }}
+              {{ hasCompletedWorkRecord(r) ? calcRecordHours(r) + " h" : "—" }}
             </td>
             <td>
               <button class="btn-edit-sm" @click="openEdit(r)">修改</button>
@@ -281,25 +350,24 @@
                 <td>{{ weekDay(day) }}</td>
                 <td>
                   {{
-                    emp.byDate[day]?.punchIn || (isWeekend(day) ? "休" : "—")
+                    displayPunchIn(emp.byDate[day]) ||
+                    (isWeekend(day) ? "休" : "—")
                   }}
                 </td>
                 <td>
                   {{
-                    emp.byDate[day]?.punchOut || (isWeekend(day) ? "休" : "—")
+                    displayPunchOut(emp.byDate[day]) ||
+                    (isWeekend(day) ? "休" : "—")
                   }}
                 </td>
                 <td>
                   {{
-                    emp.byDate[day]?.punchIn && emp.byDate[day]?.punchOut
-                      ? calcHours(
-                          emp.byDate[day].punchIn,
-                          emp.byDate[day].punchOut,
-                        ) + " h"
+                    hasCompletedWorkRecord(emp.byDate[day])
+                      ? calcRecordHours(emp.byDate[day]) + " h"
                       : "—"
                   }}
                 </td>
-                <td></td>
+                <td>{{ leaveSummary(emp.byDate[day]) }}</td>
               </tr>
             </tbody>
             <tfoot>
@@ -320,40 +388,122 @@
     </div>
 
     <!-- ── 修改打卡 modal ─────────────────────────────────── -->
-    <div v-if="editModal.show" class="modal-overlay" @click.self="editModal.show = false">
+    <div
+      v-if="editModal.show"
+      class="modal-overlay"
+      @click.self="editModal.show = false"
+    >
       <div class="modal-box">
         <h3>修改打卡記錄</h3>
-        <div class="modal-info">{{ editModal.name }}&emsp;{{ editModal.date }}</div>
-        <div class="form-row">
-          <label>上班時間（必填）</label>
-          <input type="time" v-model="editModal.punchIn" step="1" />
+        <div class="modal-info">
+          {{ editModal.name }}&emsp;{{ editModal.date }}
         </div>
-        <div class="form-row">
-          <label>下班時間（留空 = 清除誤打卡）</label>
-          <div class="time-row">
-            <input type="time" v-model="editModal.punchOut" step="1" />
-            <button class="btn-clear-time" @click="editModal.punchOut = ''">清除</button>
+        <div class="segment-editor">
+          <div class="segment-section">
+            <div class="segment-head">
+              <label>工作時段</label>
+              <button class="btn-add-segment" @click="addEditWorkSegment">
+                ＋ 新增工作時段
+              </button>
+            </div>
+            <div
+              v-for="(seg, index) in editModal.workSegments"
+              :key="`work-${index}`"
+              class="segment-row"
+            >
+              <input type="time" v-model="seg.start" step="1" />
+              <span>至</span>
+              <input type="time" v-model="seg.end" step="1" />
+              <button
+                class="btn-remove-segment"
+                @click="removeEditWorkSegment(index)"
+              >
+                刪除
+              </button>
+            </div>
           </div>
+
+          <div class="segment-section">
+            <div class="segment-head">
+              <label>請假時段</label>
+              <button class="btn-add-segment" @click="addEditLeaveSegment">
+                ＋ 新增請假時段
+              </button>
+            </div>
+            <div v-if="!editModal.leaveSegments.length" class="segment-empty">
+              無
+            </div>
+            <div
+              v-for="(seg, index) in editModal.leaveSegments"
+              :key="`leave-${index}`"
+              class="segment-row segment-row-leave"
+            >
+              <input type="time" v-model="seg.start" step="1" />
+              <span>至</span>
+              <input type="time" v-model="seg.end" step="1" />
+              <select
+                v-model="seg.leaveRequestId"
+                @change="syncEditLeaveSegment(index)"
+              >
+                <option value="">未連結假單</option>
+                <option
+                  v-for="opt in editModal.leaveOptions"
+                  :key="opt.id"
+                  :value="opt.id"
+                >
+                  {{ formatLeaveOption(opt) }}
+                </option>
+              </select>
+              <button
+                class="btn-remove-segment"
+                @click="removeEditLeaveSegment(index)"
+              >
+                刪除
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="segment-help">
+          最後一段可留空，表示仍在上班或外出中；中間區段請填完整時間。
         </div>
         <div v-if="editModal.err" class="modal-err">{{ editModal.err }}</div>
         <div class="modal-btns">
-          <button class="btn-save" :disabled="editModal.saving" @click="saveEdit">
+          <button
+            class="btn-save"
+            :disabled="editModal.saving"
+            @click="saveEdit"
+          >
             {{ editModal.saving ? "儲存中…" : "儲存" }}
           </button>
-          <button class="btn-cancel" @click="editModal.show = false">取消</button>
+          <button class="btn-cancel" @click="editModal.show = false">
+            取消
+          </button>
         </div>
       </div>
     </div>
 
     <!-- ── 補打卡 modal ───────────────────────────────────── -->
-    <div v-if="newRecModal.show" class="modal-overlay" @click.self="newRecModal.show = false">
+    <div
+      v-if="newRecModal.show"
+      class="modal-overlay"
+      @click.self="newRecModal.show = false"
+    >
       <div class="modal-box">
         <h3>補打卡（手動新增）</h3>
         <div class="form-row">
           <label>員工</label>
+          <input
+            v-model.trim="newRecEmployeeQuery"
+            type="search"
+            class="employee-search-input"
+            placeholder="輸入姓名、Email 或員編關鍵字"
+          />
+          <div class="form-helper">
+            共 {{ filteredNewRecUsers.length }} 位符合
+          </div>
           <select v-model="newRecModal.uid">
             <option value="">請選擇員工</option>
-            <option v-for="u in allUsersCache" :key="u.id" :value="u.id">
+            <option v-for="u in filteredNewRecUsers" :key="u.id" :value="u.id">
               {{ u.displayName || u.email }}
             </option>
           </select>
@@ -370,12 +520,20 @@
           <label>下班時間（選填）</label>
           <input type="time" v-model="newRecModal.punchOut" step="1" />
         </div>
-        <div v-if="newRecModal.err" class="modal-err">{{ newRecModal.err }}</div>
+        <div v-if="newRecModal.err" class="modal-err">
+          {{ newRecModal.err }}
+        </div>
         <div class="modal-btns">
-          <button class="btn-save" :disabled="newRecModal.saving" @click="saveNewRecord">
+          <button
+            class="btn-save"
+            :disabled="newRecModal.saving"
+            @click="saveNewRecord"
+          >
             {{ newRecModal.saving ? "儲存中…" : "儲存" }}
           </button>
-          <button class="btn-cancel" @click="newRecModal.show = false">取消</button>
+          <button class="btn-cancel" @click="newRecModal.show = false">
+            取消
+          </button>
         </div>
       </div>
     </div>
@@ -448,11 +606,43 @@ const allRecords = ref([]);
 const queryDate = ref(todayStr());
 const queryName = ref("");
 const allUsersCache = ref([]);
+const newRecEmployeeQuery = ref("");
 
 // ── 修改打卡 modal ──────────────────────────────────────────
-const editModal = ref({ show: false, id: "", uid: "", name: "", date: "", punchIn: "", punchOut: "", saving: false, err: "" });
+const editModal = ref({
+  show: false,
+  id: "",
+  uid: "",
+  name: "",
+  date: "",
+  workSegments: [],
+  leaveSegments: [],
+  leaveOptions: [],
+  sourceRecord: null,
+  saving: false,
+  err: "",
+});
 // ── 補打卡 modal ────────────────────────────────────────────
-const newRecModal = ref({ show: false, uid: "", date: "", punchIn: "", punchOut: "", saving: false, err: "" });
+const newRecModal = ref({
+  show: false,
+  uid: "",
+  date: "",
+  punchIn: "",
+  punchOut: "",
+  saving: false,
+  err: "",
+});
+
+const filteredNewRecUsers = computed(() => {
+  const kw = newRecEmployeeQuery.value.trim().toLowerCase();
+  if (!kw) return allUsersCache.value;
+  return allUsersCache.value.filter((user) => {
+    const fields = [user.displayName, user.email, user.id]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+    return fields.some((value) => value.includes(kw));
+  });
+});
 
 // ── 今明日請假名單 ─────────────────────────────────
 const notPunchedList = ref([]);
@@ -465,7 +655,9 @@ async function fetchNotPunched() {
       getDocs(query(collection(db, "attendance"), where("date", "==", today))),
     ]);
     const punchedEmails = new Set(
-      attSnap.docs.map((d) => (d.data().email || "").toLowerCase()).filter(Boolean)
+      attSnap.docs
+        .map((d) => (d.data().email || "").toLowerCase())
+        .filter(Boolean),
     );
     notPunchedList.value = staffSnap.docs
       .map((d) => d.data())
@@ -489,10 +681,7 @@ async function fetchDayLeaves() {
     tmr.setDate(tmr.getDate() + 1);
     const tomorrow = tmr.toLocaleDateString("sv-SE");
     const snap = await getDocs(
-      query(
-        collection(db, "leaveRequests"),
-        where("endDate", ">=", today),
-      ),
+      query(collection(db, "leaveRequests"), where("endDate", ">=", today)),
     );
     const rawRecs = snap.docs
       .map((d) => ({ ...d.data() }))
@@ -506,9 +695,15 @@ async function fetchDayLeaves() {
     try {
       const allUsers = await fetchAllUsers();
       const nameMap = {};
-      allUsers.forEach((u) => { if (u.uid) nameMap[u.uid] = u.displayName || u.name || ""; });
-      recs = rawRecs.map((r) => r.uid && nameMap[r.uid] ? { ...r, name: nameMap[r.uid] } : r);
-    } catch (_) { /* non-admin can't read all Users; use stored names */ }
+      allUsers.forEach((u) => {
+        if (u.uid) nameMap[u.uid] = u.displayName || u.name || "";
+      });
+      recs = rawRecs.map((r) =>
+        r.uid && nameMap[r.uid] ? { ...r, name: nameMap[r.uid] } : r,
+      );
+    } catch (_) {
+      /* non-admin can't read all Users; use stored names */
+    }
 
     function groupByName(list) {
       const map = new Map();
@@ -552,6 +747,398 @@ const todayLabel = computed(() => {
 function timeStr() {
   return new Date().toLocaleTimeString("zh-TW", { hour12: false });
 }
+
+const EARLIEST_PUNCH_IN = "07:45:00";
+
+function toSeconds(value) {
+  if (!value) return null;
+  const parts = String(value).split(":").map(Number);
+  if (!Number.isFinite(parts[0]) || !Number.isFinite(parts[1] ?? 0))
+    return null;
+  return parts[0] * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+}
+
+function sortByTime(list, field = "start") {
+  return [...list].sort(
+    (a, b) => (toSeconds(a?.[field]) ?? 0) - (toSeconds(b?.[field]) ?? 0),
+  );
+}
+
+function normalizeSegments(list) {
+  if (!Array.isArray(list)) return [];
+  return sortByTime(
+    list
+      .map((seg) => {
+        const start = seg?.start ? toHMS(seg.start) : null;
+        const end = seg?.end ? toHMS(seg.end) : null;
+        return start ? { ...seg, start, end } : null;
+      })
+      .filter(Boolean),
+  );
+}
+
+function clampEarliestPunchIn(value) {
+  const normalized = toHMS(value);
+  if (!normalized) return null;
+  return (toSeconds(normalized) ?? 0) < toSeconds(EARLIEST_PUNCH_IN)
+    ? EARLIEST_PUNCH_IN
+    : normalized;
+}
+
+function normalizeWorkSegments(list) {
+  const segments = normalizeSegments(list);
+  if (segments.length) {
+    segments[0] = {
+      ...segments[0],
+      start: clampEarliestPunchIn(segments[0].start),
+    };
+  }
+  return segments;
+}
+
+function getWorkSegments(record) {
+  const segments = normalizeWorkSegments(record?.workSegments);
+  if (segments.length) return segments;
+  if (record?.punchIn) {
+    return [
+      {
+        start: clampEarliestPunchIn(record.punchIn),
+        end: record?.punchOut ? toHMS(record.punchOut) : null,
+      },
+    ];
+  }
+  return [];
+}
+
+function getLeaveSegments(record) {
+  return normalizeSegments(record?.leaveSegments);
+}
+
+function displayPunchIn(record) {
+  return getWorkSegments(record)[0]?.start || record?.punchIn || "";
+}
+
+function displayPunchOut(record) {
+  const lastEndedWork = [...getWorkSegments(record)]
+    .reverse()
+    .find((seg) => seg?.end)?.end;
+  return record?.punchOut || lastEndedWork || "";
+}
+
+function getOpenLeaveSegment(record) {
+  return (
+    [...getLeaveSegments(record)]
+      .reverse()
+      .find((seg) => seg?.start && !seg?.end) || null
+  );
+}
+
+function getRecordStatus(record) {
+  if (!record) return "idle";
+  if (record.punchOut) return "done";
+  if (getOpenLeaveSegment(record)) return "on_leave";
+  if (displayPunchIn(record)) return "working";
+  return "idle";
+}
+
+function calcRecordHours(record) {
+  const totalSeconds = getWorkSegments(record).reduce((sum, seg) => {
+    const start = toSeconds(seg.start);
+    const end = toSeconds(seg.end);
+    if (start == null || end == null || end <= start) return sum;
+    return sum + (end - start);
+  }, 0);
+  if (!totalSeconds) return "—";
+  return (totalSeconds / 3600).toFixed(1);
+}
+
+function hasCompletedWorkRecord(record) {
+  return calcRecordHours(record) !== "—";
+}
+
+function leaveSummary(record) {
+  const segments = getLeaveSegments(record);
+  if (!segments.length) return "";
+  return segments
+    .map(
+      (seg) =>
+        `${seg.start}~${seg.end || "未返場"}${seg.leaveType ? ` (${seg.leaveType})` : ""}`,
+    )
+    .join("；");
+}
+
+function buildTimelineText(record) {
+  if (!record) return "";
+  const items = [
+    ...getWorkSegments(record).map((seg) => ({
+      start: seg.start,
+      text: `上班 ${seg.start}${seg.end ? `-${seg.end}` : ""}`,
+    })),
+    ...getLeaveSegments(record).map((seg) => ({
+      start: seg.start,
+      text: `請假 ${seg.start}${seg.end ? `-${seg.end}` : "-進行中"}`,
+    })),
+  ];
+  return sortByTime(items, "start")
+    .map((item) => item.text)
+    .join(" ｜ ");
+}
+
+function cloneSegments(record, key) {
+  const segments =
+    key === "workSegments"
+      ? normalizeWorkSegments(record?.[key])
+      : normalizeSegments(record?.[key]);
+  return segments.map((seg) => ({ ...seg }));
+}
+
+function emptyWorkSegment() {
+  return { start: "", end: "" };
+}
+
+function emptyLeaveSegment() {
+  return { start: "", end: "", leaveRequestId: "", leaveType: "" };
+}
+
+function getActorName() {
+  return (
+    userDoc?.name ||
+    userDoc?.displayName ||
+    currentUser?.displayName ||
+    currentUser?.email ||
+    "system"
+  );
+}
+
+function buildAuditSnapshot(record) {
+  return {
+    punchIn: record?.punchIn || null,
+    punchOut: record?.punchOut || null,
+    currentState: record?.currentState || null,
+    workSegments: cloneSegments(record, "workSegments"),
+    leaveSegments: cloneSegments(record, "leaveSegments"),
+  };
+}
+
+function appendAuditTrail(record, action, afterRecord, meta = {}) {
+  const trail = Array.isArray(record?.auditTrail) ? [...record.auditTrail] : [];
+  trail.push({
+    action,
+    actor: getActorName(),
+    at: new Date().toISOString(),
+    before: buildAuditSnapshot(record),
+    after: buildAuditSnapshot(afterRecord),
+    ...meta,
+  });
+  return trail;
+}
+
+function formatLeaveOption(opt) {
+  if (!opt) return "";
+  const timeRange =
+    opt.unit === "小時"
+      ? `${opt.startTime || ""}-${opt.endTime || ""}`
+      : `${opt.startDate || ""}${opt.endDate && opt.endDate !== opt.startDate ? `~${opt.endDate}` : ""}`;
+  return `${opt.type || "假單"} ${timeRange}`.trim();
+}
+
+function hydrateLeaveSegment(seg) {
+  return {
+    start: seg?.start ? String(seg.start).slice(0, 5) : "",
+    end: seg?.end ? String(seg.end).slice(0, 5) : "",
+    leaveRequestId: seg?.leaveRequestId || "",
+    leaveType: seg?.leaveType || "",
+  };
+}
+
+function timeOverlaps(startA, endA, startB, endB) {
+  const aStart = toSeconds(startA);
+  const aEnd = toSeconds(endA);
+  const bStart = toSeconds(startB);
+  const bEnd = toSeconds(endB);
+  if (aStart == null || aEnd == null || bStart == null || bEnd == null)
+    return false;
+  return aStart < bEnd && aEnd > bStart;
+}
+
+function validateSegments(workSegments, leaveSegments) {
+  const errors = [];
+  const normalizedWork = normalizeSegments(workSegments);
+  const normalizedLeave = normalizeSegments(leaveSegments);
+  if (!normalizedWork.length) {
+    errors.push("至少要有一段工作時段");
+  }
+  const validateList = (list, label) => {
+    let openCount = 0;
+    list.forEach((seg, index) => {
+      if (!seg.start) {
+        errors.push(`${label}${index + 1} 缺少開始時間`);
+        return;
+      }
+      if (!seg.end) {
+        openCount += 1;
+        if (index !== list.length - 1) {
+          errors.push(`${label}${index + 1} 若未結束，必須放在最後一段`);
+        }
+        return;
+      }
+      if ((toSeconds(seg.end) ?? 0) <= (toSeconds(seg.start) ?? 0)) {
+        errors.push(`${label}${index + 1} 結束時間必須晚於開始時間`);
+      }
+    });
+    if (openCount > 1) errors.push(`${label}只能有一段未結束`);
+  };
+  validateList(normalizedWork, "工作時段");
+  validateList(normalizedLeave, "請假時段");
+  for (let i = 1; i < normalizedWork.length; i += 1) {
+    if (
+      timeOverlaps(
+        normalizedWork[i - 1].start,
+        normalizedWork[i - 1].end,
+        normalizedWork[i].start,
+        normalizedWork[i].end,
+      )
+    ) {
+      errors.push("工作時段不可互相重疊");
+      break;
+    }
+  }
+  for (let i = 1; i < normalizedLeave.length; i += 1) {
+    if (
+      timeOverlaps(
+        normalizedLeave[i - 1].start,
+        normalizedLeave[i - 1].end,
+        normalizedLeave[i].start,
+        normalizedLeave[i].end,
+      )
+    ) {
+      errors.push("請假時段不可互相重疊");
+      break;
+    }
+  }
+  normalizedLeave.forEach((leaveSeg) => {
+    normalizedWork.forEach((workSeg) => {
+      if (
+        timeOverlaps(leaveSeg.start, leaveSeg.end, workSeg.start, workSeg.end)
+      ) {
+        errors.push("工作時段與請假時段不可重疊");
+      }
+    });
+  });
+  return { normalizedWork, normalizedLeave, errors: [...new Set(errors)] };
+}
+
+function buildAttendanceStateFromSegments(workSegments, leaveSegments) {
+  const normalizedWork = normalizeWorkSegments(workSegments);
+  const normalizedLeave = normalizeSegments(leaveSegments);
+  const punchIn = normalizedWork[0]?.start || null;
+  const lastEndedWork =
+    [...normalizedWork].reverse().find((seg) => seg.end)?.end || null;
+  const hasOpenLeave = normalizedLeave.some((seg) => seg.start && !seg.end);
+  const hasOpenWork = normalizedWork.some((seg) => seg.start && !seg.end);
+  let currentState = "idle";
+  let punchOut = null;
+  if (hasOpenLeave) {
+    currentState = "on_leave";
+  } else if (hasOpenWork) {
+    currentState = "working";
+  } else if (lastEndedWork) {
+    currentState = "done";
+    punchOut = lastEndedWork;
+  }
+  return {
+    punchIn,
+    punchOut,
+    currentState,
+    workSegments: normalizedWork,
+    leaveSegments: normalizedLeave,
+  };
+}
+
+async function fetchApprovedLeaveOptions(uid, date) {
+  if (!uid || !date) return [];
+  const snap = await getDocs(
+    query(collection(db, "leaveRequests"), where("uid", "==", uid)),
+  );
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter(
+      (item) =>
+        (item.status === "approved1" || item.status === "approved2") &&
+        item.startDate <= date &&
+        item.endDate >= date,
+    )
+    .sort((a, b) =>
+      `${a.startDate || ""}${a.startTime || ""}`.localeCompare(
+        `${b.startDate || ""}${b.startTime || ""}`,
+      ),
+    );
+}
+
+function matchLeaveOption(options, date, start, end = "") {
+  const startSecs = toSeconds(start);
+  const endSecs = end ? toSeconds(end) : null;
+  return (
+    options.find((opt) => {
+      if (opt.startDate > date || opt.endDate < date) return false;
+      if (opt.unit !== "小時") return true;
+      const optStart = toSeconds(opt.startTime);
+      const optEnd = toSeconds(opt.endTime);
+      if (startSecs == null || optStart == null || optEnd == null) return false;
+      if (endSecs == null) return startSecs >= optStart && startSecs <= optEnd;
+      return startSecs >= optStart && endSecs <= optEnd;
+    }) || null
+  );
+}
+
+function syncLeaveSegmentWithOption(seg, options) {
+  if (!seg.leaveRequestId) {
+    seg.leaveType = "";
+    return;
+  }
+  const opt = options.find((item) => item.id === seg.leaveRequestId);
+  seg.leaveType = opt?.type || "";
+}
+
+function createGeoPayload(geo, suffix = "") {
+  const payload = {
+    [`locationVerified${suffix}`]: geo.ok === true,
+  };
+  if (geo.ok === true && geo.lat != null) {
+    payload[`gpsLat${suffix}`] = geo.lat;
+    payload[`gpsLng${suffix}`] = geo.lng;
+    payload[`gpsAccuracy${suffix}`] = geo.accuracy;
+    payload[`gpsDist${suffix}`] = geo.dist;
+  }
+  return payload;
+}
+
+function appendEvent(record, type, tStr, geo) {
+  const events = Array.isArray(record?.events) ? [...record.events] : [];
+  events.push({
+    type,
+    time: tStr,
+    at: new Date().toISOString(),
+    locationVerified: geo.ok === true,
+    gpsLat: geo.lat ?? null,
+    gpsLng: geo.lng ?? null,
+    gpsAccuracy: geo.accuracy ?? null,
+    gpsDist: geo.dist ?? null,
+  });
+  return events;
+}
+
+function buildManualWorkSegments(punchIn, punchOut) {
+  const start = clampEarliestPunchIn(punchIn);
+  if (!start) return [];
+  return [{ start, end: toHMS(punchOut) ?? null }];
+}
+
+const todayStatus = computed(() => getRecordStatus(todayRec.value));
+const currentLeaveStartText = computed(
+  () => getOpenLeaveSegment(todayRec.value)?.start || "",
+);
+const todayTimelineText = computed(() => buildTimelineText(todayRec.value));
 
 function calcHours(inStr, outStr) {
   if (!inStr || !outStr) return "—";
@@ -634,10 +1221,7 @@ async function loadApproverInfo() {
     }
     if (!myStaffRole.value || !myDept.value) {
       const snap = await getDocs(
-        query(
-          collection(db, "staff"),
-          where("email", "==", currentUser.email),
-        ),
+        query(collection(db, "staff"), where("email", "==", currentUser.email)),
       );
       if (!snap.empty) {
         const s = snap.docs[0].data();
@@ -759,28 +1343,146 @@ async function punchIn() {
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
-    const locationVerified = geo.ok === true;
     const id = `${todayStr()}_${currentUser.uid}`;
+    const tStr = clampEarliestPunchIn(timeStr());
     const data = {
       uid: currentUser.uid,
-      name: userDoc?.displayName || currentUser.displayName || currentUser.email,
+      name:
+        userDoc?.displayName || currentUser.displayName || currentUser.email,
       email: currentUser.email,
       date: todayStr(),
-      punchIn: timeStr(),
+      punchIn: tStr,
       punchOut: null,
-      locationVerified,
-      ...(locationVerified && geo.lat != null
-        ? {
-            gpsLat: geo.lat,
-            gpsLng: geo.lng,
-            gpsAccuracy: geo.accuracy,
-            gpsDist: geo.dist,
-          }
-        : {}),
+      currentState: "working",
+      workSegments: [{ start: tStr, end: null }],
+      leaveSegments: [],
+      events: appendEvent(null, "punchIn", tStr, geo),
+      auditTrail: [],
+      ...createGeoPayload(geo),
     };
+    data.auditTrail = appendAuditTrail(null, "punchIn", data, {
+      source: "employee",
+    });
     await setDoc(doc(db, "attendance", id), data);
     todayRec.value = data;
     fetchNotPunched();
+  } catch (e) {
+    punchErr.value = t("punch_fail") + e.message;
+  } finally {
+    punching.value = false;
+  }
+}
+
+async function startLeave() {
+  if (!todayRec.value || todayStatus.value !== "working") return;
+  punching.value = true;
+  punchErr.value = "";
+  geoBlocked.value = false;
+  try {
+    const freshSettings = await getSystemSettings();
+    punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
+    const geo = await checkGeofence();
+    const id = `${todayStr()}_${currentUser.uid}`;
+    const tStr = timeStr();
+    const leaveOptions = await fetchApprovedLeaveOptions(
+      currentUser.uid,
+      todayStr(),
+    );
+    const workSegments = cloneSegments(todayRec.value, "workSegments");
+    if (workSegments.length) {
+      const lastWork = workSegments[workSegments.length - 1];
+      if (!lastWork.end) lastWork.end = tStr;
+    }
+    const leaveSegments = cloneSegments(todayRec.value, "leaveSegments");
+    const matchedLeave = matchLeaveOption(leaveOptions, todayStr(), tStr);
+    leaveSegments.push({
+      start: tStr,
+      end: null,
+      leaveRequestId: matchedLeave?.id || "",
+      leaveType: matchedLeave?.type || "",
+    });
+    const afterRecord = {
+      ...todayRec.value,
+      workSegments,
+      leaveSegments,
+      currentState: "on_leave",
+    };
+    const upd = {
+      workSegments,
+      leaveSegments,
+      currentState: "on_leave",
+      events: appendEvent(todayRec.value, "leaveStart", tStr, geo),
+      auditTrail: appendAuditTrail(todayRec.value, "leaveStart", afterRecord, {
+        source: "employee",
+        leaveRequestId: matchedLeave?.id || null,
+        leaveType: matchedLeave?.type || null,
+      }),
+      ...createGeoPayload(geo, "LeaveStart"),
+    };
+    await updateDoc(doc(db, "attendance", id), upd);
+    todayRec.value = { ...todayRec.value, ...upd };
+  } catch (e) {
+    punchErr.value = t("punch_fail") + e.message;
+  } finally {
+    punching.value = false;
+  }
+}
+
+async function resumeWork() {
+  if (!todayRec.value || todayStatus.value !== "on_leave") return;
+  punching.value = true;
+  punchErr.value = "";
+  geoBlocked.value = false;
+  try {
+    const freshSettings = await getSystemSettings();
+    punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
+    const geo = await checkGeofence();
+    const id = `${todayStr()}_${currentUser.uid}`;
+    const tStr = timeStr();
+    const leaveOptions = await fetchApprovedLeaveOptions(
+      currentUser.uid,
+      todayStr(),
+    );
+    const leaveSegments = cloneSegments(todayRec.value, "leaveSegments");
+    if (leaveSegments.length) {
+      const lastLeave = leaveSegments[leaveSegments.length - 1];
+      if (!lastLeave.end) {
+        lastLeave.end = tStr;
+        if (!lastLeave.leaveRequestId) {
+          const matchedLeave = matchLeaveOption(
+            leaveOptions,
+            todayStr(),
+            lastLeave.start,
+            tStr,
+          );
+          lastLeave.leaveRequestId = matchedLeave?.id || "";
+          lastLeave.leaveType = matchedLeave?.type || lastLeave.leaveType || "";
+        }
+      }
+    }
+    const workSegments = cloneSegments(todayRec.value, "workSegments");
+    workSegments.push({ start: tStr, end: null });
+    const afterRecord = {
+      ...todayRec.value,
+      leaveSegments,
+      workSegments,
+      currentState: "working",
+    };
+    const upd = {
+      leaveSegments,
+      workSegments,
+      currentState: "working",
+      events: appendEvent(todayRec.value, "leaveEnd", tStr, geo),
+      auditTrail: appendAuditTrail(todayRec.value, "leaveEnd", afterRecord, {
+        source: "employee",
+        leaveRequestId:
+          leaveSegments[leaveSegments.length - 1]?.leaveRequestId || null,
+        leaveType: leaveSegments[leaveSegments.length - 1]?.leaveType || null,
+      }),
+      ...createGeoPayload(geo, "LeaveEnd"),
+    };
+    await updateDoc(doc(db, "attendance", id), upd);
+    todayRec.value = { ...todayRec.value, ...upd };
   } catch (e) {
     punchErr.value = t("punch_fail") + e.message;
   } finally {
@@ -797,21 +1499,41 @@ async function punchOut() {
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
-    const locationVerified = geo.ok === true;
     const id = `${todayStr()}_${currentUser.uid}`;
     const tStr = timeStr();
+    const workSegments = cloneSegments(todayRec.value, "workSegments");
+    const leaveSegments = cloneSegments(todayRec.value, "leaveSegments");
+    if (todayStatus.value === "on_leave") {
+      if (leaveSegments.length) {
+        const lastLeave = leaveSegments[leaveSegments.length - 1];
+        if (!lastLeave.end) lastLeave.end = tStr;
+      }
+    } else if (workSegments.length) {
+      const lastWork = workSegments[workSegments.length - 1];
+      if (!lastWork.end) lastWork.end = tStr;
+    }
     const upd = {
       punchOut: tStr,
-      locationVerifiedOut: locationVerified,
+      currentState: "done",
+      workSegments,
+      leaveSegments,
+      events: appendEvent(todayRec.value, "punchOut", tStr, geo),
+      auditTrail: appendAuditTrail(
+        todayRec.value,
+        "punchOut",
+        {
+          ...todayRec.value,
+          punchOut: tStr,
+          currentState: "done",
+          workSegments,
+          leaveSegments,
+        },
+        { source: "employee" },
+      ),
+      ...createGeoPayload(geo, "Out"),
     };
-    if (locationVerified && geo.lat != null) {
-      upd.gpsLatOut = geo.lat;
-      upd.gpsLngOut = geo.lng;
-      upd.gpsAccuracyOut = geo.accuracy;
-      upd.gpsDistOut = geo.dist;
-    }
     await updateDoc(doc(db, "attendance", id), upd);
-    todayRec.value = { ...todayRec.value, punchOut: tStr };
+    todayRec.value = { ...todayRec.value, ...upd };
   } catch (e) {
     punchErr.value = t("punch_fail") + e.message;
   } finally {
@@ -837,7 +1559,9 @@ async function fetchRecords() {
     );
     allUsersCache.value = allUsers
       .filter((u) => u.displayName)
-      .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || "", "zh-Hant"));
+      .sort((a, b) =>
+        (a.displayName || "").localeCompare(b.displayName || "", "zh-Hant"),
+      );
     allRecords.value = snaps.docs.map((d) => {
       const r = { id: d.id, ...d.data() };
       if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid];
@@ -867,33 +1591,112 @@ function toHMS(t) {
 }
 
 function openEdit(r) {
+  const leaveOptions = (editModal.value.leaveOptions || []).filter(Boolean);
   editModal.value = {
     show: true,
     id: r.id,
     uid: r.uid,
     name: r.name,
     date: r.date,
-    punchIn: (r.punchIn || "").slice(0, 5),
-    punchOut: (r.punchOut || "").slice(0, 5),
+    workSegments: getWorkSegments(r).map((seg) => ({
+      start: seg.start ? String(seg.start).slice(0, 5) : "",
+      end: seg.end ? String(seg.end).slice(0, 5) : "",
+    })),
+    leaveSegments: getLeaveSegments(r).map(hydrateLeaveSegment),
+    leaveOptions,
+    sourceRecord: { ...r },
     saving: false,
     err: "",
   };
+  fetchApprovedLeaveOptions(r.uid, r.date)
+    .then((options) => {
+      editModal.value.leaveOptions = options;
+      editModal.value.leaveSegments.forEach((seg) => {
+        if (!seg.leaveRequestId) {
+          const matched = matchLeaveOption(options, r.date, seg.start, seg.end);
+          seg.leaveRequestId = matched?.id || "";
+          seg.leaveType = matched?.type || seg.leaveType || "";
+        } else {
+          syncLeaveSegmentWithOption(seg, options);
+        }
+      });
+    })
+    .catch((e) => {
+      console.error("fetchApprovedLeaveOptions:", e);
+    });
+}
+
+function addEditWorkSegment() {
+  editModal.value.workSegments.push(emptyWorkSegment());
+}
+
+function removeEditWorkSegment(index) {
+  editModal.value.workSegments.splice(index, 1);
+}
+
+function addEditLeaveSegment() {
+  editModal.value.leaveSegments.push(emptyLeaveSegment());
+}
+
+function removeEditLeaveSegment(index) {
+  editModal.value.leaveSegments.splice(index, 1);
+}
+
+function syncEditLeaveSegment(index) {
+  const seg = editModal.value.leaveSegments[index];
+  if (!seg) return;
+  syncLeaveSegmentWithOption(seg, editModal.value.leaveOptions || []);
 }
 
 async function saveEdit() {
   const m = editModal.value;
-  if (!m.punchIn) { m.err = "請填上班時間"; return; }
-  m.saving = true; m.err = "";
+  m.saving = true;
+  m.err = "";
   try {
+    const { normalizedWork, normalizedLeave, errors } = validateSegments(
+      m.workSegments,
+      m.leaveSegments,
+    );
+    if (errors.length) {
+      m.err = errors[0];
+      return;
+    }
+    normalizedLeave.forEach((seg) => {
+      if (!seg.leaveRequestId) {
+        const matched = matchLeaveOption(
+          m.leaveOptions || [],
+          m.date,
+          seg.start,
+          seg.end,
+        );
+        seg.leaveRequestId = matched?.id || "";
+        seg.leaveType = matched?.type || seg.leaveType || "";
+      } else {
+        syncLeaveSegmentWithOption(seg, m.leaveOptions || []);
+      }
+    });
+    const derived = buildAttendanceStateFromSegments(
+      normalizedWork,
+      normalizedLeave,
+    );
+    const nextRecord = {
+      ...m.sourceRecord,
+      ...derived,
+    };
     const upd = {
-      punchIn: toHMS(m.punchIn),
-      punchOut: toHMS(m.punchOut) ?? null,
+      punchIn: derived.punchIn,
+      punchOut: derived.punchOut,
+      workSegments: derived.workSegments,
+      leaveSegments: derived.leaveSegments,
+      currentState: derived.currentState,
+      auditTrail: appendAuditTrail(m.sourceRecord, "manualEdit", nextRecord, {
+        source: "admin",
+      }),
       manualCorrected: true,
-      correctedBy: userDoc?.name || currentUser?.displayName || currentUser?.email || "admin",
+      correctedBy: getActorName(),
       correctedAt: new Date().toISOString(),
     };
-    // 清除下班打卡時，同時清掉舊的 GPS 距離欄位，避免殘留標籤
-    if (!m.punchOut) {
+    if (!derived.punchOut) {
       upd.punchOut = null;
       upd.gpsDistOut = null;
       upd.gpsLatOut = null;
@@ -913,14 +1716,30 @@ async function saveEdit() {
 
 function openNewRecord() {
   if (!allUsersCache.value.length) fetchRecords();
-  newRecModal.value = { show: true, uid: "", date: queryDate.value, punchIn: "", punchOut: "", saving: false, err: "" };
+  newRecEmployeeQuery.value = "";
+  newRecModal.value = {
+    show: true,
+    uid: "",
+    date: queryDate.value,
+    punchIn: "",
+    punchOut: "",
+    saving: false,
+    err: "",
+  };
 }
 
 async function saveNewRecord() {
   const m = newRecModal.value;
-  if (!m.uid) { m.err = "請選擇員工"; return; }
-  if (!m.punchIn) { m.err = "請填上班時間"; return; }
-  m.saving = true; m.err = "";
+  if (!m.uid) {
+    m.err = "請選擇員工";
+    return;
+  }
+  if (!m.punchIn) {
+    m.err = "請填上班時間";
+    return;
+  }
+  m.saving = true;
+  m.err = "";
   try {
     const employee = allUsersCache.value.find((u) => u.id === m.uid);
     const id = `${m.date}_${m.uid}`;
@@ -931,8 +1750,24 @@ async function saveNewRecord() {
       date: m.date,
       punchIn: toHMS(m.punchIn),
       punchOut: toHMS(m.punchOut) ?? null,
+      workSegments: buildManualWorkSegments(m.punchIn, m.punchOut),
+      leaveSegments: [],
+      currentState: m.punchOut ? "done" : "working",
+      events: [],
+      auditTrail: appendAuditTrail(
+        null,
+        "manualCreate",
+        {
+          punchIn: toHMS(m.punchIn),
+          punchOut: toHMS(m.punchOut) ?? null,
+          currentState: m.punchOut ? "done" : "working",
+          workSegments: buildManualWorkSegments(m.punchIn, m.punchOut),
+          leaveSegments: [],
+        },
+        { source: "admin" },
+      ),
       manualCorrected: true,
-      correctedBy: userDoc?.name || currentUser?.displayName || currentUser?.email || "admin",
+      correctedBy: getActorName(),
       correctedAt: new Date().toISOString(),
     });
     newRecModal.value.show = false;
@@ -954,10 +1789,8 @@ const personalRecords = ref([]);
 const personalTotalHours = computed(() => {
   let total = 0;
   for (const r of personalRecords.value) {
-    if (r.punchIn && r.punchOut) {
-      const h = parseFloat(calcHours(r.punchIn, r.punchOut));
-      if (!isNaN(h)) total += h;
-    }
+    const h = parseFloat(calcRecordHours(r));
+    if (!isNaN(h)) total += h;
   }
   return total.toFixed(1);
 });
@@ -1009,10 +1842,8 @@ const laborDays = computed(() => {
 function empTotalHours(emp) {
   let total = 0;
   for (const r of Object.values(emp.byDate)) {
-    if (r.punchIn && r.punchOut) {
-      const h = parseFloat(calcHours(r.punchIn, r.punchOut));
-      if (!isNaN(h)) total += h;
-    }
+    const h = parseFloat(calcRecordHours(r));
+    if (!isNaN(h)) total += h;
   }
   return total.toFixed(1);
 }
@@ -1107,11 +1938,11 @@ h1 {
   border: 1px solid #ddd;
   border-radius: 12px;
   padding: 12px 10px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   min-height: 80px;
 }
 .side-panel-title {
-  font-size: .8rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: #1565c0;
   text-align: center;
@@ -1122,7 +1953,7 @@ h1 {
 .side-panel-empty {
   text-align: center;
   color: #aaa;
-  font-size: .82rem;
+  font-size: 0.82rem;
   margin-top: 8px;
 }
 .side-panel-item {
@@ -1132,10 +1963,16 @@ h1 {
   padding: 3px 0;
   border-bottom: 1px solid #f0f0f0;
 }
-.side-panel-item:last-child { border-bottom: none; }
-.side-name { font-size: .82rem; font-weight: 500; color: #333; }
+.side-panel-item:last-child {
+  border-bottom: none;
+}
+.side-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #333;
+}
 .side-type {
-  font-size: .72rem;
+  font-size: 0.72rem;
   color: #fff;
   background: #e57373;
   border-radius: 4px;
@@ -1149,13 +1986,18 @@ h1 {
   display: flex;
   flex-direction: column;
 }
-.not-punched-panel { border-color: #ffa726 !important; }
-.np-title { color: #e65100 !important; border-bottom-color: #ffe0b2 !important; }
+.not-punched-panel {
+  border-color: #ffa726 !important;
+}
+.np-title {
+  color: #e65100 !important;
+  border-bottom-color: #ffe0b2 !important;
+}
 .np-refresh-btn {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: .95rem;
+  font-size: 0.95rem;
   color: #e65100;
   padding: 0 2px;
   line-height: 1;
@@ -1182,6 +2024,9 @@ h1 {
 .punch-status.in-office {
   color: #1a7a1a;
 }
+.punch-status.in-office.on-leave {
+  color: #a45a00;
+}
 .punch-status.done {
   display: flex;
   flex-direction: column;
@@ -1196,6 +2041,18 @@ h1 {
   font-size: 1.1rem;
   color: #1a7a1a;
   font-weight: 600;
+}
+.punch-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.punch-timeline {
+  max-width: 100%;
+  font-size: 0.92rem;
+  color: #555;
+  line-height: 1.6;
 }
 
 .btn-punch {
@@ -1224,6 +2081,20 @@ h1 {
 }
 .btn-punch.out:hover:not(:disabled) {
   background: #9b2d23;
+}
+.btn-punch.leave {
+  background: #d97706;
+  color: #fff;
+}
+.btn-punch.leave:hover:not(:disabled) {
+  background: #b85f00;
+}
+.btn-punch.back {
+  background: #2563eb;
+  color: #fff;
+}
+.btn-punch.back:hover:not(:disabled) {
+  background: #1d4ed8;
 }
 
 /* ── 管理查詢 ── */
@@ -1412,7 +2283,9 @@ tr.no-rec td {
   font-size: 0.9rem;
   align-self: flex-end;
 }
-.btn-add-punch:hover { background: #1e8449; }
+.btn-add-punch:hover {
+  background: #1e8449;
+}
 .punch-count-badge {
   display: inline-flex;
   align-items: center;
@@ -1434,7 +2307,9 @@ tr.no-rec td {
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-edit-sm:hover { background: #1a6090; }
+.btn-edit-sm:hover {
+  background: #1a6090;
+}
 .badge-corrected {
   background: #8e44ad;
   color: #fff;
@@ -1449,7 +2324,7 @@ tr.no-rec td {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1461,7 +2336,7 @@ tr.no-rec td {
   padding: 28px 28px 22px;
   width: 340px;
   max-width: 95vw;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 .modal-box h3 {
   margin: 0 0 12px;
@@ -1482,8 +2357,13 @@ tr.no-rec td {
   font-size: 0.85rem;
   color: #444;
 }
+.form-helper {
+  font-size: 0.8rem;
+  color: #777;
+}
 .form-row input[type="time"],
 .form-row input[type="date"],
+.form-row input[type="search"],
 .form-row select {
   padding: 6px 8px;
   border: 1px solid #ccc;
@@ -1496,7 +2376,9 @@ tr.no-rec td {
   gap: 8px;
   align-items: center;
 }
-.time-row input { flex: 1; }
+.time-row input {
+  flex: 1;
+}
 .btn-clear-time {
   padding: 5px 10px;
   font-size: 0.8rem;
@@ -1504,14 +2386,93 @@ tr.no-rec td {
   color: #fff;
   border: none;
   border-radius: 4px;
-  cursor: pointer;
+  width: 680px;
   white-space: nowrap;
 }
-.btn-clear-time:hover { background: #c0392b; }
+.btn-clear-time:hover {
+  background: #c0392b;
+}
 .modal-err {
   color: #c0392b;
   font-size: 0.88rem;
   margin-bottom: 10px;
+}
+.segment-editor {
+  display: grid;
+  gap: 16px;
+}
+.segment-section {
+  border: 1px solid #e3e3e3;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fafafa;
+}
+.segment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.segment-head label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #333;
+}
+.segment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(
+      0,
+      1.4fr
+    ) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.segment-row:last-child {
+  margin-bottom: 0;
+}
+.segment-row span {
+  color: #666;
+  font-size: 0.85rem;
+}
+.segment-row input,
+.segment-row select {
+  min-width: 0;
+}
+.segment-row:not(.segment-row-leave) {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+}
+.segment-empty,
+.segment-help {
+  font-size: 0.84rem;
+  color: #666;
+}
+.segment-help {
+  margin-top: 8px;
+}
+.btn-add-segment,
+.btn-remove-segment {
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.btn-add-segment {
+  background: #eef3ff;
+  color: #2447a5;
+  padding: 6px 10px;
+}
+.btn-add-segment:hover {
+  background: #dbe6ff;
+}
+.btn-remove-segment {
+  background: #fce8e6;
+  color: #b42318;
+  padding: 6px 8px;
+}
+.btn-remove-segment:hover {
+  background: #fad2cf;
 }
 .modal-btns {
   display: flex;
@@ -1523,13 +2484,26 @@ tr.no-rec td {
   padding: 7px 20px;
   background: #2c5e9e;
   color: #fff;
+  .modal-box {
+    width: 95vw;
+    padding: 20px 16px 18px;
+  }
+  .segment-row,
+  .segment-row:not(.segment-row-leave) {
+    grid-template-columns: 1fr;
+  }
   border: none;
   border-radius: 5px;
   cursor: pointer;
   font-size: 0.9rem;
 }
-.btn-save:disabled { opacity: 0.6; cursor: default; }
-.btn-save:not(:disabled):hover { background: #1e4a7e; }
+.btn-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.btn-save:not(:disabled):hover {
+  background: #1e4a7e;
+}
 .btn-cancel {
   padding: 7px 16px;
   background: #bbb;
@@ -1539,7 +2513,9 @@ tr.no-rec td {
   cursor: pointer;
   font-size: 0.9rem;
 }
-.btn-cancel:hover { background: #999; }
+.btn-cancel:hover {
+  background: #999;
+}
 
 /* ── 手機響應式：側邊請假面板改為上下排列 ── */
 @media (max-width: 640px) {
@@ -1563,7 +2539,9 @@ tr.no-rec td {
     border-bottom: none;
     padding: 0;
   }
-  .side-name::after { content: "\00a0"; }
+  .side-name::after {
+    content: "\00a0";
+  }
 }
 
 /* ── 列印樣式 ── */

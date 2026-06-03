@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :class="{ 'print-layout': isPrintLayout }">
+  <div ref="appShellRef" class="app-shell" :class="{ 'print-layout': isPrintLayout }">
     <nav v-if="!isPrintLayout" ref="navRef" class="top-nav">
       <button
         class="nav-toggle"
@@ -149,11 +149,6 @@
       </div>
     </nav>
 
-    <div v-if="!isPrintLayout && currentGroupLabel" class="section-bar">
-      <span class="section-group-pill">{{ currentGroupLabel }}</span>
-      <span class="section-page-title">{{ currentPageTitle }}</span>
-    </div>
-
     <main class="app-main" :class="{ 'print-main': isPrintLayout }">
       <RouterView />
     </main>
@@ -161,7 +156,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import {
   logout,
@@ -188,8 +183,10 @@ function toggleLang() {
 const user = ref(null);
 const userDoc = ref(null);
 const routePermissions = ref(DEFAULT_ROUTE_PERMISSIONS);
+const appShellRef = ref(null);
 const navOpen = ref(false);
 const navRef = ref(null);
+let navResizeObserver = null;
 const avatarFailed = ref(false);
 const appVersion =
   typeof __APP_VERSION__ === "string" && __APP_VERSION__.trim()
@@ -228,10 +225,6 @@ const displayRoleLabel = computed(() =>
   perspectiveRole.value || userDoc.value?.activeRole || userDoc.value?.role || "",
 );
 const isPrintLayout = computed(() => route.meta?.printLayout === true);
-const currentPermission = computed(() => findPermission(routePermissions.value, route.path));
-const currentGroupLabel = computed(() => currentPermission.value?.group || "");
-const currentPageTitle = computed(() => currentPermission.value?.title || String(route.meta?.title || ""));
-
 function departmentLabel(value) {
   return {
     "1": "1 辦公室",
@@ -328,14 +321,30 @@ function handlePermissionsUpdated() {
   loadRoutePermissions();
 }
 
+function updateNavStickyHeight() {
+  const shell = appShellRef.value;
+  const nav = navRef.value;
+  if (!(shell instanceof HTMLElement) || !(nav instanceof HTMLElement)) return;
+  shell.style.setProperty("--top-nav-sticky-height", `${Math.ceil(nav.offsetHeight)}px`);
+}
+
 onMounted(() => {
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("route-permissions-updated", handlePermissionsUpdated);
+  nextTick(() => {
+    updateNavStickyHeight();
+    if (typeof ResizeObserver === "function" && navRef.value instanceof HTMLElement) {
+      navResizeObserver = new ResizeObserver(() => updateNavStickyHeight());
+      navResizeObserver.observe(navRef.value);
+    }
+  });
 });
 
 onUnmounted(() => {
   document.removeEventListener("click", handleDocumentClick);
   window.removeEventListener("route-permissions-updated", handlePermissionsUpdated);
+  navResizeObserver?.disconnect();
+  navResizeObserver = null;
 });
 </script>
 
@@ -400,34 +409,6 @@ onUnmounted(() => {
   background: #fff7ed;
   color: #c2410c;
   box-shadow: inset 0 -2px 0 #ea580c;
-}
-
-.section-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: linear-gradient(90deg, #fff7ed 0%, #fffbeb 100%);
-  border-bottom: 1px solid #fed7aa;
-}
-
-.section-group-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: #ea580c;
-  color: #fff;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.section-page-title {
-  color: #7c2d12;
-  font-size: 0.92rem;
-  font-weight: 600;
 }
 
 .print-layout {

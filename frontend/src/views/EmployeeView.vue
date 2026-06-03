@@ -31,14 +31,22 @@
       <div class="field-row">
         <div class="field-item tight">
           <label>訂單號碼：</label>
-          <input v-model="orderNumber" placeholder="訂單號碼" @keyup.enter="searchOrderByNumberAndDate" />
+          <input
+            v-model="orderNumber"
+            placeholder="訂單號碼"
+            @keyup.enter="searchOrderByNumberAndDate"
+          />
         </div>
         <button class="btn-query" @click="searchOrderByNumberAndDate">
           查詢訂單
         </button>
         <div class="field-item tight">
           <label>日期：</label>
-          <input type="date" v-model="orderDate" @keyup.enter="searchSpecificDate" />
+          <input
+            type="date"
+            v-model="orderDate"
+            @keyup.enter="searchSpecificDate"
+          />
         </div>
         <button class="btn-query" @click="searchSpecificDate">
           查指定安裝日
@@ -50,7 +58,11 @@
           style="display: flex; align-items: center; gap: 6px"
         >
           <label>石材類型片段：</label>
-          <input v-model="colorKeyword" placeholder="如 dt" @keyup.enter="searchByKeywords" />
+          <input
+            v-model="colorKeyword"
+            placeholder="如 dt"
+            @keyup.enter="searchByKeywords"
+          />
           <label
             for="neolithFilter"
             style="white-space: nowrap; margin-left: 6px; cursor: pointer"
@@ -64,11 +76,19 @@
         </div>
         <div class="field-item tight">
           <label>客戶名稱片段：</label>
-          <input v-model="customerKeyword" placeholder="如 王" @keyup.enter="searchByKeywords" />
+          <input
+            v-model="customerKeyword"
+            placeholder="如 王"
+            @keyup.enter="searchByKeywords"
+          />
         </div>
         <div class="field-item tight">
           <label>地址片段：</label>
-          <input v-model="addressKeyword" placeholder="如 新竹" @keyup.enter="searchByKeywords" />
+          <input
+            v-model="addressKeyword"
+            placeholder="如 新竹"
+            @keyup.enter="searchByKeywords"
+          />
         </div>
         <button class="btn-query" @click="searchByKeywords">
           多條件片段查詢
@@ -76,7 +96,33 @@
       </div>
 
       <div class="field-row keyword-group-row">
-        <label for="dateRangeFilter" style="white-space: nowrap; cursor: pointer">
+        <label
+          for="incompleteOnly"
+          style="white-space: nowrap; cursor: pointer"
+        >
+          <input
+            type="checkbox"
+            id="incompleteOnly"
+            v-model="incompleteOnly"
+            style="margin: 0 4px 0 0; cursor: pointer"
+          />
+          未完工
+        </label>
+        <div class="field-item tight">
+          <label>原因：</label>
+          <input
+            v-model="incompleteReasonKeyword"
+            placeholder="如 缺角、重作"
+            @keyup.enter="searchByKeywords"
+          />
+        </div>
+      </div>
+
+      <div class="field-row keyword-group-row">
+        <label
+          for="dateRangeFilter"
+          style="white-space: nowrap; cursor: pointer"
+        >
           <input
             type="checkbox"
             id="dateRangeFilter"
@@ -86,11 +132,21 @@
           日期區間：
         </label>
         <div class="field-item tight">
-          <input type="date" v-model="dateRangeStart" :disabled="!dateRangeEnabled" @keyup.enter="searchByKeywords" />
+          <input
+            type="date"
+            v-model="dateRangeStart"
+            :disabled="!dateRangeEnabled"
+            @keyup.enter="searchByKeywords"
+          />
         </div>
         <span style="white-space: nowrap; padding: 0 4px">～</span>
         <div class="field-item tight">
-          <input type="date" v-model="dateRangeEnd" :disabled="!dateRangeEnabled" @keyup.enter="searchByKeywords" />
+          <input
+            type="date"
+            v-model="dateRangeEnd"
+            :disabled="!dateRangeEnabled"
+            @keyup.enter="searchByKeywords"
+          />
         </div>
         <button class="btn-date" @click="setThisMonth">本月</button>
         <button class="btn-date" @click="setLastMonth">上個月</button>
@@ -139,8 +195,7 @@
             >總金額：{{ formatAmount(resultStats.totalAmount) }}</span
           >
           <span>件數：{{ resultStats.count }}</span>
-          <span
-            v-if="canViewPrice"
+          <span v-if="canViewPrice"
             >平均金額/件數：{{ formatAmount(resultStats.averageAmount) }}</span
           >
           <span>{{ resultSourceLabel }}</span>
@@ -161,6 +216,7 @@
                   'sales-col': h === '銷售額',
                   'compact-col': h === '公分數',
                   'photo-col': h === '完工照片',
+                  'incomplete-col': h === '未完工',
                   'operator-col':
                     h === '裁切者' || h === '水刀者' || h === '驗收者',
                   'installer-col': h === '安１' || h === '安２' || h === '安３',
@@ -186,6 +242,7 @@
                   'sales-col': h === '銷售額',
                   'compact-col': h === '公分數',
                   'photo-col': h === '完工照片',
+                  'incomplete-col': h === '未完工',
                   'operator-col':
                     h === '裁切者' || h === '水刀者' || h === '驗收者',
                   'installer-col': h === '安１' || h === '安２' || h === '安３',
@@ -217,6 +274,48 @@
                 >
                   查看 / 上傳
                 </button>
+                <label v-else-if="h === '未完工'" class="incomplete-toggle">
+                  <input
+                    type="checkbox"
+                    :checked="getIncompleteCheckboxValue(doc)"
+                    :disabled="
+                      !canEditIncompleteFields(doc) || isIncompleteSaving(doc)
+                    "
+                    @change="onIncompleteToggle(doc, $event.target.checked)"
+                  />
+                </label>
+                <div
+                  v-else-if="h === '未完工原因'"
+                  class="incomplete-reason-cell"
+                >
+                  <template v-if="canEditIncompleteFields(doc)">
+                    <input
+                      class="incomplete-reason-input"
+                      :value="getIncompleteReasonDraft(doc)"
+                      :disabled="isIncompleteSaving(doc)"
+                      placeholder="輸入未完工原因"
+                      @input="onIncompleteReasonInput(doc, $event.target.value)"
+                      @blur="flushIncompleteSave(doc)"
+                      @keyup.enter="flushIncompleteSave(doc)"
+                    />
+                    <span
+                      v-if="getIncompleteSaveMessage(doc)"
+                      :class="[
+                        'incomplete-save-hint',
+                        getIncompleteSaveError(doc)
+                          ? 'is-error'
+                          : isIncompleteSaving(doc)
+                            ? 'is-saving'
+                            : 'is-saved',
+                      ]"
+                    >
+                      {{ getIncompleteSaveMessage(doc) }}
+                    </span>
+                  </template>
+                  <span v-else class="incomplete-save-hint">
+                    僅派車單可編輯
+                  </span>
+                </div>
                 <span v-else>{{
                   formatCellValue(headerToField(h), doc[headerToField(h)])
                 }}</span>
@@ -474,6 +573,7 @@ import {
   listNasLegacyPhotos,
   getAllOrdersForSearch,
   getOrdersByIds,
+  updateOrderIncompleteStatus as saveOrderIncompleteStatus,
   auth,
 } from "../firebase";
 import { httpsCallable } from "firebase/functions";
@@ -572,9 +672,9 @@ function buildTableHeaders() {
 
   const orderNoIndex = headers.indexOf("訂單號碼");
   if (orderNoIndex >= 0) {
-    headers.splice(orderNoIndex + 1, 0, "完工照片");
+    headers.splice(orderNoIndex + 1, 0, "完工照片", "未完工", "未完工原因");
   } else {
-    headers.push("完工照片");
+    headers.push("完工照片", "未完工", "未完工原因");
   }
   return headers;
 }
@@ -594,6 +694,8 @@ const SORTABLE_HEADERS = new Set([
   "車號",
   "公分數",
   "完工照片",
+  "未完工",
+  "未完工原因",
   "安裝日",
 ]);
 const sortField = ref(""); // 顯示用 header 名稱
@@ -630,6 +732,12 @@ function getSortValue(doc, header) {
   if (header === "完工照片") {
     // 已上傳=1 未上傳=0；升冪：未上傳在前
     return { num: hasCompletionPhotos(doc) ? 1 : 0 };
+  }
+  if (header === "未完工") {
+    return { num: getIncompleteCheckboxValue(doc) ? 1 : 0 };
+  }
+  if (header === "未完工原因") {
+    return { str: getIncompleteReasonDraft(doc) };
   }
   if (header === "安裝日") {
     // 安裝日 stored as "YYYY/M/D" — convert to timestamp for correct ordering
@@ -674,9 +782,199 @@ const colorKeyword = ref("");
 const customerKeyword = ref("");
 const addressKeyword = ref("");
 const neolithFilter = ref(false);
+const incompleteOnly = ref(false);
+const incompleteReasonKeyword = ref("");
 const dateRangeEnabled = ref(false);
 const dateRangeStart = ref("");
 const dateRangeEnd = ref("");
+
+function getIncompleteReasonText(doc) {
+  const candidates = [
+    doc?.incompleteReason,
+    doc?.reason,
+    doc?.原因,
+    doc?.未完工原因,
+    doc?.raw?.incompleteReason,
+    doc?.raw?.reason,
+    doc?.raw?.原因,
+    doc?.raw?.未完工原因,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function isIncompleteOrder(doc) {
+  if (doc?.incomplete === true || doc?.未完工 === true) return true;
+
+  const incompleteText = String(doc?.incomplete ?? doc?.未完工 ?? "")
+    .trim()
+    .toLowerCase();
+  if (["true", "1", "y", "yes", "是", "未完工"].includes(incompleteText)) {
+    return true;
+  }
+
+  const completed = doc?.completed;
+  if (completed === false) return true;
+
+  const completedText = String(completed ?? "")
+    .trim()
+    .toLowerCase();
+  if (["false", "0", "n", "no", "未", "未完工", "否"].includes(completedText)) {
+    return true;
+  }
+
+  const reasonText = getIncompleteReasonText(doc).toLowerCase();
+  return Boolean(reasonText);
+}
+
+function applyResultFilters(rows = []) {
+  const reasonKeyword = String(incompleteReasonKeyword.value || "")
+    .trim()
+    .toLowerCase();
+  return (rows || []).filter((doc) => {
+    const reasonText = getIncompleteReasonText(doc).toLowerCase();
+    if (incompleteOnly.value && !isIncompleteOrder(doc)) return false;
+    if (reasonKeyword && !reasonText.includes(reasonKeyword)) return false;
+    return true;
+  });
+}
+
+function canEditIncompleteFields(doc) {
+  return Boolean(getOrderDocId(doc)) && doc?.__source !== "pending";
+}
+
+function getIncompleteCheckboxValue(doc) {
+  if (typeof doc?.__incompleteDraft === "boolean") return doc.__incompleteDraft;
+  return isIncompleteOrder(doc);
+}
+
+function getIncompleteReasonDraft(doc) {
+  if (typeof doc?.__incompleteReasonDraft === "string") {
+    return doc.__incompleteReasonDraft;
+  }
+  return getIncompleteReasonText(doc);
+}
+
+function isIncompleteSaving(doc) {
+  return Boolean(incompleteSavingByOrderId.value[getOrderDocId(doc)]);
+}
+
+function getIncompleteSaveError(doc) {
+  return String(incompleteErrorByOrderId.value[getOrderDocId(doc)] || "");
+}
+
+function getIncompleteSaveMessage(doc) {
+  const orderId = getOrderDocId(doc);
+  const errorText = String(incompleteErrorByOrderId.value[orderId] || "");
+  if (errorText) return errorText;
+  if (incompleteSavingByOrderId.value[orderId]) return "儲存中…";
+  if (incompleteSavedAtByOrderId.value[orderId]) return "已儲存";
+  return "";
+}
+
+function syncIncompleteDraftsForResults() {
+  for (const doc of results.value) {
+    doc.__incompleteDraft = isIncompleteOrder(doc);
+    doc.__incompleteReasonDraft = getIncompleteReasonText(doc);
+  }
+}
+
+function clearIncompleteSaveTimer(orderId) {
+  const timer = incompleteSaveTimers.get(orderId);
+  if (timer) {
+    clearTimeout(timer);
+    incompleteSaveTimers.delete(orderId);
+  }
+}
+
+async function persistIncompleteState(doc) {
+  const orderId = getOrderDocId(doc);
+  if (!canEditIncompleteFields(doc) || !orderId) return;
+
+  clearIncompleteSaveTimer(orderId);
+  incompleteSavingByOrderId.value = {
+    ...incompleteSavingByOrderId.value,
+    [orderId]: true,
+  };
+  incompleteErrorByOrderId.value = {
+    ...incompleteErrorByOrderId.value,
+    [orderId]: "",
+  };
+
+  const incomplete = getIncompleteCheckboxValue(doc);
+  const reason = incomplete ? getIncompleteReasonDraft(doc).trim() : "";
+
+  try {
+    const saved = await saveOrderIncompleteStatus(orderId, {
+      incomplete,
+      reason,
+    });
+    doc.incomplete = incomplete;
+    doc["未完工"] = incomplete;
+    doc.completed = !incomplete;
+    doc.reason = saved?.reason ?? reason;
+    doc["原因"] = saved?.reason ?? reason;
+    doc["未完工原因"] = saved?.reason ?? reason;
+    doc.__incompleteDraft = incomplete;
+    doc.__incompleteReasonDraft = saved?.reason ?? reason;
+    incompleteSavedAtByOrderId.value = {
+      ...incompleteSavedAtByOrderId.value,
+      [orderId]: Date.now(),
+    };
+    if (
+      incompleteOnly.value ||
+      String(incompleteReasonKeyword.value || "").trim()
+    ) {
+      results.value = applyResultFilters(results.value.slice());
+    }
+  } catch (e) {
+    console.error("更新未完工狀態失敗：", e);
+    incompleteErrorByOrderId.value = {
+      ...incompleteErrorByOrderId.value,
+      [orderId]: toErrorText("儲存失敗", e).replace(/^儲存失敗\s*/, ""),
+    };
+  } finally {
+    incompleteSavingByOrderId.value = {
+      ...incompleteSavingByOrderId.value,
+      [orderId]: false,
+    };
+  }
+}
+
+function scheduleIncompleteSave(doc, delayMs = 700) {
+  const orderId = getOrderDocId(doc);
+  if (!orderId) return;
+  clearIncompleteSaveTimer(orderId);
+  const timer = setTimeout(() => {
+    incompleteSaveTimers.delete(orderId);
+    void persistIncompleteState(doc);
+  }, delayMs);
+  incompleteSaveTimers.set(orderId, timer);
+}
+
+function onIncompleteToggle(doc, checked) {
+  doc.__incompleteDraft = checked;
+  if (!checked) {
+    doc.__incompleteReasonDraft = "";
+  }
+  void persistIncompleteState(doc);
+}
+
+function onIncompleteReasonInput(doc, value) {
+  doc.__incompleteReasonDraft = String(value || "");
+  if (String(value || "").trim()) {
+    doc.__incompleteDraft = true;
+  }
+  scheduleIncompleteSave(doc);
+}
+
+function flushIncompleteSave(doc) {
+  if (!canEditIncompleteFields(doc)) return;
+  void persistIncompleteState(doc);
+}
 
 function toOrderViewShape(doc) {
   const raw = doc?.raw || {};
@@ -785,9 +1083,13 @@ const replacePhotoFiles = ref({});
 const selectedPhotoIds = ref([]);
 const photoUploadInputRef = ref(null);
 const photoStatusByOrderId = ref({});
+const incompleteSavingByOrderId = ref({});
+const incompleteErrorByOrderId = ref({});
+const incompleteSavedAtByOrderId = ref({});
 const nasLegacyPhotos = ref([]);
 const nasLegacyLoading = ref(false);
 const nasLegacyError = ref("");
+const incompleteSaveTimers = new Map();
 const operatorNameByEmail = {
   "linlilung@gmail.com": "林李龍",
   "go5912j2@gmail.com": "顏呈翰",
@@ -1911,7 +2213,9 @@ async function search() {
   }
   const t0 = Date.now();
   try {
-    results.value = await queryCollection(COLLECTION_NAME, conds);
+    results.value = applyResultFilters(
+      await queryCollection(COLLECTION_NAME, conds),
+    );
   } catch (e) {
     console.error("查詢失敗：", e);
     results.value = [];
@@ -1969,9 +2273,11 @@ async function searchDayByDate(d) {
     loading.value = true;
     const t0 = Date.now();
     try {
-      results.value = await queryCollection(COLLECTION_NAME, [
-        { field: dateField.value, op: "==", value: str },
-      ]);
+      results.value = applyResultFilters(
+        await queryCollection(COLLECTION_NAME, [
+          { field: dateField.value, op: "==", value: str },
+        ]),
+      );
     } catch (e) {
       console.error("字串日期查詢失敗：", e);
       results.value = [];
@@ -1984,11 +2290,13 @@ async function searchDayByDate(d) {
   loading.value = true;
   const t1 = Date.now();
   try {
-    results.value = await queryCollectionByDateRange(
-      COLLECTION_NAME,
-      dateField.value,
-      start,
-      end,
+    results.value = applyResultFilters(
+      await queryCollectionByDateRange(
+        COLLECTION_NAME,
+        dateField.value,
+        start,
+        end,
+      ),
     );
   } catch (e) {
     console.error("日期查詢失敗：", e);
@@ -2012,6 +2320,14 @@ function clear() {
   results.value = [];
   queryElapsed.value = null;
   photoStatusByOrderId.value = {};
+  incompleteSavingByOrderId.value = {};
+  incompleteErrorByOrderId.value = {};
+  incompleteSavedAtByOrderId.value = {};
+  for (const orderId of incompleteSaveTimers.keys()) {
+    clearIncompleteSaveTimer(orderId);
+  }
+  incompleteOnly.value = false;
+  incompleteReasonKeyword.value = "";
 }
 
 function updateTableHeaders() {
@@ -2120,7 +2436,7 @@ async function searchOrderByNumberAndDate() {
       if (filtered.length) rows = filtered;
     }
 
-    results.value = rows;
+    results.value = applyResultFilters(rows);
   } catch (e) {
     console.error("查詢訂單失敗：", e);
     results.value = [];
@@ -2237,7 +2553,16 @@ async function searchByKeywords() {
   const useNeolith = neolithFilter.value;
   const useDateRange =
     dateRangeEnabled.value && (dateRangeStart.value || dateRangeEnd.value);
-  if (!kwColor && !kwCustomer && !kwAddress && !useNeolith && !useDateRange) {
+  const useIncompleteFilters =
+    incompleteOnly.value || String(incompleteReasonKeyword.value || "").trim();
+  if (
+    !kwColor &&
+    !kwCustomer &&
+    !kwAddress &&
+    !useNeolith &&
+    !useDateRange &&
+    !useIncompleteFilters
+  ) {
     alert("請輸入至少一個條件");
     return;
   }
@@ -2288,19 +2613,21 @@ async function searchByKeywords() {
         }
       }
       // Apply keyword filters client-side on the returned full docs
-      results.value = allDocs.filter((doc) => {
-        const color = String(doc["顏色"] || "").toLowerCase();
-        const customer = String(doc["客戶名稱"] || "").toLowerCase();
-        const address = String(doc["安裝地點"] || "").toLowerCase();
-        const orderNo = String(doc["訂單號碼"] || "").toLowerCase();
-        if (kwColor && !color.includes(kwColor) && !orderNo.includes(kwColor))
-          return false;
-        if (useNeolith && !/^\d/.test(String(doc["顏色"] || "").trim()))
-          return false;
-        if (kwCustomer && !customer.includes(kwCustomer)) return false;
-        if (kwAddress && !address.includes(kwAddress)) return false;
-        return true;
-      });
+      results.value = applyResultFilters(
+        allDocs.filter((doc) => {
+          const color = String(doc["顏色"] || "").toLowerCase();
+          const customer = String(doc["客戶名稱"] || "").toLowerCase();
+          const address = String(doc["安裝地點"] || "").toLowerCase();
+          const orderNo = String(doc["訂單號碼"] || "").toLowerCase();
+          if (kwColor && !color.includes(kwColor) && !orderNo.includes(kwColor))
+            return false;
+          if (useNeolith && !/^\d/.test(String(doc["顏色"] || "").trim()))
+            return false;
+          if (kwCustomer && !customer.includes(kwCustomer)) return false;
+          if (kwAddress && !address.includes(kwAddress)) return false;
+          return true;
+        }),
+      );
       updateTableHeaders();
       queryElapsed.value = Date.now() - t0;
       loading.value = false;
@@ -2324,12 +2651,12 @@ async function searchByKeywords() {
     }
     if (matchedIds.length > 0) {
       const fullDocs = await getOrdersByIds(matchedIds.slice(0, 200));
-      results.value = fullDocs;
+      results.value = applyResultFilters(fullDocs);
     } else {
       const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
       const allPending = await loadAllPendingCache();
       const pending = searchPendingByKeywords(allPending, keywords);
-      results.value = normalizeRowsForTable(pending);
+      results.value = applyResultFilters(normalizeRowsForTable(pending));
     }
     updateTableHeaders();
   } catch (e) {
@@ -2338,7 +2665,7 @@ async function searchByKeywords() {
       const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
       const allPending = await loadAllPendingCache();
       const pending = searchPendingByKeywords(allPending, keywords);
-      results.value = normalizeRowsForTable(pending);
+      results.value = applyResultFilters(normalizeRowsForTable(pending));
       updateTableHeaders();
     } catch (fallbackErr) {
       alert("查詢失敗: " + fallbackErr);
@@ -2363,9 +2690,11 @@ async function searchSpecificDate() {
     loading.value = true;
     const t0 = Date.now();
     try {
-      results.value = await queryCollection(COLLECTION_NAME, [
-        { field: dateField.value, op: "==", value: str },
-      ]);
+      results.value = applyResultFilters(
+        await queryCollection(COLLECTION_NAME, [
+          { field: dateField.value, op: "==", value: str },
+        ]),
+      );
     } catch (e) {
       console.error("指定日期查詢失敗：", e);
       results.value = [];
@@ -2380,10 +2709,12 @@ async function searchSpecificDate() {
   loading.value = true;
   const t1 = Date.now();
   try {
-    results.value = await queryCollection(COLLECTION_NAME, [
-      { field: dateField.value, op: ">=", value: range.start },
-      { field: dateField.value, op: "<", value: range.end },
-    ]);
+    results.value = applyResultFilters(
+      await queryCollection(COLLECTION_NAME, [
+        { field: dateField.value, op: ">=", value: range.start },
+        { field: dateField.value, op: "<", value: range.end },
+      ]),
+    );
   } catch (e) {
     console.error("指定日期查詢失敗：", e);
     results.value = [];
@@ -2412,6 +2743,7 @@ onMounted(() => {
 });
 
 watch(results, () => {
+  syncIncompleteDraftsForResults();
   refreshCompletionPhotoStatusForResults();
 });
 </script>
@@ -2485,6 +2817,14 @@ watch(results, () => {
   max-width: none !important;
 }
 
+.orders-table th.incomplete-col,
+.orders-table td.incomplete-col {
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  white-space: nowrap;
+}
+
 .orders-table th.sortable-col {
   cursor: pointer;
   user-select: none;
@@ -2508,6 +2848,46 @@ watch(results, () => {
   padding: 0.3rem 0.45rem;
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+.incomplete-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.incomplete-reason-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 10rem;
+}
+
+.incomplete-reason-input {
+  width: 100%;
+  min-width: 10rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.incomplete-save-hint {
+  font-size: 0.74rem;
+  color: #6b7280;
+}
+
+.incomplete-save-hint.is-saving {
+  color: #2563eb;
+}
+
+.incomplete-save-hint.is-saved {
+  color: #15803d;
+}
+
+.incomplete-save-hint.is-error {
+  color: #b91c1c;
 }
 
 .order-pdf-link {

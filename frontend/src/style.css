@@ -139,6 +139,11 @@ select {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  --top-nav-sticky-height: 58px;
+  --section-bar-sticky-height: 0px;
+  --page-sticky-top: calc(
+    var(--top-nav-sticky-height) + var(--section-bar-sticky-height)
+  );
 }
 
 .top-nav {
@@ -146,9 +151,13 @@ select {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
+  position: sticky;
+  top: 0;
+  z-index: 100;
   padding: 0.8rem 1rem;
   background: #ffffff;
   border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
 }
 
 .top-nav-links {
@@ -352,6 +361,11 @@ select {
 }
 
 @media (max-width: 700px) {
+  .app-shell {
+    --top-nav-sticky-height: 112px;
+    --section-bar-sticky-height: 0px;
+  }
+
   .top-nav {
     align-items: flex-start;
   }

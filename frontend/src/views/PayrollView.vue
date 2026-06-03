@@ -432,6 +432,12 @@
                 −{{ detailRecord.dependentHealth.toLocaleString() }}
               </td>
             </tr>
+            <tr v-if="(detailRecord.mutualAid || 0) > 0">
+              <th>減項互助金</th>
+              <td class="num deduct">
+                −{{ detailRecord.mutualAid.toLocaleString() }}
+              </td>
+            </tr>
             <tr v-if="(detailRecord.foreignRent || 0) > 0">
               <th>房租-外勞</th>
               <td class="num deduct">
@@ -852,6 +858,7 @@ function calcFirstPaymentFixedDeductions(r) {
     (Number(r.laborInsurance) || 0) +
     (Number(r.healthInsurance) || 0) +
     (Number(r.dependentHealth) || 0) +
+    (Number(r.mutualAid) || 0) +
     (Number(r.lunchFee) || 0) +
     (Number(r.foreignRent) || 0) +
     (Number(r.waterFee) || 0) +
@@ -907,6 +914,7 @@ const annualColumnDefs = [
   { key: "laborInsurance", label: "勞保自付" },
   { key: "healthInsurance", label: "健保費（本人）" },
   { key: "dependentHealth", label: "健保費（眷屬）" },
+  { key: "mutualAid", label: "減項互助金" },
   { key: "lunchFee", label: "便當費" },
   { key: "loanPrincipal", label: "借款本金" },
   { key: "loanInterest", label: "借款利息" },
@@ -1767,15 +1775,12 @@ function printRemittance(mode) {
   const rows = sorted.map((r, i) => {
     const seq = String(i + 1).padStart(6, '0');
     const s = staffBankMap.value.get(String(r.empNo)) || {};
-    const bankName = s.bankName || '—';
     const bankAccount = s.bankAccount || '—';
-    const idNo = s.idNo || '';
     const amount = mode === 'first' ? (r.firstPayment || 0) : (r.secondPayment || 0);
     return `<tr>
       <td>${seq}</td>
       <td>${r.empNo || ''}</td>
-      <td>${r.name || ''}${idNo ? '<br><span class="sub">' + idNo + '</span>' : ''}</td>
-      <td>${bankName}</td>
+      <td>${r.name || ''}</td>
       <td>${bankAccount}</td>
       <td class="num">${Number(amount).toLocaleString()}</td>
     </tr>`;
@@ -1800,12 +1805,12 @@ th { background: #f0f0f0; white-space: nowrap; }
 <h2>${title}</h2>
 <table>
 <thead><tr>
-  <th>序號</th><th>員工編號</th><th>員工姓名<br>身分證字號</th>
-  <th>收款銀行</th><th>收款帳號</th><th>金額</th>
+  <th>序號</th><th>員工編號</th><th>員工姓名</th>
+  <th>收款帳號</th><th>金額</th>
 </tr></thead>
 <tbody>${rows}</tbody>
 <tfoot><tr class="total-row">
-  <td colspan="5" class="num">合計</td>
+  <td colspan="4" class="num">合計</td>
   <td class="num">${Number(total).toLocaleString()}</td>
 </tr></tfoot>
 </table>
@@ -1842,6 +1847,7 @@ function printSlip(r, mode) {
       ${deductRow('勞保費', r.laborInsurance)}
       ${deductRow('健保費（本人）', r.healthInsurance)}
       ${deductRow('健保費（眷屬）', r.dependentHealth)}
+      ${deductRow('減項互助金', r.mutualAid)}
       ${deductRow('便當費', r.lunchFee)}
       ${deductRow('房租（外勞）', r.foreignRent)}
       ${deductRow('水費', r.waterFee)}
@@ -1905,6 +1911,7 @@ function printSlip(r, mode) {
       ${deductRow('勞保費', r.laborInsurance)}
       ${deductRow('健保費（本人）', r.healthInsurance)}
       ${deductRow('健保費（眷屬）', r.dependentHealth)}
+      ${deductRow('減項互助金', r.mutualAid)}
       ${deductRow('便當費', r.lunchFee)}
       ${deductRow('房租（外勞）', r.foreignRent)}
       ${deductRow('水費', r.waterFee)}

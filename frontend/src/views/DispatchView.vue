@@ -1,50 +1,52 @@
 <template>
-  <div class="dispatch-view">
-    <header class="page-header">
-      <h2>📋 發單作業</h2>
-      <div class="header-actions">
-        <RouterLink class="btn-aux" to="/orders">← 訂單列表</RouterLink>
-        <button
-          class="btn-primary btn-dispatch"
-          :disabled="!selectedIds.size || dispatching"
-          @click="onDispatchPrint"
-        >
-          {{
-            dispatching
-              ? pdfProgress || "處理中…"
-              : `🖨️ 批次發單並列印（${selectedIds.size} 張）`
-          }}
-        </button>
-      </div>
-    </header>
+  <div ref="dispatchViewRef" class="dispatch-view">
+    <div ref="stickyToolsRef" class="sticky-tools">
+      <header class="page-header">
+        <h2>📋 發單作業</h2>
+        <div class="header-actions">
+          <RouterLink class="btn-aux" to="/orders">← 訂單列表</RouterLink>
+          <button
+            class="btn-primary btn-dispatch"
+            :disabled="!selectedIds.size || dispatching"
+            @click="onDispatchPrint"
+          >
+            {{
+              dispatching
+                ? pdfProgress || "處理中…"
+                : `🖨️ 批次發單並列印（${selectedIds.size} 張）`
+            }}
+          </button>
+        </div>
+      </header>
 
-    <!-- 篩選列 -->
-    <div class="filter-bar">
-      <select v-model="statusFilter" @change="applyFilter">
-        <option value="">全部狀態</option>
-        <option value="draft">草稿</option>
-        <option value="pendingSign">待回簽</option>
-        <option value="confirmed">已確認</option>
-        <option value="inProduction">生產中</option>
-        <option value="delivered">已驗收</option>
-        <option value="done">完工</option>
-        <option value="cancelled">已取消</option>
-      </select>
-      <select v-model="showDispatched" @change="applyFilter">
-        <option value="undispatched">未發單</option>
-        <option value="all">含已發單</option>
-        <option value="dispatched">僅已發單</option>
-      </select>
-      <input
-        v-model="keyword"
-        class="search-input"
-        placeholder="搜尋訂單號 / 客戶 / 地址"
-        @input="applyFilter"
-      />
-      <button class="btn-aux" @click="selectAll">
-        全選（{{ filtered.length }}）
-      </button>
-      <button class="btn-aux" @click="clearSelection">取消全選</button>
+      <!-- 篩選列 -->
+      <div class="filter-bar">
+        <select v-model="statusFilter" @change="applyFilter">
+          <option value="">全部狀態</option>
+          <option value="draft">草稿</option>
+          <option value="pendingSign">待回簽</option>
+          <option value="confirmed">已確認</option>
+          <option value="inProduction">生產中</option>
+          <option value="delivered">已驗收</option>
+          <option value="done">完工</option>
+          <option value="cancelled">已取消</option>
+        </select>
+        <select v-model="showDispatched" @change="applyFilter">
+          <option value="undispatched">未發單</option>
+          <option value="all">含已發單</option>
+          <option value="dispatched">僅已發單</option>
+        </select>
+        <input
+          v-model="keyword"
+          class="search-input"
+          placeholder="搜尋訂單號 / 客戶 / 地址"
+          @input="applyFilter"
+        />
+        <button class="btn-aux" @click="selectAll">
+          全選（{{ filtered.length }}）
+        </button>
+        <button class="btn-aux" @click="clearSelection">取消全選</button>
+      </div>
     </div>
 
     <p v-if="loading" class="hint">載入中…</p>
@@ -62,31 +64,31 @@
                 @change="toggleAll"
               />
             </th>
-            <th class="sortable" @click="setSort('orderedAt')">
+            <th class="sortable col-date" @click="setSort('orderedAt')">
               下單日{{ sortIcon("orderedAt") }}
             </th>
-            <th class="sortable" @click="setSort('promisedAt')">
+            <th class="sortable col-date" @click="setSort('promisedAt')">
               預交日{{ sortIcon("promisedAt") }}
             </th>
-            <th class="sortable" @click="setSort('orderNo')">
+            <th class="sortable col-no" @click="setSort('orderNo')">
               訂單號{{ sortIcon("orderNo") }}
             </th>
-            <th class="sortable" @click="setSort('customerName')">
+            <th class="sortable col-customer" @click="setSort('customerName')">
               客戶{{ sortIcon("customerName") }}
             </th>
-            <th class="sortable" @click="setSort('siteAddress')">
+            <th class="sortable col-addr" @click="setSort('siteAddress')">
               施工地址{{ sortIcon("siteAddress") }}
             </th>
-            <th class="sortable" @click="setSort('stoneType')">
+            <th class="sortable col-stone" @click="setSort('stoneType')">
               石材{{ sortIcon("stoneType") }}
             </th>
-            <th class="sortable" @click="setSort('status')">
+            <th class="sortable col-status" @click="setSort('status')">
               狀態{{ sortIcon("status") }}
             </th>
-            <th class="sortable" @click="setSort('confirmedPdf')">
+            <th class="sortable col-pdf" @click="setSort('confirmedPdf')">
               確定單{{ sortIcon("confirmedPdf") }}
             </th>
-            <th class="sortable" @click="setSort('dispatchedAt')">
+            <th class="sortable col-dispatched" @click="setSort('dispatchedAt')">
               發單紀錄{{ sortIcon("dispatchedAt") }}
             </th>
           </tr>
@@ -113,10 +115,10 @@
             <td class="col-no">
               <span class="order-no">{{ o.orderNo || "—" }}</span>
             </td>
-            <td class="col-customer">{{ o.customerName || "—" }}</td>
-            <td class="col-addr">{{ o.siteAddress || "—" }}</td>
-            <td>{{ o.countertop?.type || "—" }}</td>
-            <td>
+            <td class="col-customer" :title="o.customerName || ''">{{ o.customerName || "—" }}</td>
+            <td class="col-addr" :title="o.siteAddress || ''">{{ o.siteAddress || "—" }}</td>
+            <td class="col-stone" :title="o.countertop?.type || ''">{{ o.countertop?.type || "—" }}</td>
+            <td class="col-status">
               <span class="status-chip" :class="'status-' + o.status">
                 {{ STATUS_LABEL[o.status] || o.status || "—" }}
               </span>
@@ -167,7 +169,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
 import { PDFDocument, rgb } from "pdf-lib";
 import {
   listSalesOrders,
@@ -196,6 +198,9 @@ const activeStations = computed(() =>
 const loading = ref(true);
 const rows = ref([]);
 const filtered = ref([]);
+const dispatchViewRef = ref(null);
+const stickyToolsRef = ref(null);
+let stickyToolsResizeObserver = null;
 // Use a reactive object to track selection (Set doesn't trigger Vue reactivity)
 const selectedMap = ref({});
 
@@ -298,6 +303,16 @@ function toggleSelect(id) {
   selectedMap.value = { ...selectedMap.value, [id]: !selectedMap.value[id] };
 }
 
+function updateStickyToolsHeight() {
+  const root = dispatchViewRef.value;
+  const tools = stickyToolsRef.value;
+  if (!(root instanceof HTMLElement) || !(tools instanceof HTMLElement)) return;
+  root.style.setProperty(
+    "--dispatch-sticky-height",
+    `${Math.ceil(tools.offsetHeight)}px`,
+  );
+}
+
 onMounted(async () => {
   try {
     rows.value = await listSalesOrders({ limit: 0 });
@@ -305,7 +320,23 @@ onMounted(async () => {
   } finally {
     loading.value = false;
     applyFilter();
+    await nextTick();
+    updateStickyToolsHeight();
+    if (
+      typeof ResizeObserver === "function" &&
+      stickyToolsRef.value instanceof HTMLElement
+    ) {
+      stickyToolsResizeObserver = new ResizeObserver(() =>
+        updateStickyToolsHeight(),
+      );
+      stickyToolsResizeObserver.observe(stickyToolsRef.value);
+    }
   }
+});
+
+onUnmounted(() => {
+  stickyToolsResizeObserver?.disconnect();
+  stickyToolsResizeObserver = null;
 });
 
 function applyFilter() {
@@ -722,23 +753,42 @@ async function buildDispatchPdf(orders, stations) {
   width: min(1680px, calc(100vw - 32px));
   max-width: none;
   margin: 0 auto;
-  padding: 20px 16px 80px;
+  --dispatch-sticky-height: 128px;
+  padding: calc(var(--page-sticky-top, 58px) + var(--dispatch-sticky-height))
+    16px 80px;
+}
+.sticky-tools {
+  position: fixed;
+  top: var(--page-sticky-top, 58px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1680px, calc(100vw - 32px));
+  box-sizing: border-box;
+  z-index: 35;
+  padding-top: 12px;
+  background: #f7f8fc;
 }
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
 }
 .page-header h2 {
   margin: 0;
+  flex: 0 0 auto;
   font-size: 1.3rem;
   font-weight: 700;
 }
 .header-actions {
   display: flex;
+  flex: 1 1 360px;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
 }
 .filter-bar {
   display: flex;
@@ -746,6 +796,9 @@ async function buildDispatchPdf(orders, stations) {
   gap: 8px;
   margin-bottom: 14px;
   align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(37, 99, 235, 0.12);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
 }
 .search-input {
   flex: 1 1 180px;
@@ -762,12 +815,16 @@ async function buildDispatchPdf(orders, stations) {
   background: #fff;
 }
 .table-wrap {
-  overflow-x: auto;
+  max-height: calc(
+    100vh - var(--page-sticky-top, 58px) - var(--dispatch-sticky-height) - 28px
+  );
+  overflow: auto;
 }
 .dispatch-table {
   width: 100%;
   min-width: 1460px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 13.5px;
 }
 .dispatch-table th,
@@ -782,6 +839,9 @@ async function buildDispatchPdf(orders, stations) {
   font-size: 12px;
   color: #6b7280;
   font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 .dispatch-table th.sortable {
   cursor: pointer;
@@ -815,22 +875,47 @@ async function buildDispatchPdf(orders, stations) {
   min-width: 116px;
 }
 .col-customer {
-  min-width: 160px;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
 }
 .col-no .order-no {
   font-weight: 600;
   color: #1d4ed8;
 }
 .col-addr {
-  white-space: normal;
-  min-width: 340px;
-  max-width: 420px;
+  width: 480px;
+  min-width: 480px;
+  max-width: 480px;
+}
+.col-stone {
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+}
+.col-status {
+  width: 88px;
+  min-width: 88px;
+  max-width: 88px;
 }
 .col-pdf {
+  width: 92px;
   min-width: 92px;
+  max-width: 92px;
 }
 .col-dispatched {
+  width: 118px;
   min-width: 118px;
+  max-width: 118px;
+}
+.col-customer,
+.col-addr,
+.col-stone,
+.col-pdf,
+.col-dispatched {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dispatched-badge {
   color: #16a34a;
@@ -937,6 +1022,25 @@ async function buildDispatchPdf(orders, stations) {
   width: 15px;
   height: 15px;
   cursor: pointer;
+}
+@media (max-width: 899px) {
+  .dispatch-view {
+    --dispatch-sticky-height: 156px;
+  }
+  .header-actions {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 640px) {
+  .dispatch-view {
+    --dispatch-sticky-height: 196px;
+    width: calc(100vw - 24px);
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .sticky-tools {
+    width: calc(100vw - 24px);
+  }
 }
 .station-names {
   color: #374151;

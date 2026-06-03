@@ -55,37 +55,37 @@
             <th></th>
             <th>打板</th>
             <th>對圖</th>
-            <th class="sortable" @click="setSort('orderedAt')">
+            <th class="sortable col-date" @click="setSort('orderedAt')">
               下單日{{ sortIcon("orderedAt") }}
             </th>
-            <th class="sortable" @click="setSort('promisedAt')">
+            <th class="sortable col-date" @click="setSort('promisedAt')">
               預交日{{ sortIcon("promisedAt") }}
             </th>
-            <th class="sortable" @click="setSort('status')">
+            <th class="sortable col-status" @click="setSort('status')">
               訂單狀態{{ sortIcon("status") }}
             </th>
-            <th class="sortable" @click="setSort('sinkStatus')">
+            <th class="sortable col-sink-status" @click="setSort('sinkStatus')">
               水槽狀態{{ sortIcon("sinkStatus") }}
             </th>
-            <th class="sortable" @click="setSort('orderNo')">
+            <th class="sortable col-no" @click="setSort('orderNo')">
               訂單號{{ sortIcon("orderNo") }}
             </th>
-            <th class="sortable" @click="setSort('stones')">
+            <th class="sortable col-stones" @click="setSort('stones')">
               石材{{ sortIcon("stones") }}
             </th>
-            <th class="sortable" @click="setSort('customerName')">
+            <th class="sortable col-customer" @click="setSort('customerName')">
               客戶{{ sortIcon("customerName") }}
             </th>
-            <th class="sortable" @click="setSort('category')">
+            <th class="sortable col-category" @click="setSort('category')">
               類別{{ sortIcon("category") }}
             </th>
-            <th class="sortable" @click="setSort('countertop')">
+            <th class="sortable col-countertop" @click="setSort('countertop')">
               台面{{ sortIcon("countertop") }}
             </th>
-            <th class="sortable" @click="setSort('total')">
+            <th class="sortable col-price" @click="setSort('total')">
               含稅金額{{ sortIcon("total") }}
             </th>
-            <th class="sortable" @click="setSort('siteAddress')">
+            <th class="sortable col-addr" @click="setSort('siteAddress')">
               施工地址{{ sortIcon("siteAddress") }}
             </th>
           </tr>
@@ -153,7 +153,10 @@
               <span v-if="o.orderNo" class="order-no">{{ o.orderNo }}</span>
               <span v-else class="dim">—</span>
             </td>
-            <td class="col-stones">
+            <td
+              class="col-stones"
+              :title="(o.stones || []).map((s) => [s.brand, s.color].filter(Boolean).join(' ')).filter(Boolean).join(' / ')"
+            >
               <template v-if="o.stones && o.stones.length">
                 <div v-for="(s, i) in o.stones" :key="i" class="stone-tag">
                   {{ [s.brand, s.color].filter(Boolean).join(" ") || "—" }}
@@ -161,15 +164,15 @@
               </template>
               <span v-else class="dim">—</span>
             </td>
-            <td class="col-customer">
+            <td class="col-customer" :title="[o.customerName, o.customerContact?.name].filter(Boolean).join(' / ')">
               <div class="customer-name">{{ o.customerName || "—" }}</div>
               <span v-if="o.isTestData" class="test-badge">測</span>
               <div class="customer-sub">
                 {{ o.customerContact?.name || "" }}
               </div>
             </td>
-            <td>{{ o.category || "—" }}</td>
-            <td class="col-countertop">
+            <td class="col-category" :title="o.category || ''">{{ o.category || "—" }}</td>
+            <td class="col-countertop" :title="[o.countertop?.type, o.countertop?.totalCm ? `${o.countertop.totalCm}cm` : ''].filter(Boolean).join(' ')">
               {{ o.countertop?.type || "—" }}
               <span v-if="o.countertop?.totalCm" class="cm-tag"
                 >{{ o.countertop.totalCm }}cm</span
@@ -181,7 +184,7 @@
               }}</span>
               <span v-else class="dim">—</span>
             </td>
-            <td class="col-addr">{{ o.siteAddress || "—" }}</td>
+            <td class="col-addr" :title="o.siteAddress || ''">{{ o.siteAddress || "—" }}</td>
           </tr>
         </tbody>
       </table>
@@ -468,9 +471,10 @@ function fmtDate(val) {
   overflow-x: auto;
 }
 .orders-table {
-  width: max-content;
-  min-width: 100%;
+  width: max(1760px, 100%);
+  min-width: 1760px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 13.5px;
 }
 .orders-table th,
@@ -498,39 +502,68 @@ function fmtDate(val) {
   background: #f0f9ff;
 }
 .col-addr {
-  white-space: normal;
-  min-width: 140px;
+  width: 360px;
+  min-width: 360px;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .col-no .order-no {
   font-weight: 600;
   color: #1d4ed8;
 }
 .col-stones {
-  min-width: 70px;
-  max-width: 92px;
-  white-space: normal;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .stone-tag {
+  display: block;
   font-size: 12px;
   color: #374151;
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .col-customer {
-  min-width: 96px;
-  max-width: 130px;
-  white-space: normal;
+  width: 150px;
+  min-width: 150px;
+  max-width: 150px;
+  overflow: hidden;
 }
 .col-customer .customer-name {
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .col-customer .customer-sub {
   font-size: 12px;
   color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.col-category {
+  width: 86px;
+  min-width: 86px;
+  max-width: 86px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .col-countertop {
-  min-width: 54px;
-  max-width: 72px;
-  white-space: normal;
+  width: 88px;
+  min-width: 88px;
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cm-tag {
   font-size: 11px;
@@ -540,6 +573,9 @@ function fmtDate(val) {
 .col-price {
   text-align: right;
   white-space: nowrap;
+  width: 92px;
+  min-width: 92px;
+  max-width: 92px;
 }
 .price-tag {
   font-weight: 600;
@@ -621,13 +657,39 @@ function fmtDate(val) {
 }
 .col-date {
   color: #6b7280;
+  width: 76px;
+  min-width: 76px;
+  max-width: 76px;
 }
 .col-staff {
   white-space: nowrap;
   color: #374151;
+  width: 54px;
+  min-width: 54px;
+  max-width: 54px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.col-status {
+  width: 70px;
+  min-width: 70px;
+  max-width: 70px;
+}
+.col-sink-status {
+  width: 92px;
+  min-width: 92px;
+  max-width: 92px;
+}
+.col-no {
+  width: 110px;
+  min-width: 110px;
+  max-width: 110px;
 }
 .col-actions {
   text-align: right;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
 }
 .btn-mini {
   font-size: 12px;

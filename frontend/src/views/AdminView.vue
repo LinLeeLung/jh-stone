@@ -897,7 +897,6 @@ async function onResetAllStatusToDraft() {
 }
 const loading = ref(true);
 const isAdmin = ref(false);
-const currentUid = ref(null);
 const logsLoading = ref(false);
 const uploadErrorLogs = ref([]);
 const folderCreationsLoading = ref(false);
@@ -939,6 +938,10 @@ function deptLabel(value) {
   return deptOptions.find((item) => item.value === String(value || ""))?.label || String(value || "");
 }
 
+function isProtectedAdminUser(u) {
+  return String(u?.email || "").trim().toLowerCase() === adminEmail;
+}
+
 async function loadUsers() {
   loading.value = true;
   const list = await fetchAllUsers();
@@ -969,6 +972,10 @@ function changed(u) {
 }
 
 function toggleUserRole(u, role, checked) {
+  if (isProtectedAdminUser(u) && role === "admin" && !checked) {
+    alert("linlilung 帳號必須保留 admin 角色。");
+    return;
+  }
   const nextRoles = checked
     ? [...u.roles, role]
     : u.roles.filter((item) => item !== role);
@@ -991,20 +998,19 @@ function toggleUserDepartment(u, dept, checked) {
 }
 
 async function applyRole(u) {
+  if (isProtectedAdminUser(u) && !u.roles.includes("admin")) {
+    u.roles = Array.from(new Set([...(u.roles || []), "admin"]));
+  }
+  if (!u.roles.includes(u.activeRole)) {
+    u.activeRole = u.roles[0] || "遊客";
+  }
+
   const rolesChanged = JSON.stringify([...(u.roles || [])].sort()) !== u._origRoles;
   const activeRoleChanged = u.activeRole !== u._origActiveRole;
   const departmentsChanged = JSON.stringify([...(u.departments || [])].sort()) !== u._origDepartments;
   const activeDepartmentChanged = u.activeDepartment !== u._origActiveDepartment;
 
   if (rolesChanged || activeRoleChanged || departmentsChanged || activeDepartmentChanged) {
-    if (u.id === currentUid.value) {
-      alert("無法變更自己的角色、部門與視角設定。");
-      return;
-    }
-    if (u.email === adminEmail) {
-      alert("此帳號的角色、部門與視角不可變更。");
-      return;
-    }
     await updateUserRoles(u.id, u.roles, u.activeRole);
     await updateUserDepartments(u.id, u.departments, u.activeDepartment);
   }
@@ -1438,10 +1444,8 @@ onMounted(() => {
   subscribeAuthState(async (u) => {
     if (!u) {
       isAdmin.value = false;
-      currentUid.value = null;
       return;
     }
-    currentUid.value = u.uid;
     const currentUserDoc = await getUserByUid(u.uid);
     isAdmin.value = userHasAnyRole(currentUserDoc, ["admin", "管理者"]);
     if (isAdmin.value) {

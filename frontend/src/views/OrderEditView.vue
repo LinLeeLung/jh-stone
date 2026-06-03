@@ -1,6 +1,6 @@
 <template>
-  <div class="order-edit">
-    <header class="page-header">
+  <div ref="orderEditRef" class="order-edit">
+    <header ref="pageHeaderRef" class="page-header">
       <h2>{{ isEdit ? "編輯訂單" : "新建訂單" }}</h2>
       <div class="header-actions">
         <RouterLink
@@ -40,8 +40,15 @@
         <button v-if="canRenameIssuedOrderNo" class="btn-aux" @click="onRenameOrderNo">
           ✏️ 改訂單號（{{ currentOrderNo }}）
         </button>
+        <button
+          class="btn-aux"
+          :disabled="saving || hasReusableDraftDuplicate"
+          @click="onSaveAndCreateNext"
+        >
+          {{ saving ? "儲存中..." : "儲存並新建" }}
+        </button>
         <button class="btn-secondary" @click="$router.back()">取消</button>
-        <button class="btn-primary" :disabled="saving" @click="onSave">
+        <button class="btn-primary" :disabled="saving || hasReusableDraftDuplicate" @click="onSave">
           {{ saving ? "儲存中..." : "儲存" }}
         </button>
       </div>
@@ -50,7 +57,7 @@
     <p v-if="loading" class="hint">載入中...</p>
     <p v-if="error" class="error">{{ error }}</p>
 
-    <div v-if="!loading" class="form-grid">
+    <div v-if="!loading" class="form-grid" @keydown.capture="onFormKeydown">
       <!-- 客戶資訊 -->
       <section class="card card-customer">
         <h3>客戶資訊</h3>
@@ -113,15 +120,34 @@
               <div class="site-address-warning-title">
                 注意：此安裝地點已存在 {{ siteAddressDuplicates.length }} 筆訂單
               </div>
-              <ul class="site-address-warning-list">
-                <li v-for="dup in siteAddressDuplicates" :key="dup.id">
-                  <RouterLink :to="`/orders/${dup.id}/edit`">
-                    {{ dup.orderNo || dup.id }}
-                  </RouterLink>
-                  <span>{{ dup.customerName || "未填客戶" }}</span>
-                  <span>{{ dup.promisedAt || dup.orderedAt || "未填日期" }}</span>
-                </li>
-              </ul>
+              <div v-if="issuedSiteAddressDuplicates.length" class="site-address-warning-section">
+                <div class="site-address-warning-subtitle">
+                  已有正式訂單：若這次是追加，建議沿用下一個編號
+                  <strong v-if="suggestedExtensionOrderNo">{{ suggestedExtensionOrderNo }}</strong>
+                </div>
+                <ul class="site-address-warning-list">
+                  <li v-for="dup in issuedSiteAddressDuplicates" :key="dup.id">
+                    <RouterLink :to="`/orders/${dup.id}/edit`">
+                      {{ dup.orderNo || dup.id }}
+                    </RouterLink>
+                    <span>{{ dup.customerName || "未填客戶" }}</span>
+                    <span>{{ dup.promisedAt || dup.orderedAt || "未填日期" }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="draftSiteAddressDuplicates.length" class="site-address-warning-section site-address-warning-draft">
+                <div class="site-address-warning-subtitle">
+                  已有草稿：可直接使用現有草稿，不需再新建
+                </div>
+                <ul class="site-address-warning-list">
+                  <li v-for="dup in draftSiteAddressDuplicates" :key="dup.id">
+                    <RouterLink :to="`/orders/${dup.id}/edit`">
+                      {{ dup.customerName || dup.id }}
+                    </RouterLink>
+                    <span>{{ dup.promisedAt || dup.orderedAt || "未填日期" }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
@@ -760,6 +786,7 @@
       :snapshot="pendingSignSnapshot"
       :drawingVersions="pendingSignDrawingVersions"
       :current="toPayload()"
+      :suggestedOrderNo="suggestedExtensionOrderNo"
       @close="showIssuanceDialog = false"
       @issued="onIssued"
     />
@@ -767,7 +794,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   listCustomers,
@@ -806,6 +833,9 @@ import {
 } from "../utils/orderOptions";
 
 const userRole = ref("");
+const orderEditRef = ref(null);
+const pageHeaderRef = ref(null);
+let headerResizeObserver = null;
 const creatingReceivableItem = ref(false);
 const customerPricing = ref(null);
 
@@ -1111,6 +1141,46 @@ const staffDept2 = ref([]);
 const siteAddressChecking = ref(false);
 const siteAddressDuplicates = ref([]);
 const lastSiteAddressAlertKey = ref("");
+const issuedSiteAddressDuplicates = computed(() =>
+  siteAddressDuplicates.value.filter((item) => String(item.orderNo || "").trim()),
+);
+const draftSiteAddressDuplicates = computed(() =>
+  siteAddressDuplicates.value.filter((item) => !String(item.orderNo || "").trim()),
+);
+const hasReusableDraftDuplicate = computed(() =>
+  !isEdit.value && draftSiteAddressDuplicates.value.length > 0,
+);
+
+function parseExtensionBase(orderNo = "") {
+  const clean = String(orderNo || "").trim().toUpperCase();
+  if (!clean) return { prefix: "", suffix: "", seq: 0 };
+  const matched = clean.match(/^(\d+)(?:-(\d+))?([A-Z]+)$/);
+  if (!matched) {
+    return { prefix: clean, suffix: "", seq: 0 };
+  }
+  return {
+    prefix: matched[1],
+    suffix: matched[3] || "",
+    seq: Number(matched[2]) || 0,
+  };
+}
+
+const suggestedExtensionOrderNo = computed(() => {
+  const numbered = issuedSiteAddressDuplicates.value.filter((item) => String(item.orderNo || "").trim());
+  if (!numbered.length) return "";
+
+  const latestParsed = parseExtensionBase(numbered[0].orderNo || "");
+  if (!latestParsed.prefix) return "";
+
+  let maxSeq = 0;
+  numbered.forEach((item) => {
+    const parsed = parseExtensionBase(item.orderNo || "");
+    if (parsed.prefix === latestParsed.prefix && parsed.suffix === latestParsed.suffix) {
+      maxSeq = Math.max(maxSeq, parsed.seq || 0);
+    }
+  });
+  return `${latestParsed.prefix}-${maxSeq + 1}${latestParsed.suffix}`;
+});
 
 // 唯一品牌清單
 const brands = computed(() => {
@@ -1169,11 +1239,27 @@ async function checkDuplicateSiteAddress() {
     if (lastSiteAddressAlertKey.value === alertKey) return;
     lastSiteAddressAlertKey.value = alertKey;
 
-    const summary = matches
-      .slice(0, 5)
-      .map((item) => `${item.orderNo || item.id} ${item.customerName || ""}`.trim())
-      .join("\n");
-    alert(`此安裝地點已存在相同資料，請先確認是否重複建單。\n\n${summary}`);
+    const lines = [];
+    if (issuedSiteAddressDuplicates.value.length) {
+      const summary = issuedSiteAddressDuplicates.value
+        .slice(0, 5)
+        .map((item) => `${item.orderNo || item.id} ${item.customerName || ""}`.trim())
+        .join("\n");
+      lines.push(`已有正式訂單 ${issuedSiteAddressDuplicates.value.length} 筆`);
+      if (suggestedExtensionOrderNo.value) {
+        lines.push(`若要追加，建議訂單號碼：${suggestedExtensionOrderNo.value}`);
+      }
+      if (summary) lines.push(summary);
+    }
+    if (draftSiteAddressDuplicates.value.length) {
+      const summary = draftSiteAddressDuplicates.value
+        .slice(0, 5)
+        .map((item) => `${item.customerName || item.id} ${item.promisedAt || item.orderedAt || ""}`.trim())
+        .join("\n");
+      lines.push(`已有草稿 ${draftSiteAddressDuplicates.value.length} 筆，可直接使用現有草稿，不需新建`);
+      if (summary) lines.push(summary);
+    }
+    alert(`此安裝地點已存在相同資料，請先確認是否重複建單。\n\n${lines.join("\n\n")}`);
   } catch (e) {
     console.warn("check duplicate site address failed", e);
   } finally {
@@ -1207,40 +1293,44 @@ function newStove() {
   };
 }
 
-const form = ref({
-  customerId: "",
-  customerName: "",
-  customerContact: { name: "", phone: "" },
-  owner: { name: "", phone: "" },
-  siteAddress: "",
-  category: "",
-  customerOrderNo: "",
-  orderedAt: "",
-  stones: [],
-  countertop: { type: "", totalCm: null },
-  rearTreatment: "flush",
-  specialMethods: [],
-  sinks: [],
-  stoves: [],
-  cutMethod: "factory",
-  openEdges: { left: false, right: false },
-  extraMm: null,
-  templatingDate: "",
-  templatingStaff: "",
-  drawingStaff: "",
-  installStaff: [],
-  installDelayResponsibility: "unknown",
-  promisedAt: "",
-  sinkReceivedAt: "",
-  specialNotes: "",
-  isTestData: false,
-  pricePerCm: null,
-  total: null,
-  lineItems: [],
-  invoiceRequired: true,
-  depositPaid: null,
-  paymentNotes: "",
-});
+function createEmptyOrderForm() {
+  return {
+    customerId: "",
+    customerName: "",
+    customerContact: { name: "", phone: "" },
+    owner: { name: "", phone: "" },
+    siteAddress: "",
+    category: "",
+    customerOrderNo: "",
+    orderedAt: "",
+    stones: [],
+    countertop: { type: "", totalCm: null },
+    rearTreatment: "flush",
+    specialMethods: [],
+    sinks: [],
+    stoves: [],
+    cutMethod: "factory",
+    openEdges: { left: false, right: false },
+    extraMm: null,
+    templatingDate: "",
+    templatingStaff: "",
+    drawingStaff: "",
+    installStaff: [],
+    installDelayResponsibility: "unknown",
+    promisedAt: "",
+    sinkReceivedAt: "",
+    specialNotes: "",
+    isTestData: false,
+    pricePerCm: null,
+    total: null,
+    lineItems: [],
+    invoiceRequired: true,
+    depositPaid: null,
+    paymentNotes: "",
+  };
+}
+
+const form = ref(createEmptyOrderForm());
 
 // ── 計價明細 helpers ───────────────────────────────────
 function newLineItemId() {
@@ -1962,31 +2052,136 @@ function toPayload() {
   };
 }
 
-async function onSave() {
+function resetForNewOrder() {
+  form.value = createEmptyOrderForm();
+  customerKeyword.value = "";
+  showCustomerList.value = false;
+  customerPricing.value = null;
+  orderStatus.value = "";
+  pendingSignSnapshot.value = null;
+  pendingSignDrawingVersions.value = {};
+  signedScans.value = [];
+  designFiles.value = [];
+  samplePhotos.value = [];
+  siteAddressChecking.value = false;
+  siteAddressDuplicates.value = [];
+  lastSiteAddressAlertKey.value = "";
+}
+
+function isFormNavigableElement(el) {
+  if (el instanceof HTMLInputElement) {
+    return !["hidden", "file", "button", "submit", "reset"].includes(el.type);
+  }
+  return el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement;
+}
+
+function getFormFocusableElements() {
+  const root = document.querySelector(".form-grid");
+  if (!(root instanceof HTMLElement)) return [];
+  return Array.from(root.querySelectorAll("input, select, textarea")).filter((el) => {
+    if (!(el instanceof HTMLElement)) return false;
+    if (!isFormNavigableElement(el)) return false;
+    if (el.getAttribute("tabindex") === "-1") return false;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      if (el.disabled || el.readOnly) return false;
+    }
+    return el.offsetParent !== null;
+  });
+}
+
+function focusFirstField() {
+  const first = getFormFocusableElements()[0];
+  if (first instanceof HTMLElement) first.focus();
+}
+
+function updateOrderHeaderHeight() {
+  const root = orderEditRef.value;
+  const header = pageHeaderRef.value;
+  if (!(root instanceof HTMLElement) || !(header instanceof HTMLElement)) return;
+  root.style.setProperty("--order-header-height", `${Math.ceil(header.offsetHeight)}px`);
+}
+
+function moveFocusToNextField(current) {
+  const fields = getFormFocusableElements();
+  const index = fields.indexOf(current);
+  if (index < 0) return;
+  const next = fields[index + 1];
+  if (next instanceof HTMLElement) {
+    next.focus();
+    if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) {
+      next.select?.();
+    }
+  }
+}
+
+function onFormKeydown(event) {
+  if (event.key !== "Enter" || event.isComposing) return;
+  const target = event.target;
+  if (!isFormNavigableElement(target)) return;
+  if (target instanceof HTMLTextAreaElement && event.shiftKey) return;
+  event.preventDefault();
+  moveFocusToNextField(target);
+}
+
+async function saveOrder({ createNext = false } = {}) {
   if (!form.value.customerId) {
     alert("請先選擇客戶");
-    return;
+    return false;
+  }
+  if (!isEdit.value && draftSiteAddressDuplicates.value.length) {
+    const firstDraft = draftSiteAddressDuplicates.value[0];
+    const shouldOpen = confirm("此安裝地點已有草稿，建議直接使用既有草稿，不需再新建。\n\n是否直接前往第一筆草稿？");
+    if (shouldOpen && firstDraft?.id) {
+      router.push({ name: "order-edit", params: { id: firstDraft.id } });
+    }
+    return false;
   }
   saving.value = true;
   try {
+    const pricingSource = {
+      customerId: form.value.customerId,
+      customerName: form.value.customerName,
+      lineItems: (form.value.lineItems || []).map((li) => ({ ...li })),
+      pricePerCm: form.value.pricePerCm,
+      stones: (form.value.stones || []).map((stone) => ({ ...stone })),
+      orderNo: form.value.orderNo || "",
+    };
     const payload = toPayload();
     if (isEdit.value) {
       await updateSalesOrder(route.params.id, payload);
-      alert("已更新");
+      if (createNext) {
+        await router.push({ name: "order-new" });
+        resetForNewOrder();
+        await nextTick();
+        focusFirstField();
+        alert("已更新，已切換到新建訂單");
+      } else {
+        alert("已更新");
+      }
     } else {
       const id = await createSalesOrder(payload);
-      alert(`已建立訂單 (id: ${id})`);
-      router.replace({ name: "order-edit", params: { id } });
+      if (createNext) {
+        resetForNewOrder();
+        if (route.name !== "order-new" || route.query.fromEstimate === "1") {
+          await router.replace({ name: "order-new" });
+        }
+        await nextTick();
+        focusFirstField();
+        alert(`已建立訂單 (id: ${id})，可直接輸入下一筆`);
+      } else {
+        alert(`已建立訂單 (id: ${id})`);
+        router.replace({ name: "order-edit", params: { id } });
+      }
     }
     // 儲存客戶計價記憶：收集 lineItems 裡有 priceKey + unitPrice 的項目
-    if (form.value.customerId) {
+    if (pricingSource.customerId) {
       const stonePrices = {};
       const sinkPrices = {};
       const stovePrices = {};
       const specialPrices = {};
-      let defaultPpc = form.value.pricePerCm || null;
+      let defaultPpc = pricingSource.pricePerCm || null;
       const today = new Date().toISOString().slice(0, 10);
-      const orderNo = form.value.orderNo || "";
+      const orderNo = pricingSource.orderNo || "";
 
       const buckets = {
         countertop: stonePrices,
@@ -1995,7 +2190,7 @@ async function onSave() {
         special: specialPrices,
       };
 
-      for (const li of form.value.lineItems || []) {
+      for (const li of pricingSource.lineItems || []) {
         if (!li.priceKey || !li.unitPrice) continue;
         const bucket = buckets[li.category];
         if (!bucket) continue;
@@ -2008,11 +2203,11 @@ async function onSave() {
       }
 
       // 舊路徑：若未使用 lineItems，仍用 pricePerCm + stones 記一筆
-      if (!form.value.lineItems?.length && form.value.pricePerCm) {
-        for (const s of form.value.stones || []) {
+      if (!pricingSource.lineItems?.length && pricingSource.pricePerCm) {
+        for (const s of pricingSource.stones || []) {
           const key = [s.brand, s.color].filter(Boolean).join('/');
           if (key) stonePrices[key] = {
-            lastPrice: Number(form.value.pricePerCm),
+            lastPrice: Number(pricingSource.pricePerCm),
             lastDate: today,
             lastOrderNo: orderNo,
           };
@@ -2026,20 +2221,32 @@ async function onSave() {
         Object.keys(specialPrices).length ||
         defaultPpc;
       if (hasAny) {
-        await updateCustomerPricing(form.value.customerId, {
-          customerName: form.value.customerName,
+        await updateCustomerPricing(pricingSource.customerId, {
+          customerName: pricingSource.customerName,
           stonePrices, sinkPrices, stovePrices, specialPrices,
           defaultPricePerCm: defaultPpc,
         });
-        customerPricing.value = await getCustomerPricing(form.value.customerId);
+        if (!createNext) {
+          customerPricing.value = await getCustomerPricing(pricingSource.customerId);
+        }
       }
     }
+    return true;
   } catch (e) {
     console.error(e);
     alert("儲存失敗：" + (e?.message || e));
+    return false;
   } finally {
     saving.value = false;
   }
+}
+
+async function onSave() {
+  await saveOrder();
+}
+
+async function onSaveAndCreateNext() {
+  await saveOrder({ createNext: true });
 }
 
 async function loadAll() {
@@ -2172,31 +2379,63 @@ async function loadAll() {
   }
 }
 
-onMounted(loadAll);
+onMounted(async () => {
+  await loadAll();
+  await nextTick();
+  updateOrderHeaderHeight();
+  if (typeof ResizeObserver === "function" && pageHeaderRef.value instanceof HTMLElement) {
+    headerResizeObserver = new ResizeObserver(() => updateOrderHeaderHeight());
+    headerResizeObserver.observe(pageHeaderRef.value);
+  }
+});
+
+onUnmounted(() => {
+  headerResizeObserver?.disconnect();
+  headerResizeObserver = null;
+});
 </script>
 
 <style scoped>
 .order-edit {
   max-width: 1480px;
   margin: 0 auto;
-  padding: 24px 20px 40px;
+  --order-header-height: 96px;
+  padding: calc(var(--page-sticky-top, 58px) + var(--order-header-height)) 20px
+    40px;
 }
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
+  position: fixed;
+  top: var(--page-sticky-top, 100px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100vw - 40px), 1520px);
+  box-sizing: border-box;
+  z-index: 30;
+  padding: 10px 20px 14px;
   margin-bottom: 22px;
+  background: #f7f8fc;
+  border-bottom: 1px solid rgba(25, 118, 210, 0.12);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
 }
 .page-header h2 {
   margin: 0;
+  flex: 0 0 auto;
+  min-width: 150px;
   font-size: clamp(1.4rem, 1.8vw, 2rem);
   letter-spacing: 0.02em;
 }
 .header-actions {
   display: flex;
+  flex: 1 1 520px;
   gap: 10px;
   flex-wrap: wrap;
+  margin-left: auto;
+  min-width: 0;
   justify-content: flex-end;
 }
 .btn-primary {
@@ -2486,6 +2725,21 @@ onMounted(loadAll);
   color: #b45309;
   margin-bottom: 6px;
 }
+.site-address-warning-section + .site-address-warning-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #f4c7a1;
+}
+.site-address-warning-subtitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 6px;
+}
+.site-address-warning-subtitle strong {
+  margin-left: 6px;
+  color: #b91c1c;
+}
 .site-address-warning-list {
   margin: 0;
   padding-left: 18px;
@@ -2722,6 +2976,9 @@ onMounted(loadAll);
   box-shadow: 0 0 0 4px rgba(90, 156, 255, 0.12);
 }
 @media (max-width: 899px) {
+  .order-edit {
+    --order-header-height: 128px;
+  }
   .page-header {
     flex-direction: column;
   }
@@ -2732,7 +2989,14 @@ onMounted(loadAll);
 }
 @media (max-width: 640px) {
   .order-edit {
-    padding: 16px 12px 28px;
+    --order-header-height: 146px;
+    padding: calc(var(--page-sticky-top, 58px) + var(--order-header-height))
+      12px 28px;
+  }
+  .page-header {
+    width: calc(100vw - 24px);
+    padding-left: 12px;
+    padding-right: 12px;
   }
   .row {
     grid-template-columns: 1fr;

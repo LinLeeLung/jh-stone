@@ -17,6 +17,9 @@
           <span v-else class="id-orderno-tag manual">手動</span>
           <button v-if="!autoMode" class="id-orderno-reset" @click="orderNoInput = autoGenOrderNo; autoMode = true" title="恢復自動">↺</button>
         </div>
+        <div v-if="suggestedOrderNo" class="id-orderno-hint">
+          同地址已有正式單，若本次為追加，建議使用 {{ suggestedOrderNo }}
+        </div>
         <button class="id-close" @click="emit('close')">✕</button>
       </div>
 
@@ -120,6 +123,7 @@ const props = defineProps({
   snapshot:       { type: Object, default: null },   // pendingSignSnapshot
   drawingVersions: { type: Object, default: () => ({}) }, // pendingSignDrawingVersions
   current:        { type: Object, required: true },  // current toPayload() data
+  suggestedOrderNo: { type: String, default: "" },
 });
 const emit = defineEmits(["close", "issued"]);
 
@@ -186,7 +190,12 @@ onMounted(async () => {
   try {
     counterSeq.value = await getOrderCounter();
     autoGenOrderNo.value = buildAutoNo(counterSeq.value);
-    orderNoInput.value = autoGenOrderNo.value;
+    if (props.suggestedOrderNo) {
+      orderNoInput.value = props.suggestedOrderNo;
+      autoMode.value = false;
+    } else {
+      orderNoInput.value = autoGenOrderNo.value;
+    }
   } catch (e) {
     console.warn("訂單號載入失敗", e);
   } finally {
@@ -338,6 +347,12 @@ async function doIssue() {
   display: flex; align-items: center; gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid #334155;
+  flex-wrap: wrap;
+}
+.id-orderno-hint {
+  width: 100%;
+  font-size: 12px;
+  color: #fbbf24;
 }
 .id-header h3 { margin: 0; font-size: 1.1rem; font-weight: 700; flex-shrink: 0; }
 .id-orderno-wrap {

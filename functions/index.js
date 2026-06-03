@@ -4418,10 +4418,8 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       ) || "application/octet-stream";
 
     const folderParts = await buildOrderNasFolderParts(orderDocId, {
-      orderNumber:
-        form?.fields?.orderNumber || taskData?.orderNumber || "",
-      customerName:
-        form?.fields?.customerName || taskData?.customerName || "",
+      orderNumber: form?.fields?.orderNumber || taskData?.orderNumber || "",
+      customerName: form?.fields?.customerName || taskData?.customerName || "",
       color: form?.fields?.color || taskData?.color || "",
       installAddress:
         form?.fields?.installAddress || taskData?.siteAddress || "",
@@ -6423,7 +6421,10 @@ exports.serveOrderPdf = onRequestV2(
       let body = Buffer.from(await downloadResp.arrayBuffer());
       const fileName = pdfPath.split("/").pop() || `${orderNumber}.pdf`;
 
-      const canViewPrice = Boolean(callerProfile?.roles?.includes("價格"));
+      const canViewPrice = canViewOrderPdfPrice({
+        profile: callerProfile,
+        viewerEmail,
+      });
 
       // 只有價格角色可看原始 PDF，其餘身分一律套用白色矩形價格遮罩。
       if (!canViewPrice) {
@@ -6473,7 +6474,9 @@ exports.serveOrderPdf = onRequestV2(
               });
               res
                 .status(415)
-                .send("此訂單 PDF 無法套用價格遮罩，請通知管理者重新輸出 PDF 後再試。");
+                .send(
+                  "此訂單 PDF 無法套用價格遮罩，請通知管理者重新輸出 PDF 後再試。",
+                );
               return;
             } else {
               const pdfDoc = await PDFDocument.load(body, {
@@ -6580,12 +6583,17 @@ exports.serveOrderPdf = onRequestV2(
           });
           res
             .status(409)
-            .send("此訂單 PDF 無法套用價格遮罩，已阻擋原始檔案輸出，請通知管理者重新另存 PDF。");
+            .send(
+              "此訂單 PDF 無法套用價格遮罩，已阻擋原始檔案輸出，請通知管理者重新另存 PDF。",
+            );
           return;
         }
       }
 
-      res.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+      res.set(
+        "Cache-Control",
+        "private, no-store, no-cache, must-revalidate, max-age=0",
+      );
       res.set("Pragma", "no-cache");
       res.set("Expires", "0");
       res.set("Content-Type", "application/pdf");
@@ -7076,6 +7084,65 @@ exports.getOrdersByIds = onCall(async (payload, ctx) => {
   return filterOrdersByAccess(docs, accessCtx);
 });
 
+exports.updateOrderIncompleteStatus = onCall(async (payload, ctx) => {
+  const data = unwrapCallablePayload(payload);
+  const authUid = getCallableAuthUid(payload, ctx);
+  await assertStaffRole(authUid);
+
+  const orderDocId = String(data.orderDocId || "").trim();
+  if (!orderDocId) {
+    throw new functions.https.HttpsError("invalid-argument", "缺少訂單識別碼");
+  }
+
+  const incomplete = data.incomplete === true;
+  const reason = incomplete ? String(data.reason || "").trim() : "";
+
+  const db = admin.firestore();
+  const orderRef = db.collection("Orders").doc(orderDocId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    throw new functions.https.HttpsError("not-found", "找不到訂單");
+  }
+
+  const userSnap = await db.collection("Users").doc(authUid).get();
+  const userData = userSnap.exists ? userSnap.data() || {} : {};
+  const authToken = getCallableAuthToken(payload, ctx);
+  const updatedByName = String(
+    userData.displayName || authToken.name || authToken.displayName || "",
+  ).trim();
+  const updatedByEmail = String(userData.email || authToken.email || "").trim();
+
+  await orderRef.set(
+    {
+      incomplete,
+      未完工: incomplete,
+      completed: !incomplete,
+      reason,
+      原因: reason,
+      未完工原因: reason,
+      incompleteUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      incompleteUpdatedByUid: authUid,
+      incompleteUpdatedByName: updatedByName,
+      incompleteUpdatedByEmail: updatedByEmail,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedByUid: authUid,
+      updatedByName: updatedByName,
+      updatedByEmail: updatedByEmail,
+    },
+    { merge: true },
+  );
+
+  return {
+    ok: true,
+    orderDocId,
+    incomplete,
+    reason,
+    updatedByUid: authUid,
+    updatedByName,
+    updatedByEmail,
+  };
+});
+
 function normalizePendingHeader(value) {
   return String(value || "")
     .replace(/\r?\n/g, " ")
@@ -7457,18 +7524,33 @@ exports.purgePendingTestOrders = onCall(
 
     const role = await readUserRole(authUid);
     if (!["admin", "管理者"].includes(String(role || "").trim())) {
-      throw new functions.https.HttpsError("permission-denied", "需要 admin/管理者 權限");
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "需要 admin/管理者 權限",
+      );
     }
 
-    const keyword = String(payload.data?.keyword || "").trim().toLowerCase();
+    const keyword = String(payload.data?.keyword || "")
+      .trim()
+      .toLowerCase();
     if (!keyword) {
-      throw new functions.https.HttpsError("invalid-argument", "請輸入要刪除的測試關鍵字");
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "請輸入要刪除的測試關鍵字",
+      );
     }
 
     const dryRun = payload.data?.dryRun === true;
-    const limit = Math.max(1, Math.min(10000, Number(payload.data?.limit || 3000)));
+    const limit = Math.max(
+      1,
+      Math.min(10000, Number(payload.data?.limit || 3000)),
+    );
 
-    const snap = await admin.firestore().collection("PendingOrders").limit(limit).get();
+    const snap = await admin
+      .firestore()
+      .collection("PendingOrders")
+      .limit(limit)
+      .get();
     const matchedDocs = snap.docs.filter((docSnap) => {
       const data = docSnap.data() || {};
       const haystacks = [
@@ -7482,8 +7564,7 @@ exports.purgePendingTestOrders = onCall(
         data.owner,
         data.salesName,
         data.color,
-      ]
-          .map((value) => String(value || "").toLowerCase());
+      ].map((value) => String(value || "").toLowerCase());
 
       return haystacks.some((value) => value.includes(keyword));
     });
@@ -7543,17 +7624,26 @@ exports.purgeOrdersTestData = onCall(
 
     const role = await readUserRole(authUid);
     if (!["admin", "管理者"].includes(String(role || "").trim())) {
-      throw new functions.https.HttpsError("permission-denied", "需要 admin/管理者 權限");
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "需要 admin/管理者 權限",
+      );
     }
 
     const keywordRaw = String(payload.data?.keyword || "").trim();
     const keyword = keywordRaw.toLowerCase();
     if (!keywordRaw) {
-      throw new functions.https.HttpsError("invalid-argument", "請輸入要刪除的測試關鍵字");
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "請輸入要刪除的測試關鍵字",
+      );
     }
 
     const dryRun = payload.data?.dryRun === true;
-    const limit = Math.max(1, Math.min(10000, Number(payload.data?.limit || 3000)));
+    const limit = Math.max(
+      1,
+      Math.min(10000, Number(payload.data?.limit || 3000)),
+    );
 
     const ordersCol = admin.firestore().collection("Orders");
     const candidateMap = new Map();
@@ -7561,13 +7651,16 @@ exports.purgeOrdersTestData = onCall(
 
     const addCandidates = (docs = []) => {
       docs.forEach((docSnap) => {
-        if (!candidateMap.has(docSnap.id)) candidateMap.set(docSnap.id, docSnap);
+        if (!candidateMap.has(docSnap.id))
+          candidateMap.set(docSnap.id, docSnap);
       });
     };
 
     const isOrderPrefixKeyword = /^[0-9A-Za-z-]+$/.test(keywordRaw);
     if (isOrderPrefixKeyword) {
-      const seeds = [...new Set([keywordRaw, keywordRaw.toUpperCase()])].filter(Boolean);
+      const seeds = [...new Set([keywordRaw, keywordRaw.toUpperCase()])].filter(
+        Boolean,
+      );
       const queries = [];
       for (const seed of seeds) {
         const upperBound = `${seed}\uf8ff`;
@@ -7577,9 +7670,21 @@ exports.purgeOrdersTestData = onCall(
             .where(admin.firestore.FieldPath.documentId(), "<=", upperBound)
             .limit(limit)
             .get(),
-          ordersCol.where("訂單號碼", ">=", seed).where("訂單號碼", "<=", upperBound).limit(limit).get(),
-          ordersCol.where("orderNo", ">=", seed).where("orderNo", "<=", upperBound).limit(limit).get(),
-          ordersCol.where("orderNumber", ">=", seed).where("orderNumber", "<=", upperBound).limit(limit).get(),
+          ordersCol
+            .where("訂單號碼", ">=", seed)
+            .where("訂單號碼", "<=", upperBound)
+            .limit(limit)
+            .get(),
+          ordersCol
+            .where("orderNo", ">=", seed)
+            .where("orderNo", "<=", upperBound)
+            .limit(limit)
+            .get(),
+          ordersCol
+            .where("orderNumber", ">=", seed)
+            .where("orderNumber", "<=", upperBound)
+            .limit(limit)
+            .get(),
         );
       }
       const targetedResults = await Promise.allSettled(queries);
@@ -7669,12 +7774,19 @@ exports.importDispatchRowsToOrders = onCall(
       throw new functions.https.HttpsError("unauthenticated", "請先登入");
     }
 
-    const userSnap = await admin.firestore().collection("Users").doc(authUid).get();
+    const userSnap = await admin
+      .firestore()
+      .collection("Users")
+      .doc(authUid)
+      .get();
     const userData = userSnap.exists ? userSnap.data() || {} : {};
     const role = String(userData.role || "").trim();
     const dept = String(userData.dept || "").trim();
     if (!["admin", "管理者"].includes(role) && dept !== "1") {
-      throw new functions.https.HttpsError("permission-denied", "需要 admin/管理者 或 1 部門權限");
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "需要 admin/管理者 或 1 部門權限",
+      );
     }
 
     const rows = Array.isArray(payload?.data?.rows) ? payload.data.rows : [];
@@ -7701,47 +7813,53 @@ exports.importDispatchRowsToOrders = onCall(
         const docId = `${orderNo}_${date}`;
         const [yyyy, mm, dd] = date.split("-");
         const installDate = `${Number(yyyy || 0)}/${Number(mm || 0)}/${Number(dd || 0)}`;
-        const installers = Array.isArray(row.installerNames) ? row.installerNames.filter(Boolean) : [];
+        const installers = Array.isArray(row.installerNames)
+          ? row.installerNames.filter(Boolean)
+          : [];
         const installer1 = installers[0] || "";
         const installer2 = installers[1] || "";
         const installer3 = installers[2] || "";
         const vehiclePlate = String(row.vehiclePlate || "").trim();
         const isRepair = row.kind === "repair";
-        batch.set(db.collection("Orders").doc(docId), {
-          orderNo,
-          "訂單號碼": orderNo,
-          customerName: row.customerName || "",
-          "客戶名稱": row.customerName || "",
-          installAddress: row.siteAddress || "",
-          "安裝地址": row.siteAddress || "",
-          "安裝地點": row.siteAddress || "",
-          color: row.stoneLabel || "",
-          "顏色": row.stoneLabel || "",
-          dueDate: installDate,
-          "安裝日": installDate,
-          "是否維修": isRepair ? "維修" : "安裝",
-          reason: row.reason || "",
-          "原因": row.reason || "",
-          etaTime: row.etaTime || "",
-          "預計到達": row.etaTime || "",
-          vehiclePlate,
-          "車號": vehiclePlate,
-          installers,
-          "安裝人員": installers.join("、"),
-          installer1,
-          installer2,
-          installer3,
-          "安裝人員1": installer1,
-          "安裝人員2": installer2,
-          "安裝人員3": installer3,
-          source: "dispatch-sheet-manual",
-          sourceCollection: row.sourceCollection || "",
-          sourceId: row.sourceId || "",
-          dispatchDate: row.date || "",
-          completed: !!row.completed,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedByUid: authUid,
-        }, { merge: true });
+        batch.set(
+          db.collection("Orders").doc(docId),
+          {
+            orderNo,
+            訂單號碼: orderNo,
+            customerName: row.customerName || "",
+            客戶名稱: row.customerName || "",
+            installAddress: row.siteAddress || "",
+            安裝地址: row.siteAddress || "",
+            安裝地點: row.siteAddress || "",
+            color: row.stoneLabel || "",
+            顏色: row.stoneLabel || "",
+            dueDate: installDate,
+            安裝日: installDate,
+            是否維修: isRepair ? "維修" : "安裝",
+            reason: row.reason || "",
+            原因: row.reason || "",
+            etaTime: row.etaTime || "",
+            預計到達: row.etaTime || "",
+            vehiclePlate,
+            車號: vehiclePlate,
+            installers,
+            安裝人員: installers.join("、"),
+            installer1,
+            installer2,
+            installer3,
+            安裝人員1: installer1,
+            安裝人員2: installer2,
+            安裝人員3: installer3,
+            source: "dispatch-sheet-manual",
+            sourceCollection: row.sourceCollection || "",
+            sourceId: row.sourceId || "",
+            dispatchDate: row.date || "",
+            completed: !!row.completed,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedByUid: authUid,
+          },
+          { merge: true },
+        );
         imported += 1;
       }
       await batch.commit();
@@ -7769,20 +7887,20 @@ function _buildLegacyOrderProductionUpdates(jobData, authUid) {
 
   return {
     cutBoardTime: cut.time,
-    "裁切時間": cut.time,
-    "裁板時間": cut.time,
+    裁切時間: cut.time,
+    裁板時間: cut.time,
     cutBoardBy: cut.by,
-    "裁切者": cut.by,
-    "裁板者": cut.by,
+    裁切者: cut.by,
+    裁板者: cut.by,
     waterjetTime: waterjet.time,
-    "水刀時間": waterjet.time,
+    水刀時間: waterjet.time,
     waterjetBy: waterjet.by,
-    "水刀者": waterjet.by,
-    "水刀手": waterjet.by,
+    水刀者: waterjet.by,
+    水刀手: waterjet.by,
     acceptanceTime: qc.time,
-    "驗收時間": qc.time,
+    驗收時間: qc.time,
     acceptanceBy: qc.by,
-    "驗收者": qc.by,
+    驗收者: qc.by,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedByUid: authUid,
   };
@@ -7796,7 +7914,11 @@ exports.syncProductionJobToLegacyOrders = onCall(
       throw new functions.https.HttpsError("unauthenticated", "請先登入");
     }
 
-    const userSnap = await admin.firestore().collection("Users").doc(authUid).get();
+    const userSnap = await admin
+      .firestore()
+      .collection("Users")
+      .doc(authUid)
+      .get();
     const userData = userSnap.exists ? userSnap.data() || {} : {};
     const role = String(userData.role || "").trim();
     const dept = String(userData.dept || "").trim();
@@ -7818,7 +7940,10 @@ exports.syncProductionJobToLegacyOrders = onCall(
       }
       const jobSnap = await db.collection("productionJobs").doc(jobId).get();
       if (!jobSnap.exists) {
-        throw new functions.https.HttpsError("not-found", "找不到 production job");
+        throw new functions.https.HttpsError(
+          "not-found",
+          "找不到 production job",
+        );
       }
       jobData = { id: jobSnap.id, ...jobSnap.data() };
     }
@@ -9274,6 +9399,63 @@ async function runPayrollCalculation(yyyyMM) {
       .map(Number);
     return parts[0] * 60 + (parts[1] || 0);
   }
+  function normalizeTimeStr(value) {
+    if (!value) return null;
+    const raw = String(value);
+    return raw.length <= 5 ? `${raw}:00` : raw;
+  }
+  function clampEarliestPunchIn(value) {
+    const normalized = normalizeTimeStr(value);
+    if (!normalized) return null;
+    return timeStrToMins(normalized) < timeStrToMins("07:45:00")
+      ? "07:45:00"
+      : normalized;
+  }
+  function getWorkSegmentsFromAttendance(att) {
+    const rawSegments = Array.isArray(att.workSegments) ? att.workSegments : [];
+    const normalized = rawSegments
+      .map((seg) => ({
+        start: normalizeTimeStr(seg && seg.start),
+        end: normalizeTimeStr(seg && seg.end),
+      }))
+      .filter((seg) => seg.start)
+      .sort((a, b) => timeStrToMins(a.start) - timeStrToMins(b.start));
+    if (normalized.length) {
+      normalized[0].start = clampEarliestPunchIn(normalized[0].start);
+    }
+    if (normalized.length) return normalized;
+    if (att.punchIn) {
+      return [
+        {
+          start: clampEarliestPunchIn(att.punchIn),
+          end: normalizeTimeStr(att.punchOut),
+        },
+      ];
+    }
+    return [];
+  }
+  function getFirstWorkStart(att) {
+    return (
+      getWorkSegmentsFromAttendance(att)[0]?.start ||
+      clampEarliestPunchIn(att.punchIn)
+    );
+  }
+  function getLastWorkEnd(att) {
+    const segments = getWorkSegmentsFromAttendance(att).filter(
+      (seg) => seg.end,
+    );
+    return (
+      normalizeTimeStr(att.punchOut) ||
+      segments[segments.length - 1]?.end ||
+      null
+    );
+  }
+  function overlapsWindow(segments, windowStart, windowEnd) {
+    return segments.some(
+      (seg) =>
+        seg.start && seg.end && seg.start < windowEnd && seg.end > windowStart,
+    );
+  }
   // 依扣薪單位計算扣薪金額
   function calcDeductionAmt(deductMins, hourlyRate) {
     if (deductMins <= 0) return 0;
@@ -9400,8 +9582,7 @@ async function runPayrollCalculation(yyyyMM) {
         payOff = hOff * baseHourlyRate * (4 / 3);
       } else {
         payOff =
-          2 * baseHourlyRate * (4 / 3) +
-          (hOff - 2) * baseHourlyRate * (5 / 3);
+          2 * baseHourlyRate * (4 / 3) + (hOff - 2) * baseHourlyRate * (5 / 3);
       }
       payOff = Math.round(payOff);
       otPayOfficial += payOff;
@@ -9471,31 +9652,30 @@ async function runPayrollCalculation(yyyyMM) {
         effectiveBase = Math.round(base * attendanceDays);
       }
       for (const att of attRecords) {
-        // 補齊秒數，確保字串比較正確（"08:30" → "08:30:00"）
-        const inT =
-          String(att.punchIn).length <= 5
-            ? att.punchIn + ":00"
-            : String(att.punchIn);
-        const outT =
-          String(att.punchOut).length <= 5
-            ? att.punchOut + ":00"
-            : String(att.punchOut);
+        const workSegments = getWorkSegmentsFromAttendance(att).filter(
+          (seg) => seg.start && seg.end,
+        );
+        const inT = getFirstWorkStart(att);
+        const outT = getLastWorkEnd(att);
+        if (!inT || !outT) continue;
         let dayMeal = 0;
-        if (inT < "14:00:00" && outT > "11:00:00") dayMeal += 100; // 午餐
-        if (inT < "18:30:00" && outT > "17:30:00") dayMeal += 100; // 晚餐
+        if (overlapsWindow(workSegments, "11:00:00", "14:00:00"))
+          dayMeal += 100; // 午餐
+        if (overlapsWindow(workSegments, "17:30:00", "18:30:00"))
+          dayMeal += 100; // 晚餐
         if (dayMeal > 0) {
           mealAllowance += dayMeal;
           mealDetail.push({
             date: att.date,
-            punchIn: att.punchIn,
-            punchOut: att.punchOut,
+            punchIn: inT,
+            punchOut: outT,
             meal: dayMeal,
           });
         }
 
         // 遲到/早退扣薪
-        const inMins = timeStrToMins(att.punchIn);
-        const outMins = timeStrToMins(att.punchOut);
+        const inMins = timeStrToMins(inT);
+        const outMins = timeStrToMins(outT);
         const lateMins = Math.max(0, inMins - (workStartMins + graceMins));
         const earlyMins = deductEarlyLeave
           ? Math.max(0, workEndMins - graceMins - outMins)
@@ -9508,8 +9688,8 @@ async function runPayrollCalculation(yyyyMM) {
           lateEarlyDeduction += deduction;
           lateEarlyDetail.push({
             date: att.date,
-            punchIn: att.punchIn,
-            punchOut: att.punchOut,
+            punchIn: inT,
+            punchOut: outT,
             lateMins,
             earlyMins,
             deduction,
@@ -9519,14 +9699,14 @@ async function runPayrollCalculation(yyyyMM) {
 
       // 曠職自動偵測：工作日（週一至五）無打卡且無請假
       const publicHolidaySet = new Set(
-        (settingsData.publicHolidays || []).map((h) =>
-          typeof h === "string" ? h : h && h.date ? h.date : null,
-        ).filter(Boolean),
+        (settingsData.publicHolidays || [])
+          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
+          .filter(Boolean),
       );
       const makeupWorkdaySet = new Set(
-        (settingsData.makeupWorkdays || []).map((h) =>
-          typeof h === "string" ? h : h && h.date ? h.date : null,
-        ).filter(Boolean),
+        (settingsData.makeupWorkdays || [])
+          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
+          .filter(Boolean),
       );
       const empStartDate = s.startDate
         ? String(s.startDate).slice(0, 10)
@@ -9534,9 +9714,7 @@ async function runPayrollCalculation(yyyyMM) {
       // 展開核准請假涵蓋的日期
       const leaveCoveredDates = new Set();
       for (const lv of leaveRecords) {
-        const lstart = lv.startDate
-          ? String(lv.startDate).slice(0, 10)
-          : null;
+        const lstart = lv.startDate ? String(lv.startDate).slice(0, 10) : null;
         if (!lstart) continue;
         const daysN =
           lv.unit === "小時" ? 1 : Math.max(1, Number(lv.days) || 1);
@@ -9551,8 +9729,7 @@ async function runPayrollCalculation(yyyyMM) {
         attSnap.docs
           .map((d) => d.data())
           .filter(
-            (r) =>
-              String(r.date || "").startsWith(monthPrefix) && r.punchIn,
+            (r) => String(r.date || "").startsWith(monthPrefix) && r.punchIn,
           )
           .map((r) => r.date),
       );
@@ -9581,7 +9758,7 @@ async function runPayrollCalculation(yyyyMM) {
     );
     const bonusTotal = bonusItems.reduce((acc, b) => acc + b, 0);
 
-    // Fixed monthly deductions (勞保、健保、眷屬健保)
+    // Fixed monthly deductions
     const laborInsurance = Math.max(0, Number(s.laborInsurance) || 0);
     const hasManualHealthInsurance =
       s.healthInsurance !== undefined &&
@@ -9600,6 +9777,7 @@ async function runPayrollCalculation(yyyyMM) {
       ? Math.max(0, Number(s.healthInsurance) || 0)
       : autoHealthInsurance;
     const dependentHealth = Math.max(0, Number(s.dependentHealth) || 0);
+    const mutualAid = Math.max(0, Number(s.mutualAid) || 0);
 
     // Foreign worker monthly deductions
     const foreignRent = Math.max(0, Number(s.foreignRent) || 0);
@@ -9687,6 +9865,7 @@ async function runPayrollCalculation(yyyyMM) {
         laborInsurance -
         healthInsurance -
         dependentHealth -
+        mutualAid -
         lunchFee -
         foreignRent -
         waterFee -
@@ -9708,6 +9887,7 @@ async function runPayrollCalculation(yyyyMM) {
         laborInsurance -
         healthInsurance -
         dependentHealth -
+        mutualAid -
         lunchFee -
         foreignRent -
         waterFee -
@@ -9763,6 +9943,7 @@ async function runPayrollCalculation(yyyyMM) {
         laborInsurance,
         healthInsurance,
         dependentHealth,
+        mutualAid,
         lunchFee,
         foreignRent,
         waterFee,
@@ -9783,16 +9964,19 @@ async function runPayrollCalculation(yyyyMM) {
 
     // Update loan records after payroll is written
     for (const lu of loanUpdates) {
-      await db.collection("loans").doc(lu.loanId).update({
-        remainingBalance: lu.newRemaining,
-        paidInstallments: lu.newPaid,
-        status: lu.newStatus,
-        [`processedMonths.${yyyyMM}`]: {
-          principal: lu.monthlyPrincipal,
-          interest: lu.monthlyInterestAmt,
-        },
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      await db
+        .collection("loans")
+        .doc(lu.loanId)
+        .update({
+          remainingBalance: lu.newRemaining,
+          paidInstallments: lu.newPaid,
+          status: lu.newStatus,
+          [`processedMonths.${yyyyMM}`]: {
+            principal: lu.monthlyPrincipal,
+            interest: lu.monthlyInterestAmt,
+          },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
     }
 
     results.push({ empNo, name: s.name || "", grossPay });
@@ -9841,19 +10025,19 @@ exports.autoCalculatePayroll = onSchedule(
   },
 );
 
-//  派車模組 (installTasks) 
-const _installTasks = require('./installTasks');
+//  派車模組 (installTasks)
+const _installTasks = require("./installTasks");
 exports.createInstallTask = _installTasks.createInstallTask;
 exports.nightlySyncInstallTasks = _installTasks.nightlySyncInstallTasks;
 exports.runNightlySyncNow = _installTasks.runNightlySyncNow;
 exports.onInstallTaskWritten = _installTasks.onInstallTaskWritten;
 
-
 // salesOrders 鏡像同步 (legacy Orders -> salesOrders)
-const _salesOrdersSync = require('./salesOrdersSync');
+const _salesOrdersSync = require("./salesOrdersSync");
 // 2026-05-26 停用自動鏡像 trigger:OrdersView 改為前端直接讀 Orders + salesOrders 合併,
 // 不再需要鏡像。需要恢復時取消下行註解即可。
 // exports.onLegacyOrderWritten = _salesOrdersSync.onLegacyOrderWritten;
-exports.backfillSalesOrdersFromOrders = _salesOrdersSync.backfillSalesOrdersFromOrders;
-exports.purgeLegacyMirroredSalesOrders = _salesOrdersSync.purgeLegacyMirroredSalesOrders;
-
+exports.backfillSalesOrdersFromOrders =
+  _salesOrdersSync.backfillSalesOrdersFromOrders;
+exports.purgeLegacyMirroredSalesOrders =
+  _salesOrdersSync.purgeLegacyMirroredSalesOrders;

@@ -303,6 +303,10 @@
             />
           </label>
           <label
+            >減項互助金（元）
+            <input type="number" v-model.number="form.mutualAid" min="0" />
+          </label>
+          <label
             >便當費扣（元/月）
             <input type="number" v-model.number="form.lunchFee" min="0" />
           </label>
@@ -424,6 +428,7 @@ const FIELDS = [
   { key: "laborInsurance", label: "勞保費扣", type: "number" },
   { key: "healthInsurance", label: "健保費扣（本人）", type: "number" },
   { key: "dependentHealth", label: "健保費扣（眷屬）", type: "number" },
+  { key: "mutualAid", label: "減項互助金", type: "number" },
   { key: "lunchFee", label: "便當費扣", type: "number" },
   { key: "foreignRent", label: "房租-外勞", type: "number" },
   { key: "waterFee", label: "水費", type: "number" },
@@ -488,6 +493,8 @@ const AUTO_MAP = {
   健保費: "healthInsurance",
   眷屬健保費: "dependentHealth",
   眷屬健保: "dependentHealth",
+  互助金: "mutualAid",
+  減項互助金: "mutualAid",
   便當費扣: "lunchFee",
   便當費: "lunchFee",
   "房租-外勞": "foreignRent",
@@ -772,6 +779,7 @@ const emptyForm = () => ({
   laborInsurance: null,
   healthInsurance: null,
   dependentHealth: null,
+  mutualAid: null,
   lunchFee: null,
   foreignRent: null,
   waterFee: null,

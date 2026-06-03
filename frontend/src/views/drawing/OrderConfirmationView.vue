@@ -202,9 +202,9 @@
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">客戶電話</td>
+                      <td class="lbl">客戶端業務</td>
                       <td class="val" colspan="3">
-                        {{ order?.customerContact?.phone || "" }}
+                        {{ [order?.customerContact?.name, order?.customerContact?.phone].filter(Boolean).join(" ") }}
                       </td>
                     </tr>
                     <tr>
@@ -520,26 +520,20 @@
               </div>
               <div class="price-val-col">
                 <div
-                  v-if="
-                    priceBreakdown.left.length || priceBreakdown.right.length
-                  "
-                  class="price-grid"
+                  v-if="priceBreakdown.lines.length"
+                  :class="[
+                    'price-grid',
+                    `price-grid--cols-${priceBreakdown.columnCount}`,
+                    { 'price-grid--dense': priceBreakdown.isDense },
+                  ]"
                 >
-                  <table class="price-table">
+                  <table
+                    v-for="(column, columnIndex) in priceBreakdown.columns"
+                    :key="`pcol-${columnIndex}`"
+                    class="price-table"
+                  >
                     <tbody>
-                      <tr v-for="(ln, i) in priceBreakdown.left" :key="'l' + i">
-                        <td class="pt-desc">{{ ln.desc }}</td>
-                        <td class="pt-calc">{{ ln.calc }}</td>
-                        <td class="pt-amt">{{ ln.amt }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <table class="price-table">
-                    <tbody>
-                      <tr
-                        v-for="(ln, i) in priceBreakdown.right"
-                        :key="'r' + i"
-                      >
+                      <tr v-for="(ln, i) in column" :key="`c${columnIndex}-${i}`">
                         <td class="pt-desc">{{ ln.desc }}</td>
                         <td class="pt-calc">{{ ln.calc }}</td>
                         <td class="pt-amt">{{ ln.amt }}</td>
@@ -899,7 +893,13 @@ const untaxedPriceDisplay = computed(() => {
 // 按 (description-without-dims + unitPrice + unit) 聚合；例如「水槽下嵌（陶板） @3,500×3 = 10,500」
 const priceBreakdown = computed(() => {
   const o = order.value;
-  const empty = { left: [], right: [], total: "" };
+  const empty = {
+    lines: [],
+    columns: [],
+    columnCount: 2,
+    isDense: false,
+    total: "",
+  };
   if (!o || !Array.isArray(o.lineItems)) return empty;
 
   // 去掉描述尾部的「 尺寸」（例如 67.8×49cm）以便聚合
@@ -946,11 +946,17 @@ const priceBreakdown = computed(() => {
     };
   });
 
-  // 平均分為左 / 右兩欄
-  const mid = Math.ceil(lines.length / 2);
+  const columnCount = lines.length >= 7 ? 3 : 2;
+  const rowsPerColumn = Math.ceil(lines.length / columnCount);
+  const columns = Array.from({ length: columnCount }, (_, index) =>
+    lines.slice(index * rowsPerColumn, (index + 1) * rowsPerColumn),
+  ).filter((column) => column.length);
+
   return {
-    left: lines.slice(0, mid),
-    right: lines.slice(mid),
+    lines,
+    columns,
+    columnCount,
+    isDense: lines.length >= 5,
     total: total > 0 ? total.toLocaleString() : "",
   };
 });
@@ -2440,13 +2446,6 @@ onUnmounted(() => {
   padding: 2px 5px;
   border-radius: 3px;
   border: 1.5px solid transparent;
-  user-select: none;
-}
-.inst-item.checked {
-  border-color: #333;
-  background: #f0f0f0;
-}
-.inst-sym {
   font-size: 9px;
 }
 .inst-chk {
@@ -2490,21 +2489,29 @@ onUnmounted(() => {
 .price-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 8px;
+  column-gap: 10px;
   row-gap: 0;
   align-items: start;
   padding: 1px 2px;
 }
+.price-grid--cols-2 {
+  grid-template-columns: 1fr 1fr;
+}
+.price-grid--cols-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.price-grid--dense {
+  column-gap: 6px;
+}
 .price-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10.5px;
-  line-height: 1.35;
+  font-size: 9px;
+  line-height: 1.2;
   table-layout: fixed;
 }
 .price-table td {
-  padding: 2px 2px;
+  padding: 1px 2px;
   vertical-align: top;
   border-bottom: 1px dotted #ddd;
 }
@@ -2535,16 +2542,16 @@ onUnmounted(() => {
 .price-sum {
   grid-column: 1 / -1;
   border-top: 2px solid #c0392b;
-  margin-top: 4px;
-  padding: 3px 6px 0 0;
+  margin-top: 2px;
+  padding: 2px 4px 0 0;
   text-align: right;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 12px;
   color: #c0392b;
 }
 .price-sum span {
-  margin-left: 8px;
-  font-size: 16px;
+  margin-left: 6px;
+  font-size: 14px;
   letter-spacing: 1px;
 }
 
