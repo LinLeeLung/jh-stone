@@ -219,8 +219,8 @@
                     </tr>
                     <tr>
                       <td class="lbl">備　　注</td>
-                      <td class="val" colspan="3">
-                        {{ order?.specialNotes || "" }}
+                      <td class="val note-val" colspan="3">
+                        {{ orderRemarkDisplay }}
                       </td>
                     </tr>
                     <tr>
@@ -858,6 +858,7 @@ import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import {
   getSalesOrder,
+  getCustomerById,
   listOrderDrawings,
   getOrderConfirmation,
   saveOrderConfirmation,
@@ -871,6 +872,14 @@ const route = useRoute();
 const orderId = computed(() => route.params.id);
 
 const order = ref(null);
+const customer = ref(null);
+
+const orderRemarkDisplay = computed(() => {
+  const lines = [customer.value?.notes, order.value?.specialNotes]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return [...new Set(lines)].join("\n");
+});
 
 // 未稅價顯示：優先取 subtotal（lineItems 小計）→ total（手動輸入）→ lineItems 加總 → grandTotal
 const untaxedPriceDisplay = computed(() => {
@@ -1537,6 +1546,14 @@ async function loadAll() {
       getOrderConfirmation(orderId.value),
     ]);
     order.value = ord;
+    customer.value = null;
+    if (ord?.customerId) {
+      try {
+        customer.value = await getCustomerById(ord.customerId);
+      } catch (e) {
+        console.warn("Could not load customer notes", e);
+      }
+    }
     confirmedPdfUrl.value = ord?.confirmedPdfUrl || null;
     // If URL exists but has no download token (e.g. stored before getDownloadURL was used),
     // re-fetch a fresh token URL from Storage so it opens without a 403.
@@ -1652,47 +1669,45 @@ async function regeneratePdf() {
   await generateConfirmedPdf();
 }
 
+async function buildConfirmedPdfBlob() {
+  selectedBlkId.value = null;
+  await nextTick();
+  const el = pageRef.value;
+  if (!el) throw new Error("找不到頁面元素");
+
+  // 只截取 A4 可視頁面尺寸；不要用 scrollWidth/scrollHeight，否則被拖到頁面外的圖塊
+  // 會把整張 PDF 寬高撐大，導致輸出時內容縮小並在右/下留下大片空白。
+  const rect = el.getBoundingClientRect();
+  const w = Math.round(rect.width || el.offsetWidth || 1123);
+  const h = Math.round(rect.height || el.offsetHeight || 794);
+  const canvas = await html2canvas(el, {
+    scale: 3,
+    useCORS: true,
+    allowTaint: true,
+    logging: false,
+    backgroundColor: "#fff",
+    width: w,
+    height: h,
+    windowWidth: w,
+    windowHeight: h,
+  });
+
+  const imgData = canvas.toDataURL("image/jpeg", 0.96);
+  const pdf = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+  pdf.addImage(imgData, "JPEG", 0, 0, 297, 210, undefined, "FAST");
+  return pdf.output("blob");
+}
+
 async function generateConfirmedPdf() {
   if (pdfGenerating.value || confirmedPdfUrl.value) return;
   pdfGenerating.value = true;
   try {
-    selectedBlkId.value = null;
-    await nextTick();
-    const el = pageRef.value;
-    if (!el) throw new Error("找不到頁面元素");
-
-    // 抓元素實際內容大小,避免右邊/底邊被切
-    const w = Math.max(el.scrollWidth, el.offsetWidth, 1123);
-    const h = Math.max(el.scrollHeight, el.offsetHeight, 794);
-    const canvas = await html2canvas(el, {
-      scale: 3,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      backgroundColor: "#fff",
-      width: w,
-      height: h,
-      windowWidth: w,
-      windowHeight: h,
-    });
-
-    const imgData = canvas.toDataURL("image/jpeg", 0.96);
-    const pdf = new jsPDF({
-      orientation: "landscape",
-      unit: "mm",
-      format: "a4",
-      compress: true,
-    });
-    // 依實際長寬比放入 A4 landscape (297x210),保持比例不變形,內容不會被裁切
-    const pageW = 297,
-      pageH = 210;
-    const drawW = w / h >= pageW / pageH ? pageW : pageH * (w / h);
-    const drawH = w / h >= pageW / pageH ? pageW * (h / w) : pageH;
-    const offX = (pageW - drawW) / 2;
-    const offY = (pageH - drawH) / 2;
-    pdf.addImage(imgData, "JPEG", offX, offY, drawW, drawH, undefined, "FAST");
-
-    const blob = pdf.output("blob");
+    const blob = await buildConfirmedPdfBlob();
     const url = await uploadConfirmedPdf(orderId.value, blob);
     confirmedPdfUrl.value = url;
   } catch (e) {
@@ -1737,73 +1752,20 @@ async function doSave() {
   }
 }
 
-function doPrint() {
-  selectedBlkId.value = null;
-  setTimeout(() => {
-    const el = pageRef.value;
-    if (!el) {
-      window.print();
-      return;
-    }
-    const html = el.outerHTML;
-    // Production builds extract CSS into <link rel="stylesheet">, so copy both
-    // inline <style> tags and linked stylesheets into the popup document.
-    const inlineStyles = Array.from(document.querySelectorAll("style"))
-      .map((s) => s.outerHTML)
-      .join("\n");
-    const linkedStyles = Array.from(
-      document.querySelectorAll('link[rel="stylesheet"]'),
-    )
-      .map((link) => {
-        const href = link.href || link.getAttribute("href") || "";
-        return href
-          ? `<link rel="stylesheet" href="${href}">`
-          : "";
-      })
-      .join("\n");
-    const win = window.open("", "_blank", "width=1200,height=860");
-    if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head>
-      <meta charset="utf-8">
-      <title>生產確定單</title>
-      ${linkedStyles}
-      ${inlineStyles}
-      <style>
-        body { margin:0; background:#fff; }
-        @page { size: A4 landscape; margin: 0; }
-      </style>
-    </head><body>${html}</body></html>`);
+async function doPrint() {
+  const win = window.open("", "_blank");
+  if (!win) return;
+  try {
+    win.document.write("<title>生產確定單 PDF</title><p style=\"font-family:sans-serif;padding:16px\">PDF 產生中…</p>");
     win.document.close();
-    const finalizePrint = () => {
-      win.requestAnimationFrame(() => {
-        win.requestAnimationFrame(() => {
-          win.focus();
-          win.print();
-          win.close();
-        });
-      });
-    };
-    const pendingLinks = Array.from(
-      win.document.querySelectorAll('link[rel="stylesheet"]'),
-    );
-    if (!pendingLinks.length) {
-      finalizePrint();
-      return;
-    }
-    Promise.all(
-      pendingLinks.map(
-        (link) =>
-          new Promise((resolve) => {
-            if (link.sheet) {
-              resolve();
-              return;
-            }
-            link.addEventListener("load", resolve, { once: true });
-            link.addEventListener("error", resolve, { once: true });
-          }),
-      ),
-    ).finally(finalizePrint);
-  }, 80);
+    const blob = await buildConfirmedPdfBlob();
+    const url = URL.createObjectURL(blob);
+    win.location.replace(url);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    console.error("列印PDF產生失敗", e);
+    win.close();
+  }
 }
 
 onMounted(() => {
@@ -2231,6 +2193,11 @@ onUnmounted(() => {
 .val {
   font-size: 11px;
 }
+.note-val {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
 .val-s {
   width: 58px;
   font-size: 10px;
@@ -2432,19 +2399,19 @@ onUnmounted(() => {
 /* ══ 底部 ══ */
 .bottom-row {
   display: flex;
-  height: 90px;
+  height: 96px;
   flex-shrink: 0;
 }
 .notes-col {
-  width: 160px;
-  padding: 3px 6px;
-  font-size: 10px;
+  width: 132px;
+  padding: 3px 5px;
+  font-size: 9px;
   border-right: 1px solid #aaa;
   overflow: hidden;
   flex-shrink: 0;
 }
 .notes-col ol {
-  margin: 2px 0 0 14px;
+  margin: 2px 0 0 12px;
   padding: 0;
 }
 
@@ -2492,7 +2459,7 @@ onUnmounted(() => {
 }
 
 .price-col {
-  width: 36px;
+  width: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2502,15 +2469,15 @@ onUnmounted(() => {
 .price-lbl {
   font-weight: 600;
   writing-mode: vertical-rl;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
 }
 .price-val-col {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   border-right: 1px solid #aaa;
-  padding: 2px 6px;
+  padding: 2px 4px;
   overflow: hidden;
 }
 .price-val {
@@ -2524,20 +2491,20 @@ onUnmounted(() => {
   width: 100%;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  column-gap: 14px;
+  column-gap: 8px;
   row-gap: 0;
   align-items: start;
-  padding: 2px 4px;
+  padding: 1px 2px;
 }
 .price-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10px;
-  line-height: 1.3;
+  font-size: 10.5px;
+  line-height: 1.35;
   table-layout: fixed;
 }
 .price-table td {
-  padding: 2px 3px;
+  padding: 2px 2px;
   vertical-align: top;
   border-bottom: 1px dotted #ddd;
 }
@@ -2549,13 +2516,13 @@ onUnmounted(() => {
   white-space: normal;
   word-break: break-word;
   overflow: visible;
-  width: 52%;
+  width: 44%;
 }
 .price-table .pt-calc {
   text-align: right;
   color: #666;
   white-space: nowrap;
-  width: 28%;
+  width: 36%;
   font-variant-numeric: tabular-nums;
 }
 .price-table .pt-amt {
@@ -2582,7 +2549,7 @@ onUnmounted(() => {
 }
 
 .sig-col {
-  width: 150px;
+  width: 122px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2595,7 +2562,7 @@ onUnmounted(() => {
 }
 .sig-box {
   flex: 1;
-  width: 140px;
+  width: 112px;
   border: 1px solid #bbb;
   margin-top: 4px;
 }

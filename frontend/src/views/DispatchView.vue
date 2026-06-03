@@ -502,11 +502,92 @@ async function createStationWatermarkPng(station) {
 let _pdfDone = 0;
 let _pdfTotal = 0;
 
+let _pdfJsPromise;
+
+async function getPdfJs() {
+  if (!_pdfJsPromise) {
+    _pdfJsPromise = (async () => {
+      const pdfjs = await import("pdfjs-dist");
+      if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+        const workerUrl = (
+          await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
+        ).default;
+        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+      }
+      return pdfjs;
+    })();
+  }
+  return _pdfJsPromise;
+}
+
+async function canvasToPngBytes(canvas) {
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((nextBlob) => {
+      if (nextBlob) resolve(nextBlob);
+      else reject(new Error("無法建立發單 PDF 圖片"));
+    }, "image/png");
+  });
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function trimCanvasWhitespace(sourceCanvas) {
+  const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return sourceCanvas;
+  const { width, height } = sourceCanvas;
+  const imageData = context.getImageData(0, 0, width, height).data;
+  let top = height;
+  let left = width;
+  let right = 0;
+  let bottom = 0;
+  let found = false;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const r = imageData[offset];
+      const g = imageData[offset + 1];
+      const b = imageData[offset + 2];
+      const a = imageData[offset + 3];
+      const isBlank = a === 0 || (r > 245 && g > 245 && b > 245);
+      if (!isBlank) {
+        found = true;
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+      }
+    }
+  }
+
+  if (!found) return sourceCanvas;
+
+  const trimmedWidth = right - left + 1;
+  const trimmedHeight = bottom - top + 1;
+  const trimmedCanvas = document.createElement("canvas");
+  trimmedCanvas.width = trimmedWidth;
+  trimmedCanvas.height = trimmedHeight;
+  trimmedCanvas
+    .getContext("2d")
+    .drawImage(
+      sourceCanvas,
+      left,
+      top,
+      trimmedWidth,
+      trimmedHeight,
+      0,
+      0,
+      trimmedWidth,
+      trimmedHeight,
+    );
+  return trimmedCanvas;
+}
+
 async function buildDispatchPdf(orders, stations) {
   _pdfDone = 0;
   _pdfTotal = orders.length * stations.length;
 
   const mergedDoc = await PDFDocument.create();
+  const pdfjs = await getPdfJs();
 
   // 預先為每個站別產生浮水印 PNG，嵌入 mergedDoc
   const watermarkImages = {};
@@ -534,9 +615,9 @@ async function buildDispatchPdf(orders, stations) {
         continue;
       }
 
-      let srcDoc;
+      let srcPdf;
       try {
-        srcDoc = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+        srcPdf = await pdfjs.getDocument({ data: srcBytes }).promise;
       } catch (e) {
         console.error(`無法解析 ${order.orderNo} 的PDF:`, e);
         errorMsg.value =
@@ -546,20 +627,61 @@ async function buildDispatchPdf(orders, stations) {
         continue;
       }
 
-      const pageIndices = srcDoc.getPageIndices();
-      const copiedPages = await mergedDoc.copyPages(srcDoc, pageIndices);
+      for (let pageNumber = 1; pageNumber <= srcPdf.numPages; pageNumber++) {
+        const srcPage = await srcPdf.getPage(pageNumber);
+        let baseViewport = srcPage.getViewport({ scale: 1, rotation: 0 });
+        let renderViewport = srcPage.getViewport({ scale: 2, rotation: 0 });
+        let forcedRotation = 0;
 
-      for (const page of copiedPages) {
-        mergedDoc.addPage(page);
-        const { width, height } = page.getSize();
+        if (baseViewport.height > baseViewport.width) {
+          forcedRotation = 90;
+          baseViewport = srcPage.getViewport({ scale: 1, rotation: 90 });
+          renderViewport = srcPage.getViewport({ scale: 2, rotation: 90 });
+        }
+
+        const width = baseViewport.width;
+        const height = baseViewport.height;
+        const page = mergedDoc.addPage([width, height]);
         const box = priceRedactBox.value;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = renderViewport.width;
+        canvas.height = renderViewport.height;
+        await srcPage.render({
+          canvasContext: canvas.getContext("2d"),
+          viewport: renderViewport,
+        }).promise;
+
+        const trimmedCanvas = trimCanvasWhitespace(canvas);
+        const pngBytes = await canvasToPngBytes(trimmedCanvas);
+        const renderedImage = await mergedDoc.embedPng(pngBytes);
+        page.drawImage(renderedImage, {
+          x: 0,
+          y: 0,
+          width,
+          height,
+        });
+
+        const originalWidth = forcedRotation === 90 ? height : width;
+        const originalHeight = forcedRotation === 90 ? width : height;
+        const redactX = box.xPct * originalWidth;
+        const redactY = box.yPct * originalHeight;
+        const redactWidth = box.wPct * originalWidth;
+        const redactHeight = box.hPct * originalHeight;
+        const pageRedactX =
+          forcedRotation === 90 ? width - (redactY + redactHeight) : redactX;
+        const pageRedactY = forcedRotation === 90 ? redactX : redactY;
+        const pageRedactWidth =
+          forcedRotation === 90 ? redactHeight : redactWidth;
+        const pageRedactHeight =
+          forcedRotation === 90 ? redactWidth : redactHeight;
 
         // 1. 遮蓋價格區域（白色矩形，pdf-lib 座標原點在左下）
         page.drawRectangle({
-          x: box.xPct * width,
-          y: box.yPct * height,
-          width: box.wPct * width,
-          height: box.hPct * height,
+          x: pageRedactX,
+          y: pageRedactY,
+          width: pageRedactWidth,
+          height: pageRedactHeight,
           color: rgb(1, 1, 1),
           opacity: 1,
           borderWidth: 0,
@@ -597,7 +719,8 @@ async function buildDispatchPdf(orders, stations) {
 
 <style scoped>
 .dispatch-view {
-  max-width: 1200px;
+  width: min(1680px, calc(100vw - 32px));
+  max-width: none;
   margin: 0 auto;
   padding: 20px 16px 80px;
 }
@@ -643,6 +766,7 @@ async function buildDispatchPdf(orders, stations) {
 }
 .dispatch-table {
   width: 100%;
+  min-width: 1460px;
   border-collapse: collapse;
   font-size: 13.5px;
 }
@@ -685,6 +809,13 @@ async function buildDispatchPdf(orders, stations) {
 }
 .col-date {
   white-space: nowrap;
+  min-width: 96px;
+}
+.col-no {
+  min-width: 116px;
+}
+.col-customer {
+  min-width: 160px;
 }
 .col-no .order-no {
   font-weight: 600;
@@ -692,8 +823,14 @@ async function buildDispatchPdf(orders, stations) {
 }
 .col-addr {
   white-space: normal;
-  min-width: 120px;
-  max-width: 200px;
+  min-width: 340px;
+  max-width: 420px;
+}
+.col-pdf {
+  min-width: 92px;
+}
+.col-dispatched {
+  min-width: 118px;
 }
 .dispatched-badge {
   color: #16a34a;
