@@ -120,7 +120,7 @@ button:disabled {
   border-color: #86b7fe;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select {
   height: 36px;
   border: 1px solid #d1d5db;
@@ -129,6 +129,13 @@ select {
   font: inherit;
   background: #fff;
   width: 100%;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  height: auto;
+  padding: 0;
 }
 
 #app {
