@@ -745,20 +745,6 @@
           </select>
         </div>
         <div class="row">
-          <label>安裝人員</label>
-          <div class="check-grid">
-            <label v-for="s in staffDept2" :key="s.id" class="check-item">
-              <input
-                type="checkbox"
-                :value="s.name"
-                :checked="(form.installStaff || []).includes(s.name)"
-                @change="toggleInstallStaff(s.name, $event.target.checked)"
-              />
-              {{ s.name }}
-            </label>
-          </div>
-        </div>
-        <div class="row">
           <label>特殊備註</label>
           <textarea v-model="form.specialNotes" rows="3"></textarea>
         </div>
@@ -1137,7 +1123,6 @@ const stoveModels = ref([]);
 const inventoryColors = ref([]);
 const customBrandMap = ref({});
 const staffDept1 = ref([]);
-const staffDept2 = ref([]);
 const siteAddressChecking = ref(false);
 const siteAddressDuplicates = ref([]);
 const lastSiteAddressAlertKey = ref("");
@@ -1315,7 +1300,6 @@ function createEmptyOrderForm() {
     templatingDate: "",
     templatingStaff: "",
     drawingStaff: "",
-    installStaff: [],
     installDelayResponsibility: "unknown",
     promisedAt: "",
     sinkReceivedAt: "",
@@ -1888,14 +1872,6 @@ function toggleSpecialMethod(name, checked) {
   if (!checked && idx >= 0) arr.splice(idx, 1);
 }
 
-function toggleInstallStaff(name, checked) {
-  if (!Array.isArray(form.value.installStaff)) form.value.installStaff = [];
-  const arr = form.value.installStaff;
-  const idx = arr.indexOf(name);
-  if (checked && idx < 0) arr.push(name);
-  if (!checked && idx >= 0) arr.splice(idx, 1);
-}
-
 function addStone() {
   form.value.stones.push({
     brand: "",
@@ -2035,7 +2011,6 @@ function toPayload() {
     templatingDate: trimDate(f.templatingDate),
     templatingStaff: f.templatingStaff || "",
     drawingStaff: f.drawingStaff || "",
-    installStaff: Array.isArray(f.installStaff) ? f.installStaff : (f.installStaff ? [f.installStaff] : []),
     installDelayResponsibility: f.installDelayResponsibility || "unknown",
     promisedAt: trimDate(f.promisedAt),
     sinkReceivedAt: trimDate(f.sinkReceivedAt),
@@ -2258,7 +2233,7 @@ async function loadAll() {
       const doc = await getUserByUid(uid);
       userRole.value = doc?.role || "";
     }
-    const [cs, sinks, stoves, invColors, brandMap, orderOpts, sd1, sd2] =
+    const [cs, sinks, stoves, invColors, brandMap, orderOpts, sd1] =
       await Promise.all([
         listCustomers(),
         listProductModels("sink"),
@@ -2267,7 +2242,6 @@ async function loadAll() {
         getBrandMaterials(),
         getOrderOptions(),
         listStaffByDept("1"),
-        listStaffByDept("2"),
       ]);
     customers.value = cs;
     sinkModels.value = sinks;
@@ -2275,7 +2249,6 @@ async function loadAll() {
     inventoryColors.value = invColors;
     customBrandMap.value = brandMap || {};
     staffDept1.value = sd1;
-    staffDept2.value = sd2;
     const merged = mergeOrderOptions(orderOpts);
     orderCategories.value = merged.categories;
     countertopTypes.value = merged.countertopTypes;
@@ -2306,9 +2279,6 @@ async function loadAll() {
           specialMethods: Array.isArray(doc.specialMethods)
             ? doc.specialMethods
             : [],
-          installStaff: Array.isArray(doc.installStaff)
-            ? doc.installStaff
-            : (doc.installStaff ? [doc.installStaff] : []),
           installDelayResponsibility: doc.installDelayResponsibility || "unknown",
           lineItems: Array.isArray(doc.lineItems) ? doc.lineItems.map((li) => ({ ...li })) : [],
           invoiceRequired: doc.invoiceRequired !== false,
