@@ -1712,6 +1712,19 @@ export async function updateOrderIncompleteStatus(orderDocId, payload = {}) {
   return resp?.data || {};
 }
 
+export async function updateOrderIncompleteReason(orderDocId, payload = {}) {
+  await getSignedInUser();
+  const callable = httpsCallable(
+    functionsInstance,
+    "updateOrderIncompleteReason",
+  );
+  const resp = await callable({
+    orderDocId: String(orderDocId || "").trim(),
+    reason: String(payload.reason ?? "").trim(),
+  });
+  return resp?.data || {};
+}
+
 export async function testNasWrite() {
   const functions = functionsInstance;
   const callable = httpsCallable(functions, "testNasWrite");

@@ -61,7 +61,9 @@ function canViewOrderPdfPrice({ profile = null, viewerEmail = "" } = {}) {
   const roles = Array.isArray(profile?.roles)
     ? profile.roles.map((role) => String(role || "").trim())
     : [];
-  const normalizedEmail = String(viewerEmail || "").trim().toLowerCase();
+  const normalizedEmail = String(viewerEmail || "")
+    .trim()
+    .toLowerCase();
 
   if (
     roles.includes("價格") ||
@@ -6244,9 +6246,7 @@ exports.serveOrderPdf = onRequestV2(
     // Accept either a Firebase ID token (web app) or a static API key (GAS)
     const token = String(req.query.token || "").trim();
     const nasKey = String(req.query.nasKey || "").trim();
-    const viewerEmail = String(
-      req.query.viewerEmail || req.query.email || "",
-    )
+    const viewerEmail = String(req.query.viewerEmail || req.query.email || "")
       .trim()
       .toLowerCase();
 
@@ -7095,7 +7095,7 @@ exports.updateOrderIncompleteStatus = onCall(async (payload, ctx) => {
   }
 
   const incomplete = data.incomplete === true;
-  const reason = incomplete ? String(data.reason || "").trim() : "";
+  const reason = String(data.reason || "").trim();
 
   const db = admin.firestore();
   const orderRef = db.collection("Orders").doc(orderDocId);
@@ -7128,6 +7128,71 @@ exports.updateOrderIncompleteStatus = onCall(async (payload, ctx) => {
       updatedByUid: authUid,
       updatedByName: updatedByName,
       updatedByEmail: updatedByEmail,
+        最後更新員工: updatedByName,
+        最後更新員工Uid: authUid,
+        最後更新員工Email: updatedByEmail,
+    },
+    { merge: true },
+  );
+
+  return {
+    ok: true,
+    orderDocId,
+    incomplete,
+    reason,
+    updatedByUid: authUid,
+    updatedByName,
+    updatedByEmail,
+  };
+});
+
+exports.updateOrderIncompleteReason = onCall(async (payload, ctx) => {
+  const data = unwrapCallablePayload(payload);
+  const authUid = getCallableAuthUid(payload, ctx);
+  await assertStaffRole(authUid);
+
+  const orderDocId = String(data.orderDocId || "").trim();
+  if (!orderDocId) {
+    throw new functions.https.HttpsError("invalid-argument", "缺少訂單識別碼");
+  }
+
+  const reason = String(data.reason ?? "").trim();
+
+  const db = admin.firestore();
+  const orderRef = db.collection("Orders").doc(orderDocId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    throw new functions.https.HttpsError("not-found", "找不到訂單");
+  }
+
+  const orderData = orderSnap.data() || {};
+  const incomplete =
+    orderData.incomplete === true || orderData["未完工"] === true;
+
+  const userSnap = await db.collection("Users").doc(authUid).get();
+  const userData = userSnap.exists ? userSnap.data() || {} : {};
+  const authToken = getCallableAuthToken(payload, ctx);
+  const updatedByName = String(
+    userData.displayName || authToken.name || authToken.displayName || "",
+  ).trim();
+  const updatedByEmail = String(userData.email || authToken.email || "").trim();
+
+  await orderRef.set(
+    {
+      reason,
+      原因: reason,
+      未完工原因: reason,
+      reasonUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      reasonUpdatedByUid: authUid,
+      reasonUpdatedByName: updatedByName,
+      reasonUpdatedByEmail: updatedByEmail,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedByUid: authUid,
+      updatedByName,
+      updatedByEmail,
+        最後更新員工: updatedByName,
+        最後更新員工Uid: authUid,
+        最後更新員工Email: updatedByEmail,
     },
     { merge: true },
   );

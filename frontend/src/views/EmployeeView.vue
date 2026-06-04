@@ -4,7 +4,6 @@
       <h1>安裝查詢</h1>
       <a
         href="/help.html"
-        target="_blank"
         rel="noopener"
         class="btn-aux"
         style="text-decoration: none"
@@ -268,7 +267,11 @@
                   v-else-if="h === '完工照片'"
                   :class="[
                     'btn-photo-manage',
-                    hasCompletionPhotos(doc) ? 'btn-query' : 'btn-aux',
+                    getIncompleteCheckboxValue(doc)
+                      ? 'is-incomplete'
+                      : hasCompletionPhotos(doc)
+                        ? 'btn-query'
+                        : 'btn-aux',
                   ]"
                   @click="openPhotoManager(doc)"
                 >
@@ -278,6 +281,7 @@
                   <input
                     type="checkbox"
                     :checked="getIncompleteCheckboxValue(doc)"
+                    :title="getIncompleteEditorTooltip(doc)"
                     :disabled="
                       !canEditIncompleteFields(doc) || isIncompleteSaving(doc)
                     "
@@ -287,16 +291,24 @@
                 <div
                   v-else-if="h === '未完工原因'"
                   class="incomplete-reason-cell"
+                  :title="getIncompleteEditorTooltip(doc)"
                 >
                   <template v-if="canEditIncompleteFields(doc)">
                     <input
                       class="incomplete-reason-input"
                       :value="getIncompleteReasonDraft(doc)"
+                      :title="getIncompleteEditorTooltip(doc)"
                       :disabled="isIncompleteSaving(doc)"
-                      placeholder="輸入未完工原因"
+                      placeholder="輸入原因或交待事項"
                       @input="onIncompleteReasonInput(doc, $event.target.value)"
+                      @change="commitIncompleteReason(doc, $event.target.value)"
+                      @compositionend="
+                        onIncompleteReasonInput(doc, $event.target.value)
+                      "
                       @blur="flushIncompleteSave(doc)"
-                      @keyup.enter="flushIncompleteSave(doc)"
+                      @keyup.enter.stop.prevent="
+                        onIncompleteReasonEnter(doc, $event)
+                      "
                     />
                     <span
                       v-if="getIncompleteSaveMessage(doc)"
@@ -573,6 +585,7 @@ import {
   listNasLegacyPhotos,
   getAllOrdersForSearch,
   getOrdersByIds,
+  updateOrderIncompleteReason as saveOrderIncompleteReason,
   updateOrderIncompleteStatus as saveOrderIncompleteStatus,
   auth,
 } from "../firebase";
@@ -787,8 +800,7 @@ const incompleteReasonKeyword = ref("");
 const dateRangeEnabled = ref(false);
 const dateRangeStart = ref("");
 const dateRangeEnd = ref("");
-const INCOMPLETE_DRAFT_SESSION_KEY =
-  "jh-stone:employee-incomplete-drafts:v1";
+const INCOMPLETE_DRAFT_SESSION_KEY = "jh-stone:employee-incomplete-drafts:v1";
 
 function loadIncompleteDraftStore() {
   if (typeof window === "undefined") return {};
@@ -803,6 +815,29 @@ function loadIncompleteDraftStore() {
 }
 
 const incompleteDraftStore = ref(loadIncompleteDraftStore());
+const incompleteUiStateByOrderId = ref({ ...incompleteDraftStore.value });
+
+function setIncompleteUiState(orderId, draft = {}) {
+  const key = String(orderId || "").trim();
+  if (!key) return;
+  const incomplete = draft.incomplete === true;
+  const reason = String(draft.reason ?? "");
+  incompleteUiStateByOrderId.value = {
+    ...incompleteUiStateByOrderId.value,
+    [key]: {
+      incomplete,
+      reason,
+      updatedAt: Date.now(),
+    },
+  };
+}
+
+function getIncompleteUiState(orderId) {
+  const key = String(orderId || "").trim();
+  if (!key) return null;
+  const draft = incompleteUiStateByOrderId.value?.[key];
+  return draft && typeof draft === "object" ? draft : null;
+}
 
 function saveIncompleteDraftStore() {
   if (typeof window === "undefined") return;
@@ -825,7 +860,8 @@ function rememberIncompleteDraft(orderId, draft = {}) {
   const key = String(orderId || "").trim();
   if (!key) return;
   const incomplete = draft.incomplete === true;
-  const reason = incomplete ? String(draft.reason || "").trim() : "";
+  const reason = String(draft.reason ?? "");
+  setIncompleteUiState(key, { incomplete, reason });
   incompleteDraftStore.value = {
     ...incompleteDraftStore.value,
     [key]: {
@@ -839,7 +875,10 @@ function rememberIncompleteDraft(orderId, draft = {}) {
 
 function forgetIncompleteDraft(orderId) {
   const key = String(orderId || "").trim();
-  if (!key || !Object.prototype.hasOwnProperty.call(incompleteDraftStore.value, key)) {
+  if (
+    !key ||
+    !Object.prototype.hasOwnProperty.call(incompleteDraftStore.value, key)
+  ) {
     return;
   }
   const nextStore = { ...incompleteDraftStore.value };
@@ -855,8 +894,34 @@ function getRememberedIncompleteDraft(orderId) {
   if (!draft || typeof draft !== "object") return null;
   return {
     incomplete: draft.incomplete === true,
-    reason: draft.incomplete === true ? String(draft.reason || "").trim() : "",
+    reason: String(draft.reason || "").trim(),
   };
+}
+
+function getIncompleteDraftEntry(orderId) {
+  const key = String(orderId || "").trim();
+  if (!key) return null;
+  const draft = incompleteDraftStore.value?.[key];
+  return draft && typeof draft === "object" ? draft : null;
+}
+
+function ensureIncompleteDraftState(doc) {
+  const orderId = getOrderDocId(doc);
+  if (!orderId) {
+    return {
+      incomplete: isIncompleteOrder(doc),
+      reason: getIncompleteReasonText(doc),
+    };
+  }
+
+  const existing = getIncompleteDraftEntry(orderId);
+  if (existing) return existing;
+
+  rememberIncompleteDraft(orderId, {
+    incomplete: isIncompleteOrder(doc),
+    reason: getIncompleteReasonText(doc),
+  });
+  return getIncompleteDraftEntry(orderId);
 }
 
 function getIncompleteReasonText(doc) {
@@ -897,8 +962,7 @@ function isIncompleteOrder(doc) {
     return true;
   }
 
-  const reasonText = getIncompleteReasonText(doc).toLowerCase();
-  return Boolean(reasonText);
+  return false;
 }
 
 function applyResultFilters(rows = []) {
@@ -918,15 +982,54 @@ function canEditIncompleteFields(doc) {
 }
 
 function getIncompleteCheckboxValue(doc) {
+  const orderId = getOrderDocId(doc);
+  const uiState = getIncompleteUiState(orderId);
+  if (uiState) return uiState.incomplete === true;
+  const draft = getIncompleteDraftEntry(orderId);
+  if (draft) return draft.incomplete === true;
   if (typeof doc?.__incompleteDraft === "boolean") return doc.__incompleteDraft;
   return isIncompleteOrder(doc);
 }
 
 function getIncompleteReasonDraft(doc) {
+  const orderId = getOrderDocId(doc);
+  const uiState = getIncompleteUiState(orderId);
+  if (uiState) return String(uiState.reason ?? "");
+  const draft = getIncompleteDraftEntry(orderId);
+  if (draft) return String(draft.reason || "");
   if (typeof doc?.__incompleteReasonDraft === "string") {
     return doc.__incompleteReasonDraft;
   }
   return getIncompleteReasonText(doc);
+}
+
+function getLastUpdatedEmployeeName(doc) {
+  const candidates = [
+    doc?.["最後更新員工"],
+    doc?.updatedByName,
+    doc?.incompleteUpdatedByName,
+    doc?.reasonUpdatedByName,
+    doc?.raw?.["最後更新員工"],
+    doc?.raw?.updatedByName,
+    doc?.raw?.incompleteUpdatedByName,
+    doc?.raw?.reasonUpdatedByName,
+    doc?.updatedByEmail,
+    doc?.incompleteUpdatedByEmail,
+    doc?.reasonUpdatedByEmail,
+    doc?.raw?.updatedByEmail,
+    doc?.raw?.incompleteUpdatedByEmail,
+    doc?.raw?.reasonUpdatedByEmail,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function getIncompleteEditorTooltip(doc) {
+  const name = getLastUpdatedEmployeeName(doc);
+  return name ? `最後編輯員工：${name}` : "";
 }
 
 function isIncompleteSaving(doc) {
@@ -950,10 +1053,19 @@ function syncIncompleteDraftsForResults() {
   for (const doc of results.value) {
     const orderId = getOrderDocId(doc);
     const currentIncomplete = isIncompleteOrder(doc);
-    const currentReason = currentIncomplete
-      ? getIncompleteReasonText(doc).trim()
-      : "";
+    const currentReason = getIncompleteReasonText(doc).trim();
     const rememberedDraft = getRememberedIncompleteDraft(orderId);
+    const uiState = getIncompleteUiState(orderId);
+
+    debugIncompleteFlow("sync", {
+      orderId,
+      currentIncomplete,
+      currentReason,
+      rememberedIncomplete: rememberedDraft?.incomplete ?? null,
+      rememberedReason: rememberedDraft?.reason ?? null,
+      uiIncomplete: uiState?.incomplete ?? null,
+      uiReason: uiState?.reason ?? null,
+    });
 
     if (rememberedDraft) {
       if (
@@ -961,19 +1073,31 @@ function syncIncompleteDraftsForResults() {
         rememberedDraft.reason === currentReason
       ) {
         forgetIncompleteDraft(orderId);
+        if (!uiState) {
+          setIncompleteUiState(orderId, {
+            incomplete: currentIncomplete,
+            reason: currentReason,
+          });
+        }
         doc.__incompleteDraft = currentIncomplete;
         doc.__incompleteReasonDraft = currentReason;
         continue;
       }
 
+      if (!uiState) {
+        setIncompleteUiState(orderId, rememberedDraft);
+      }
       doc.__incompleteDraft = rememberedDraft.incomplete;
       doc.__incompleteReasonDraft = rememberedDraft.reason;
-      if (canEditIncompleteFields(doc) && !isIncompleteSaving(doc)) {
-        scheduleIncompleteSave(doc, 50);
-      }
       continue;
     }
 
+    if (!uiState) {
+      setIncompleteUiState(orderId, {
+        incomplete: currentIncomplete,
+        reason: currentReason,
+      });
+    }
     doc.__incompleteDraft = currentIncomplete;
     doc.__incompleteReasonDraft = currentReason;
   }
@@ -987,11 +1111,24 @@ function clearIncompleteSaveTimer(orderId) {
   }
 }
 
+function debugIncompleteFlow(stage, details = {}) {
+  console.debug("[IncompleteFlow]", stage, details);
+}
+
 async function persistIncompleteState(doc) {
   const orderId = getOrderDocId(doc);
   if (!canEditIncompleteFields(doc) || !orderId) return;
 
   clearIncompleteSaveTimer(orderId);
+  const incomplete = getIncompleteCheckboxValue(doc);
+  const reason = getIncompleteReasonDraft(doc).trim();
+  debugIncompleteFlow("persist:start", {
+    orderId,
+    incomplete,
+    reason,
+    docReason: String(doc?.reason ?? doc?.["未完工原因"] ?? ""),
+  });
+  rememberIncompleteDraft(orderId, { incomplete, reason });
   incompleteSavingByOrderId.value = {
     ...incompleteSavingByOrderId.value,
     [orderId]: true,
@@ -1001,14 +1138,16 @@ async function persistIncompleteState(doc) {
     [orderId]: "",
   };
 
-  const incomplete = getIncompleteCheckboxValue(doc);
-  const reason = incomplete ? getIncompleteReasonDraft(doc).trim() : "";
-  rememberIncompleteDraft(orderId, { incomplete, reason });
-
   try {
     const saved = await saveOrderIncompleteStatus(orderId, {
       incomplete,
       reason,
+    });
+    debugIncompleteFlow("persist:saved", {
+      orderId,
+      incomplete,
+      sentReason: reason,
+      savedReason: saved?.reason ?? null,
     });
     doc.incomplete = incomplete;
     doc["未完工"] = incomplete;
@@ -1016,21 +1155,107 @@ async function persistIncompleteState(doc) {
     doc.reason = saved?.reason ?? reason;
     doc["原因"] = saved?.reason ?? reason;
     doc["未完工原因"] = saved?.reason ?? reason;
+    doc.updatedByUid = saved?.updatedByUid ?? doc.updatedByUid;
+    doc.updatedByName = saved?.updatedByName ?? doc.updatedByName;
+    doc.updatedByEmail = saved?.updatedByEmail ?? doc.updatedByEmail;
+    doc["最後更新員工"] = saved?.updatedByName ?? doc["最後更新員工"];
+    doc["最後更新員工Uid"] = saved?.updatedByUid ?? doc["最後更新員工Uid"];
+    doc["最後更新員工Email"] =
+      saved?.updatedByEmail ?? doc["最後更新員工Email"];
     doc.__incompleteDraft = incomplete;
     doc.__incompleteReasonDraft = saved?.reason ?? reason;
-    forgetIncompleteDraft(orderId);
+    setIncompleteUiState(orderId, {
+      incomplete,
+      reason: saved?.reason ?? reason,
+    });
+    rememberIncompleteDraft(orderId, {
+      incomplete,
+      reason: saved?.reason ?? reason,
+    });
     incompleteSavedAtByOrderId.value = {
       ...incompleteSavedAtByOrderId.value,
       [orderId]: Date.now(),
     };
-    if (
-      incompleteOnly.value ||
-      String(incompleteReasonKeyword.value || "").trim()
-    ) {
-      results.value = applyResultFilters(results.value.slice());
-    }
   } catch (e) {
+    debugIncompleteFlow("persist:error", {
+      orderId,
+      incomplete,
+      reason,
+      message: e?.message || String(e),
+    });
     console.error("更新未完工狀態失敗：", e);
+    incompleteErrorByOrderId.value = {
+      ...incompleteErrorByOrderId.value,
+      [orderId]: toErrorText("儲存失敗", e).replace(/^儲存失敗\s*/, ""),
+    };
+  } finally {
+    incompleteSavingByOrderId.value = {
+      ...incompleteSavingByOrderId.value,
+      [orderId]: false,
+    };
+  }
+}
+
+async function persistIncompleteReason(doc) {
+  const orderId = getOrderDocId(doc);
+  if (!canEditIncompleteFields(doc) || !orderId) return;
+
+  clearIncompleteSaveTimer(orderId);
+  const incomplete = getIncompleteCheckboxValue(doc);
+  const reason = getIncompleteReasonDraft(doc).trim();
+  debugIncompleteFlow("reason-persist:start", {
+    orderId,
+    incomplete,
+    reason,
+    docReason: String(doc?.reason ?? doc?.["未完工原因"] ?? ""),
+  });
+  rememberIncompleteDraft(orderId, { incomplete, reason });
+  incompleteSavingByOrderId.value = {
+    ...incompleteSavingByOrderId.value,
+    [orderId]: true,
+  };
+  incompleteErrorByOrderId.value = {
+    ...incompleteErrorByOrderId.value,
+    [orderId]: "",
+  };
+
+  try {
+    const saved = await saveOrderIncompleteReason(orderId, { reason });
+    debugIncompleteFlow("reason-persist:saved", {
+      orderId,
+      sentReason: reason,
+      savedReason: saved?.reason ?? null,
+    });
+    doc.reason = saved?.reason ?? reason;
+    doc["原因"] = saved?.reason ?? reason;
+    doc["未完工原因"] = saved?.reason ?? reason;
+    doc.updatedByUid = saved?.updatedByUid ?? doc.updatedByUid;
+    doc.updatedByName = saved?.updatedByName ?? doc.updatedByName;
+    doc.updatedByEmail = saved?.updatedByEmail ?? doc.updatedByEmail;
+    doc["最後更新員工"] = saved?.updatedByName ?? doc["最後更新員工"];
+    doc["最後更新員工Uid"] = saved?.updatedByUid ?? doc["最後更新員工Uid"];
+    doc["最後更新員工Email"] =
+      saved?.updatedByEmail ?? doc["最後更新員工Email"];
+    doc.__incompleteReasonDraft = saved?.reason ?? reason;
+    setIncompleteUiState(orderId, {
+      incomplete,
+      reason: saved?.reason ?? reason,
+    });
+    rememberIncompleteDraft(orderId, {
+      incomplete,
+      reason: saved?.reason ?? reason,
+    });
+    incompleteSavedAtByOrderId.value = {
+      ...incompleteSavedAtByOrderId.value,
+      [orderId]: Date.now(),
+    };
+  } catch (e) {
+    debugIncompleteFlow("reason-persist:error", {
+      orderId,
+      reason,
+      message: e?.message || String(e),
+    });
+    console.error("更新未完工原因失敗：", e);
     incompleteErrorByOrderId.value = {
       ...incompleteErrorByOrderId.value,
       [orderId]: toErrorText("儲存失敗", e).replace(/^儲存失敗\s*/, ""),
@@ -1055,34 +1280,71 @@ function scheduleIncompleteSave(doc, delayMs = 700) {
 }
 
 function onIncompleteToggle(doc, checked) {
-  doc.__incompleteDraft = checked;
-  if (!checked) {
-    doc.__incompleteReasonDraft = "";
-  }
   const orderId = getOrderDocId(doc);
+  debugIncompleteFlow("toggle", {
+    orderId,
+    checked: checked === true,
+    currentReason: getIncompleteReasonDraft(doc),
+  });
   rememberIncompleteDraft(orderId, {
-    incomplete: doc.__incompleteDraft === true,
-    reason: doc.__incompleteReasonDraft,
+    incomplete: checked === true,
+    reason: getIncompleteReasonDraft(doc),
   });
   void persistIncompleteState(doc);
 }
 
 function onIncompleteReasonInput(doc, value) {
-  doc.__incompleteReasonDraft = String(value || "");
-  if (String(value || "").trim()) {
-    doc.__incompleteDraft = true;
-  }
   const orderId = getOrderDocId(doc);
-  rememberIncompleteDraft(orderId, {
-    incomplete: doc.__incompleteDraft === true,
-    reason: doc.__incompleteReasonDraft,
+  debugIncompleteFlow("input", {
+    orderId,
+    value: String(value || ""),
+    incomplete: getIncompleteCheckboxValue(doc),
   });
-  scheduleIncompleteSave(doc);
+  rememberIncompleteDraft(orderId, {
+    incomplete: getIncompleteCheckboxValue(doc),
+    reason: String(value || ""),
+  });
+  clearIncompleteSaveTimer(orderId);
 }
 
-function flushIncompleteSave(doc) {
+function commitIncompleteReason(doc, value) {
+  const orderId = getOrderDocId(doc);
+  const reason = String(value ?? "");
+  debugIncompleteFlow("commit", {
+    orderId,
+    value: reason,
+    incomplete: getIncompleteCheckboxValue(doc),
+  });
+  rememberIncompleteDraft(orderId, {
+    incomplete: getIncompleteCheckboxValue(doc),
+    reason,
+  });
+  void persistIncompleteReason(doc);
+}
+
+function onIncompleteReasonEnter(doc, event) {
+  if (event?.isComposing || event?.keyCode === 229) {
+    debugIncompleteFlow("enter:composing", {
+      value: String(event?.target?.value || ""),
+    });
+    return;
+  }
+  debugIncompleteFlow("enter", {
+    value: String(event?.target?.value || ""),
+  });
+  commitIncompleteReason(doc, event?.target?.value);
+  event?.target?.blur?.();
+}
+
+function flushIncompleteSave(doc, latestValue) {
   if (!canEditIncompleteFields(doc)) return;
-  void persistIncompleteState(doc);
+  const orderId = getOrderDocId(doc);
+  debugIncompleteFlow("blur", {
+    orderId,
+    latestValue: latestValue === undefined ? null : String(latestValue || ""),
+    rememberedReason: getIncompleteReasonDraft(doc),
+  });
+  void persistIncompleteReason(doc);
 }
 
 function flushPendingIncompleteSaves() {
@@ -1096,7 +1358,7 @@ function flushPendingIncompleteSaves() {
     const orderId = getOrderDocId(doc);
     if (!orderId || !pendingOrderIds.has(orderId)) continue;
     clearIncompleteSaveTimer(orderId);
-    void persistIncompleteState(doc);
+    void persistIncompleteReason(doc);
   }
 }
 
@@ -2455,6 +2717,7 @@ function clear() {
   results.value = [];
   queryElapsed.value = null;
   photoStatusByOrderId.value = {};
+  incompleteUiStateByOrderId.value = {};
   incompleteSavingByOrderId.value = {};
   incompleteErrorByOrderId.value = {};
   incompleteSavedAtByOrderId.value = {};
@@ -2466,8 +2729,7 @@ function clear() {
 }
 
 function updateTableHeaders() {
-  // only Orders is supported, so the headers simply mirror availableFields
-  tableHeaders.value = buildTableHeaders();
+  // tableHeaders is computed from availableFields and refreshes automatically.
 }
 
 function parseDateInputToRange(dateStr) {
@@ -3008,6 +3270,17 @@ watch(results, () => {
   padding: 0.3rem 0.45rem;
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+.btn-photo-manage.is-incomplete {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.btn-photo-manage.is-incomplete:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
 }
 
 .incomplete-toggle {
