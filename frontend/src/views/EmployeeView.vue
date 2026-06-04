@@ -553,7 +553,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, computed, watch } from "vue";
 import {
   queryCollection,
   queryCollectionByDateRange,
@@ -787,6 +787,77 @@ const incompleteReasonKeyword = ref("");
 const dateRangeEnabled = ref(false);
 const dateRangeStart = ref("");
 const dateRangeEnd = ref("");
+const INCOMPLETE_DRAFT_SESSION_KEY =
+  "jh-stone:employee-incomplete-drafts:v1";
+
+function loadIncompleteDraftStore() {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(INCOMPLETE_DRAFT_SESSION_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+const incompleteDraftStore = ref(loadIncompleteDraftStore());
+
+function saveIncompleteDraftStore() {
+  if (typeof window === "undefined") return;
+  try {
+    const keys = Object.keys(incompleteDraftStore.value || {});
+    if (!keys.length) {
+      window.sessionStorage.removeItem(INCOMPLETE_DRAFT_SESSION_KEY);
+      return;
+    }
+    window.sessionStorage.setItem(
+      INCOMPLETE_DRAFT_SESSION_KEY,
+      JSON.stringify(incompleteDraftStore.value),
+    );
+  } catch (_error) {
+    // ignore storage quota/private mode failures
+  }
+}
+
+function rememberIncompleteDraft(orderId, draft = {}) {
+  const key = String(orderId || "").trim();
+  if (!key) return;
+  const incomplete = draft.incomplete === true;
+  const reason = incomplete ? String(draft.reason || "").trim() : "";
+  incompleteDraftStore.value = {
+    ...incompleteDraftStore.value,
+    [key]: {
+      incomplete,
+      reason,
+      updatedAt: Date.now(),
+    },
+  };
+  saveIncompleteDraftStore();
+}
+
+function forgetIncompleteDraft(orderId) {
+  const key = String(orderId || "").trim();
+  if (!key || !Object.prototype.hasOwnProperty.call(incompleteDraftStore.value, key)) {
+    return;
+  }
+  const nextStore = { ...incompleteDraftStore.value };
+  delete nextStore[key];
+  incompleteDraftStore.value = nextStore;
+  saveIncompleteDraftStore();
+}
+
+function getRememberedIncompleteDraft(orderId) {
+  const key = String(orderId || "").trim();
+  if (!key) return null;
+  const draft = incompleteDraftStore.value?.[key];
+  if (!draft || typeof draft !== "object") return null;
+  return {
+    incomplete: draft.incomplete === true,
+    reason: draft.incomplete === true ? String(draft.reason || "").trim() : "",
+  };
+}
 
 function getIncompleteReasonText(doc) {
   const candidates = [
@@ -877,8 +948,34 @@ function getIncompleteSaveMessage(doc) {
 
 function syncIncompleteDraftsForResults() {
   for (const doc of results.value) {
-    doc.__incompleteDraft = isIncompleteOrder(doc);
-    doc.__incompleteReasonDraft = getIncompleteReasonText(doc);
+    const orderId = getOrderDocId(doc);
+    const currentIncomplete = isIncompleteOrder(doc);
+    const currentReason = currentIncomplete
+      ? getIncompleteReasonText(doc).trim()
+      : "";
+    const rememberedDraft = getRememberedIncompleteDraft(orderId);
+
+    if (rememberedDraft) {
+      if (
+        rememberedDraft.incomplete === currentIncomplete &&
+        rememberedDraft.reason === currentReason
+      ) {
+        forgetIncompleteDraft(orderId);
+        doc.__incompleteDraft = currentIncomplete;
+        doc.__incompleteReasonDraft = currentReason;
+        continue;
+      }
+
+      doc.__incompleteDraft = rememberedDraft.incomplete;
+      doc.__incompleteReasonDraft = rememberedDraft.reason;
+      if (canEditIncompleteFields(doc) && !isIncompleteSaving(doc)) {
+        scheduleIncompleteSave(doc, 50);
+      }
+      continue;
+    }
+
+    doc.__incompleteDraft = currentIncomplete;
+    doc.__incompleteReasonDraft = currentReason;
   }
 }
 
@@ -906,6 +1003,7 @@ async function persistIncompleteState(doc) {
 
   const incomplete = getIncompleteCheckboxValue(doc);
   const reason = incomplete ? getIncompleteReasonDraft(doc).trim() : "";
+  rememberIncompleteDraft(orderId, { incomplete, reason });
 
   try {
     const saved = await saveOrderIncompleteStatus(orderId, {
@@ -920,6 +1018,7 @@ async function persistIncompleteState(doc) {
     doc["未完工原因"] = saved?.reason ?? reason;
     doc.__incompleteDraft = incomplete;
     doc.__incompleteReasonDraft = saved?.reason ?? reason;
+    forgetIncompleteDraft(orderId);
     incompleteSavedAtByOrderId.value = {
       ...incompleteSavedAtByOrderId.value,
       [orderId]: Date.now(),
@@ -960,6 +1059,11 @@ function onIncompleteToggle(doc, checked) {
   if (!checked) {
     doc.__incompleteReasonDraft = "";
   }
+  const orderId = getOrderDocId(doc);
+  rememberIncompleteDraft(orderId, {
+    incomplete: doc.__incompleteDraft === true,
+    reason: doc.__incompleteReasonDraft,
+  });
   void persistIncompleteState(doc);
 }
 
@@ -968,12 +1072,43 @@ function onIncompleteReasonInput(doc, value) {
   if (String(value || "").trim()) {
     doc.__incompleteDraft = true;
   }
+  const orderId = getOrderDocId(doc);
+  rememberIncompleteDraft(orderId, {
+    incomplete: doc.__incompleteDraft === true,
+    reason: doc.__incompleteReasonDraft,
+  });
   scheduleIncompleteSave(doc);
 }
 
 function flushIncompleteSave(doc) {
   if (!canEditIncompleteFields(doc)) return;
   void persistIncompleteState(doc);
+}
+
+function flushPendingIncompleteSaves() {
+  const pendingOrderIds = new Set([
+    ...incompleteSaveTimers.keys(),
+    ...Object.keys(incompleteDraftStore.value || {}),
+  ]);
+  if (!pendingOrderIds.size) return;
+
+  for (const doc of results.value) {
+    const orderId = getOrderDocId(doc);
+    if (!orderId || !pendingOrderIds.has(orderId)) continue;
+    clearIncompleteSaveTimer(orderId);
+    void persistIncompleteState(doc);
+  }
+}
+
+function handleIncompletePageHide() {
+  flushPendingIncompleteSaves();
+}
+
+function handleIncompleteVisibilityChange() {
+  if (typeof document === "undefined") return;
+  if (document.visibilityState === "hidden") {
+    flushPendingIncompleteSaves();
+  }
 }
 
 function toOrderViewShape(doc) {
@@ -2740,6 +2875,31 @@ onMounted(() => {
   });
   // 預設查詢今天的安裝
   searchDay(0);
+
+  if (typeof document !== "undefined") {
+    document.addEventListener(
+      "visibilitychange",
+      handleIncompleteVisibilityChange,
+    );
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", handleIncompletePageHide);
+    window.addEventListener("beforeunload", handleIncompletePageHide);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (typeof document !== "undefined") {
+    document.removeEventListener(
+      "visibilitychange",
+      handleIncompleteVisibilityChange,
+    );
+  }
+  if (typeof window !== "undefined") {
+    window.removeEventListener("pagehide", handleIncompletePageHide);
+    window.removeEventListener("beforeunload", handleIncompletePageHide);
+  }
+  flushPendingIncompleteSaves();
 });
 
 watch(results, () => {

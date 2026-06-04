@@ -610,6 +610,12 @@
               style="width: 60px"
             />
             <input
+              v-model.trim="s.recipient"
+              type="text"
+              placeholder="收件人"
+              class="sink-recipient-input"
+            />
+            <input
               v-model.number="s.holeWidthMm"
               type="number"
               placeholder="開孔長 mm"
@@ -877,7 +883,11 @@ async function onCreateReceivableItem() {
     await updateSalesOrder(route.params.id, toPayload());
     await createReceivableItemFromOrder(route.params.id, { force: true });
     const refreshed = await getSalesOrder(route.params.id);
-    if (refreshed) Object.assign(form.value, refreshed);
+    if (refreshed) {
+      Object.assign(form.value, refreshed, {
+        sinks: normalizeSinks(refreshed.sinks),
+      });
+    }
     alert("已建立或更新此訂單的應收明細。");
   } catch (e) {
     console.error(e);
@@ -1258,6 +1268,7 @@ function newSink() {
     brand: "",
     model: "",
     bowlCount: 1,
+    recipient: "",
     holeWidthMm: null,
     holeDepthMm: null,
     holeRadiusMm: null,
@@ -1266,6 +1277,19 @@ function newSink() {
     hasAccessory: false,
   };
 }
+
+function normalizeSink(sink = {}) {
+  return {
+    ...newSink(),
+    ...(sink || {}),
+    recipient: String(sink?.recipient || "").trim(),
+  };
+}
+
+function normalizeSinks(list = []) {
+  return Array.isArray(list) ? list.map((sink) => normalizeSink(sink)) : [];
+}
+
 function newStove() {
   return {
     modelId: "",
@@ -2003,7 +2027,7 @@ function toPayload() {
     countertop: { ...f.countertop },
     rearTreatment: f.rearTreatment || "flush",
     specialMethods: Array.isArray(f.specialMethods) ? [...f.specialMethods] : [],
-    sinks: f.sinks.map((s) => ({ ...s })),
+    sinks: normalizeSinks(f.sinks),
     stoves: f.stoves.map((s) => ({ ...s })),
     cutMethod: f.cutMethod || "factory",
     openEdges: { ...f.openEdges },
@@ -2274,7 +2298,7 @@ async function loadAll() {
           countertop: { ...form.value.countertop, ...(doc.countertop || {}) },
           openEdges: { ...form.value.openEdges, ...(doc.openEdges || {}) },
           stones: doc.stones || [],
-          sinks: doc.sinks || [],
+          sinks: normalizeSinks(doc.sinks),
           stoves: doc.stoves || [],
           specialMethods: Array.isArray(doc.specialMethods)
             ? doc.specialMethods
@@ -2603,6 +2627,10 @@ onUnmounted(() => {
 .sink-model-input {
   min-width: 160px;
   flex: 1 1 160px;
+}
+.sink-recipient-input {
+  min-width: 120px;
+  flex: 0 1 140px;
 }
 .sink-row-status {
   display: flex;

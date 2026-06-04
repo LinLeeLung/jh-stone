@@ -79,6 +79,7 @@
       <table v-else class="payroll-table">
         <thead>
           <tr>
+            <th>序號</th>
             <th>工號</th>
             <th>姓名</th>
             <th>部門</th>
@@ -87,7 +88,7 @@
             <th>加班費</th>
             <th>伙食費</th>
             <th>請假扣薪</th>
-            <th>便當費</th>
+            <th class="lunch-col">便當費</th>
             <th>5日發薪</th>
             <th>10日發薪</th>
             <th>實領合計</th>
@@ -96,7 +97,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in allRecords" :key="r.id">
+          <tr v-for="(r, index) in allRecords" :key="r.id">
+            <td>{{ index + 1 }}</td>
             <td>{{ r.empNo }}</td>
             <td>{{ r.name }}</td>
             <td>{{ r.dept || "—" }}</td>
@@ -121,7 +123,7 @@
                   : "—",
               ) }}
             </td>
-            <td class="num deduct">
+            <td class="num deduct lunch-col">
               <input
                 v-if="isManager && isSensitiveVisible(r)"
                 type="number"
@@ -156,7 +158,7 @@
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="9" class="total-label">合計</td>
+            <td colspan="10" class="total-label">合計</td>
             <td class="num gross">{{ maskTotal(totalFirst) }}</td>
             <td class="num gross">{{ maskTotal(totalSecond) }}</td>
             <td class="num gross">{{ maskTotal(totalGross) }}</td>
@@ -2151,6 +2153,10 @@ function mealTotals(r) {
   background: #f9f9f9;
   font-weight: 600;
 }
+.payroll-table .lunch-col {
+  min-width: 118px;
+  white-space: nowrap;
+}
 .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -2186,7 +2192,12 @@ function mealTotals(r) {
   cursor: not-allowed;
 }
 .lunch-input {
-  width: 70px;
+  display: block;
+  width: 100%;
+  min-width: 96px;
+  max-width: 118px;
+  margin-left: auto;
+  box-sizing: border-box;
   text-align: right;
   border: 1px solid #ccc;
   border-radius: 4px;

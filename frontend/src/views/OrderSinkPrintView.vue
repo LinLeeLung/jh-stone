@@ -53,6 +53,12 @@
             <td colspan="3">{{ row.holeLabel }}</td>
           </tr>
           <tr>
+            <th>收件人</th>
+            <td>{{ row.recipient }}</td>
+            <th></th>
+            <td colspan="3"></td>
+          </tr>
+          <tr>
             <th>業主名稱</th>
             <td colspan="2">{{ row.ownerLabel }}</td>
             <th>聯絡電話</th>
@@ -142,6 +148,7 @@ const printRows = computed(() => {
     customerName: String(order.value.customerName || "—"),
     method: String(sink.method || "—"),
     bowlCount: sink.bowlCount || "—",
+    recipient: String(sink.recipient || "—"),
     stoneLabel,
     holeLabel: buildHoleLabel(sink),
     ownerLabel: String(order.value.owner?.name || order.value.customerContact?.name || "—"),
