@@ -3151,6 +3151,119 @@ export async function listOrders({ limit: lim = 500 } = {}) {
   return snap.docs.map((d) => _ordersMapDoc(d.id, d.data() || {}));
 }
 
+export async function searchOrdersByOrderNo(keyword, { limit: lim = 20 } = {}) {
+  await authReadyPromise;
+  const clean = String(keyword || "").trim().toUpperCase();
+  if (!clean) return [];
+
+  const limitValue = Math.max(1, Math.min(50, Number(lim) || 20));
+  const isNumeric = /^\d+$/.test(clean);
+  const numericValue = isNumeric ? Number(clean) : NaN;
+  const salesRef = collection(db, "salesOrders");
+  const legacyRef = collection(db, "Orders");
+
+  const salesTasks = [
+    getDocs(query(salesRef, where("orderNo", "==", clean), limit(limitValue))),
+    getDocs(
+      query(
+        salesRef,
+        where("orderNo", ">=", clean),
+        where("orderNo", "<=", `${clean}\uf8ff`),
+        orderBy("orderNo"),
+        limit(limitValue),
+      ),
+    ),
+  ];
+  const legacyTasks = [
+    getDoc(doc(db, "Orders", clean)),
+    getDocs(query(legacyRef, where("orderNo", "==", clean), limit(limitValue))),
+    getDocs(query(legacyRef, where("訂單號碼", "==", clean), limit(limitValue))),
+    getDocs(query(legacyRef, where("訂單編號", "==", clean), limit(limitValue))),
+    getDocs(query(legacyRef, where("orderNumber", "==", clean), limit(limitValue))),
+  ];
+
+  if (isNumeric && Number.isFinite(numericValue)) {
+    legacyTasks.push(
+      getDocs(
+        query(legacyRef, where("訂單號碼", "==", numericValue), limit(limitValue)),
+      ),
+    );
+    legacyTasks.push(
+      getDocs(
+        query(legacyRef, where("訂單編號", "==", numericValue), limit(limitValue)),
+      ),
+    );
+    legacyTasks.push(
+      getDocs(
+        query(legacyRef, where("orderNumber", "==", numericValue), limit(limitValue)),
+      ),
+    );
+  }
+
+  const [salesResults, legacyResults] = await Promise.all([
+    Promise.all(salesTasks),
+    Promise.all(legacyTasks),
+  ]);
+
+  const salesMatches = [];
+  const seenSales = new Set();
+  for (const snap of salesResults) {
+    snap.docs.forEach((d) => {
+      if (seenSales.has(d.id)) return;
+      seenSales.add(d.id);
+      salesMatches.push({ id: d.id, ...d.data() });
+    });
+  }
+
+  const legacyMatches = [];
+  const seenLegacy = new Set();
+  const [legacyDirect, ...legacySnaps] = legacyResults;
+  if (legacyDirect.exists()) {
+    seenLegacy.add(legacyDirect.id);
+    legacyMatches.push(_ordersMapDoc(legacyDirect.id, legacyDirect.data() || {}));
+  }
+  for (const snap of legacySnaps) {
+    snap.docs.forEach((d) => {
+      if (seenLegacy.has(d.id)) return;
+      seenLegacy.add(d.id);
+      legacyMatches.push(_ordersMapDoc(d.id, d.data() || {}));
+    });
+  }
+
+  const merged = [];
+  const seenOrderNo = new Set();
+  for (const order of salesMatches) {
+    if (order.orderNo) seenOrderNo.add(String(order.orderNo));
+    merged.push(order);
+  }
+  for (const order of legacyMatches) {
+    if (order.orderNo && seenOrderNo.has(String(order.orderNo))) continue;
+    merged.push(order);
+  }
+
+  const sortRank = (order) => {
+    const orderNo = String(order?.orderNo || order?.orderNumber || "").trim().toUpperCase();
+    if (!orderNo) return 2;
+    if (orderNo === clean) return 0;
+    if (orderNo.startsWith(clean)) return 1;
+    return 2;
+  };
+
+  return merged
+    .sort((a, b) => {
+      const rankDiff = sortRank(a) - sortRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      const ta =
+        _coerceJsDate(a.createdAt || a.updatedAt || a.orderedAt || a.promisedAt)?.getTime() ||
+        0;
+      const tb =
+        _coerceJsDate(b.createdAt || b.updatedAt || b.orderedAt || b.promisedAt)?.getTime() ||
+        0;
+      return tb - ta;
+    })
+    .slice(0, limitValue);
+}
+
 // 刪除所有標記為測試資料的訂單
 export async function deleteTestOrders() {
   await authReadyPromise;

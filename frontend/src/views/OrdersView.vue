@@ -201,6 +201,7 @@ import { ref, onMounted } from "vue";
 import {
   listSalesOrders,
   listOrders,
+  searchOrdersByOrderNo,
   updateSalesOrder,
   auth,
   getUserByUid,
@@ -231,6 +232,7 @@ const statusFilter = ref("");
 const sinkStatusFilter = ref("");
 const sortCol = ref("");
 const sortDir = ref(1); // 1=asc, -1=desc
+let latestFilterRun = 0;
 
 function setSort(col) {
   if (sortCol.value === col) sortDir.value *= -1;
@@ -331,45 +333,88 @@ onMounted(async () => {
   }
 });
 
-function applyFilter() {
+function matchesKeyword(order, kw) {
+  if (!kw) return true;
+  const stonesText = Array.isArray(order.stones)
+    ? order.stones
+        .map((stone) => [stone.brand, stone.color].filter(Boolean).join(" "))
+        .join(" ")
+    : "";
+  const hay = [
+    order.orderNo,
+    order.customerName,
+    order.siteAddress,
+    order.category,
+    stonesText,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(kw);
+}
+
+function matchesFilters(order, kw, st, sk) {
+  if (st && order.status !== st) return false;
+  if (sk && !hasSinkStatus(order, sk)) return false;
+  return matchesKeyword(order, kw);
+}
+
+function shouldRemoteLookup(rawKeyword) {
+  const clean = String(rawKeyword || "").trim();
+  return clean.length >= 4 && /^[A-Za-z0-9-]+$/.test(clean);
+}
+
+function mergeUniqueOrders(...groups) {
+  const merged = [];
+  const seen = new Set();
+  for (const group of groups) {
+    for (const order of group) {
+      const key = `${order._source || "salesOrders"}:${order.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(order);
+    }
+  }
+  return merged;
+}
+
+function sortOrders(list) {
+  if (!sortCol.value) return list;
+  const dir = sortDir.value;
+  return [...list].sort((a, b) => {
+    const va = sortVal(a, sortCol.value);
+    const vb = sortVal(b, sortCol.value);
+    if (va === vb) return 0;
+    if (va === Infinity) return 1;
+    if (vb === Infinity) return -1;
+    return va < vb ? -dir : dir;
+  });
+}
+
+async function applyFilter() {
+  const filterRunId = ++latestFilterRun;
+  const rawKeyword = keyword.value.trim();
   const kw = keyword.value.trim().toLowerCase();
   const st = statusFilter.value;
   const sk = sinkStatusFilter.value;
 
-  let result = rows.value.filter((o) => {
-    if (st && o.status !== st) return false;
-    if (sk && !hasSinkStatus(o, sk)) return false;
-    if (kw) {
-      const stonesText = Array.isArray(o.stones)
-        ? o.stones
-            .map((s) => [s.brand, s.color].filter(Boolean).join(" "))
-            .join(" ")
-        : "";
-      const hay = [
-        o.orderNo,
-        o.customerName,
-        o.siteAddress,
-        o.category,
-        stonesText,
-      ]
-        .join(" ")
-        .toLowerCase();
-      if (!hay.includes(kw)) return false;
-    }
-    return true;
-  });
-  if (sortCol.value) {
-    const dir = sortDir.value;
-    result = [...result].sort((a, b) => {
-      const va = sortVal(a, sortCol.value);
-      const vb = sortVal(b, sortCol.value);
-      if (va === vb) return 0;
-      if (va === Infinity) return 1;
-      if (vb === Infinity) return -1;
-      return va < vb ? -dir : dir;
-    });
+  let result = rows.value.filter((order) => matchesFilters(order, kw, st, sk));
+
+  if (shouldRemoteLookup(rawKeyword)) {
+    const remoteMatches = await searchOrdersByOrderNo(rawKeyword, { limit: 20 }).catch(
+      (error) => {
+        console.warn("OrdersView: remote order lookup failed", error);
+        return [];
+      },
+    );
+    if (filterRunId !== latestFilterRun) return;
+    const filteredRemote = remoteMatches.filter((order) =>
+      matchesFilters(order, kw, st, sk),
+    );
+    result = mergeUniqueOrders(result, filteredRemote);
   }
-  filtered.value = result;
+
+  if (filterRunId !== latestFilterRun) return;
+  filtered.value = sortOrders(result);
 }
 
 async function onStatusChange(order, newStatus) {

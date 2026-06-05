@@ -7084,6 +7084,59 @@ exports.getOrdersByIds = onCall(async (payload, ctx) => {
   return filterOrdersByAccess(docs, accessCtx);
 });
 
+const LEGACY_ORDER_PROTECTED_FIELDS = [
+  "incomplete",
+  "未完工",
+  "reason",
+  "原因",
+  "未完工原因",
+  "incompleteUpdatedAt",
+  "incompleteUpdatedByUid",
+  "incompleteUpdatedByName",
+  "incompleteUpdatedByEmail",
+  "reasonUpdatedAt",
+  "reasonUpdatedByUid",
+  "reasonUpdatedByName",
+  "reasonUpdatedByEmail",
+  "最後更新員工",
+  "最後更新員工Uid",
+  "最後更新員工Email",
+];
+
+function buildLegacyOrderFieldRestore(beforeData = {}, afterData = {}) {
+  const restore = {};
+  for (const field of LEGACY_ORDER_PROTECTED_FIELDS) {
+    if (beforeData[field] === undefined || afterData[field] !== undefined) {
+      continue;
+    }
+    restore[field] = beforeData[field];
+  }
+  return restore;
+}
+
+exports.restoreLegacyOrderProtectedFields = onDocumentWritten(
+  {
+    document: "Orders/{orderId}",
+  },
+  async (event) => {
+    const beforeSnap = event.data?.before;
+    const afterSnap = event.data?.after;
+    if (!beforeSnap?.exists || !afterSnap?.exists) return;
+
+    const beforeData = beforeSnap.data() || {};
+    const afterData = afterSnap.data() || {};
+    const restore = buildLegacyOrderFieldRestore(beforeData, afterData);
+    const restoreKeys = Object.keys(restore);
+    if (!restoreKeys.length) return;
+
+    logger.warn("restoreLegacyOrderProtectedFields: restoring missing fields", {
+      orderId: event.params.orderId,
+      fields: restoreKeys,
+    });
+    await afterSnap.ref.set(restore, { merge: true });
+  },
+);
+
 exports.updateOrderIncompleteStatus = onCall(async (payload, ctx) => {
   const data = unwrapCallablePayload(payload);
   const authUid = getCallableAuthUid(payload, ctx);
