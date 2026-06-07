@@ -52,9 +52,9 @@
       <table class="orders-table">
         <thead>
           <tr>
-            <th></th>
-            <th>打板</th>
-            <th>對圖</th>
+            <th class="col-actions"></th>
+            <th class="col-staff">打板</th>
+            <th class="col-staff">對圖</th>
             <th class="sortable col-date" @click="setSort('orderedAt')">
               下單日{{ sortIcon("orderedAt") }}
             </th>
@@ -91,7 +91,11 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="o in filtered" :key="o.id">
+          <tr
+            v-for="o in filtered"
+            :key="o.id"
+            :class="{ 'row-has-drawings': orderHasDrawings(o) }"
+          >
             <td class="col-actions">
               <template v-if="o._source !== 'Orders'">
                 <RouterLink class="btn-mini" :to="`/orders/${o.id}/edit`"
@@ -102,8 +106,18 @@
                   :to="`/orders/${o.id}/confirmation`"
                   >確定單</RouterLink
                 >
+                <button
+                  class="btn-mini btn-origin"
+                  type="button"
+                  @click="openOriginalDesign(o)"
+                >
+                  原圖
+                </button>
                 <RouterLink
-                  class="btn-mini btn-draw"
+                  :class="[
+                    'btn-mini',
+                    orderHasDrawings(o) ? 'btn-draw-done' : 'btn-draw',
+                  ]"
                   :to="`/orders/${o.id}/drawing`"
                   >繪圖</RouterLink
                 >
@@ -155,7 +169,12 @@
             </td>
             <td
               class="col-stones"
-              :title="(o.stones || []).map((s) => [s.brand, s.color].filter(Boolean).join(' ')).filter(Boolean).join(' / ')"
+              :title="
+                (o.stones || [])
+                  .map((s) => [s.brand, s.color].filter(Boolean).join(' '))
+                  .filter(Boolean)
+                  .join(' / ')
+              "
             >
               <template v-if="o.stones && o.stones.length">
                 <div v-for="(s, i) in o.stones" :key="i" class="stone-tag">
@@ -164,15 +183,34 @@
               </template>
               <span v-else class="dim">—</span>
             </td>
-            <td class="col-customer" :title="[o.customerName, o.customerContact?.name].filter(Boolean).join(' / ')">
+            <td
+              class="col-customer"
+              :title="
+                [o.customerName, o.customerContact?.name]
+                  .filter(Boolean)
+                  .join(' / ')
+              "
+            >
               <div class="customer-name">{{ o.customerName || "—" }}</div>
               <span v-if="o.isTestData" class="test-badge">測</span>
               <div class="customer-sub">
                 {{ o.customerContact?.name || "" }}
               </div>
             </td>
-            <td class="col-category" :title="o.category || ''">{{ o.category || "—" }}</td>
-            <td class="col-countertop" :title="[o.countertop?.type, o.countertop?.totalCm ? `${o.countertop.totalCm}cm` : ''].filter(Boolean).join(' ')">
+            <td class="col-category" :title="o.category || ''">
+              {{ o.category || "—" }}
+            </td>
+            <td
+              class="col-countertop"
+              :title="
+                [
+                  o.countertop?.type,
+                  o.countertop?.totalCm ? `${o.countertop.totalCm}cm` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+              "
+            >
               {{ o.countertop?.type || "—" }}
               <span v-if="o.countertop?.totalCm" class="cm-tag"
                 >{{ o.countertop.totalCm }}cm</span
@@ -184,7 +222,9 @@
               }}</span>
               <span v-else class="dim">—</span>
             </td>
-            <td class="col-addr" :title="o.siteAddress || ''">{{ o.siteAddress || "—" }}</td>
+            <td class="col-addr" :title="o.siteAddress || ''">
+              {{ o.siteAddress || "—" }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -201,6 +241,8 @@ import { ref, onMounted } from "vue";
 import {
   listSalesOrders,
   listOrders,
+  listOrderDrawings,
+  listOrderAttachments,
   searchOrdersByOrderNo,
   updateSalesOrder,
   auth,
@@ -233,6 +275,9 @@ const sinkStatusFilter = ref("");
 const sortCol = ref("");
 const sortDir = ref(1); // 1=asc, -1=desc
 let latestFilterRun = 0;
+let latestDrawingHydration = 0;
+
+const DRAWING_STATUS_BACKFILL_LIMIT = 60;
 
 function setSort(col) {
   if (sortCol.value === col) sortDir.value *= -1;
@@ -327,11 +372,53 @@ onMounted(async () => {
       merged.push(o);
     }
     rows.value = merged;
+    await hydrateDrawingFlags(merged);
   } finally {
     loading.value = false;
     applyFilter();
   }
 });
+
+async function hydrateDrawingFlags(list) {
+  const candidates = list
+    .filter(
+      (order) =>
+        order._source !== "Orders" &&
+        !order.hasDrawings &&
+        !Object.keys(order.pendingSignDrawingVersions || {}).length,
+    )
+    .slice(0, DRAWING_STATUS_BACKFILL_LIMIT);
+
+  if (!candidates.length) return;
+
+  const hydrationId = ++latestDrawingHydration;
+  const results = await Promise.all(
+    candidates.map(async (order) => {
+      try {
+        const drawings = await listOrderDrawings(order.id);
+        return { id: order.id, hasDrawings: drawings.length > 0 };
+      } catch (_) {
+        return null;
+      }
+    }),
+  );
+
+  if (hydrationId !== latestDrawingHydration) return;
+
+  const drawingMap = new Map(
+    results
+      .filter((result) => result && result.hasDrawings)
+      .map((result) => [result.id, result.hasDrawings]),
+  );
+
+  if (!drawingMap.size) return;
+
+  rows.value = rows.value.map((order) =>
+    drawingMap.has(order.id)
+      ? { ...order, _hasDrawings: drawingMap.get(order.id) }
+      : order,
+  );
+}
 
 function matchesKeyword(order, kw) {
   if (!kw) return true;
@@ -400,12 +487,12 @@ async function applyFilter() {
   let result = rows.value.filter((order) => matchesFilters(order, kw, st, sk));
 
   if (shouldRemoteLookup(rawKeyword)) {
-    const remoteMatches = await searchOrdersByOrderNo(rawKeyword, { limit: 20 }).catch(
-      (error) => {
-        console.warn("OrdersView: remote order lookup failed", error);
-        return [];
-      },
-    );
+    const remoteMatches = await searchOrdersByOrderNo(rawKeyword, {
+      limit: 20,
+    }).catch((error) => {
+      console.warn("OrdersView: remote order lookup failed", error);
+      return [];
+    });
     if (filterRunId !== latestFilterRun) return;
     const filteredRemote = remoteMatches.filter((order) =>
       matchesFilters(order, kw, st, sk),
@@ -432,9 +519,36 @@ async function onStatusChange(order, newStatus) {
   }
 }
 
+async function openOriginalDesign(order) {
+  if (!order?.id || order?._source === "Orders") {
+    alert("此訂單不支援查看原圖檔。");
+    return;
+  }
+
+  try {
+    const files = await listOrderAttachments(order.id, "designFiles");
+    const latestFile = files[0];
+    if (!latestFile?.url) {
+      alert("此訂單尚無原圖檔。");
+      return;
+    }
+    window.open(latestFile.url, "_blank", "noopener,noreferrer");
+  } catch (error) {
+    alert("原圖檔開啟失敗：" + (error?.message || error));
+  }
+}
+
 function hasSinkStatus(order, val) {
   const sinks = Array.isArray(order.sinks) ? order.sinks : [];
   return sinks.some((s) => (s.arrival || "notArrived") === val);
+}
+
+function orderHasDrawings(order) {
+  return !!(
+    order?.hasDrawings ||
+    order?._hasDrawings ||
+    Object.keys(order?.pendingSignDrawingVersions || {}).length > 0
+  );
 }
 
 function sinkBadges(order) {
@@ -545,6 +659,12 @@ function fmtDate(val) {
 }
 .orders-table tbody tr:hover {
   background: #f0f9ff;
+}
+.orders-table tbody tr.row-has-drawings {
+  background: #fff8c5;
+}
+.orders-table tbody tr.row-has-drawings:hover {
+  background: #fff1a8;
 }
 .col-addr {
   width: 360px;
@@ -709,9 +829,9 @@ function fmtDate(val) {
 .col-staff {
   white-space: nowrap;
   color: #374151;
-  width: 54px;
-  min-width: 54px;
-  max-width: 54px;
+  width: 64px;
+  min-width: 64px;
+  max-width: 64px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -756,6 +876,22 @@ function fmtDate(val) {
 }
 .btn-draw:hover {
   background: #dce6ff;
+}
+.btn-draw-done {
+  color: #166534;
+  border-color: #86efac;
+  background: #dcfce7;
+}
+.btn-draw-done:hover {
+  background: #bbf7d0;
+}
+.btn-origin {
+  color: #92400e;
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+.btn-origin:hover {
+  background: #fef3c7;
 }
 .btn-conf {
   color: #065f46;

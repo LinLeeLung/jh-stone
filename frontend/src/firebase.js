@@ -4194,6 +4194,10 @@ export async function createOrderDrawing(orderId, type) {
     updatedAt: serverTimestamp(),
     createdByUid: uid,
   });
+  await updateDoc(doc(db, "salesOrders", orderId), {
+    hasDrawings: true,
+    drawingUpdatedAt: serverTimestamp(),
+  });
   return ref.id;
 }
 
@@ -4205,10 +4209,20 @@ export async function updateOrderDrawing(orderId, drawingId, stateObj) {
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
   });
+  await updateDoc(doc(db, "salesOrders", orderId), {
+    hasDrawings: true,
+    drawingUpdatedAt: serverTimestamp(),
+  });
 }
 
 export async function deleteOrderDrawing(orderId, drawingId) {
   await deleteDoc(doc(db, "salesOrders", orderId, "drawings", drawingId));
+  const col = collection(db, "salesOrders", orderId, "drawings");
+  const remaining = await getDocs(query(col, limit(1)));
+  await updateDoc(doc(db, "salesOrders", orderId), {
+    hasDrawings: !remaining.empty,
+    drawingUpdatedAt: serverTimestamp(),
+  });
 }
 
 export async function getOrderConfirmation(orderId) {

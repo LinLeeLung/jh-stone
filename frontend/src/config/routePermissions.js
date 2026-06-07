@@ -109,9 +109,12 @@ export function mergeRoutePermissions(defaults = [], overrides = []) {
 
   for (const item of overrides) {
     if (!item?.path) continue;
+    const existing = merged.get(item.path) || {};
     merged.set(item.path, {
-      ...(merged.get(item.path) || {}),
+      ...existing,
       ...item,
+      title: existing.title || item.title,
+      group: existing.group || item.group,
       roles: Array.isArray(item.roles) ? [...item.roles] : [],
       depts: Array.isArray(item.depts) ? [...item.depts] : undefined,
     });

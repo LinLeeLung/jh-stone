@@ -29,7 +29,9 @@ export default defineConfig({
       name: "open-chrome",
       configureServer(server) {
         server.httpServer?.once("listening", () => {
-          exec('"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" http://localhost:5173');
+          exec(
+            '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" http://localhost:5173',
+          );
         });
       },
     },
@@ -57,6 +59,14 @@ export default defineConfig({
   server: {
     host: true, // 監聽 0.0.0.0，區域網路手機可連
     port: 5173,
+    proxy: {
+      "/legacy-draw-api": {
+        target: "https://junchengstone.synology.me",
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/legacy-draw-api/, "/draw"),
+      },
+    },
   },
   resolve: {
     alias: {
@@ -70,5 +80,32 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ["pdfjs-dist"],
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+
+          if (id.includes("pdfjs-dist")) return "vendor-pdfjs";
+          if (id.includes("firebase")) return "vendor-firebase";
+          if (id.includes("xlsx-js-style")) return "vendor-xlsx-style";
+          if (id.includes("/xlsx/")) return "vendor-xlsx";
+          if (id.includes("html2canvas")) return "vendor-html2canvas";
+          if (id.includes("html2pdf.js")) return "vendor-html2pdf";
+          if (id.includes("jspdf")) return "vendor-jspdf";
+          if (id.includes("pdf-lib")) return "vendor-pdf-lib";
+          if (id.includes("@svgdotjs")) return "vendor-drawing";
+          if (
+            id.includes("/vue/") ||
+            id.includes("/vue-router/") ||
+            id.includes("/pinia/") ||
+            id.includes("/vuedraggable/")
+          ) {
+            return "vendor-vue";
+          }
+        },
+      },
+    },
   },
 });

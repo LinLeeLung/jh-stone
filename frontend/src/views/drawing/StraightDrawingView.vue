@@ -1839,9 +1839,10 @@ function cutline() {
 // ─── 水槽資料（從 API 取得）──────────────────────────────────
 async function getSinkData() {
   try {
-    const res = await fetch(
-      "https://junchengstone.synology.me/draw/getSink.php",
-    );
+    const sinkApiUrl = import.meta.env.DEV
+      ? "/legacy-draw-api/getSink.php"
+      : "https://junchengstone.synology.me/draw/getSink.php";
+    const res = await fetch(sinkApiUrl);
     if (!res.ok) throw new Error("Network error");
     const data = await res.text();
     const nrows = [];

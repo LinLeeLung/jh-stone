@@ -18,7 +18,13 @@
     <div class="sp-grid">
       <div v-if="loading" class="sp-empty">載入中…</div>
       <div v-else-if="visibleStamps.length === 0" class="sp-empty">暫無圖章</div>
-      <div v-for="stamp in visibleStamps" :key="stamp.id" class="sp-card">
+      <div
+        v-for="stamp in visibleStamps"
+        :key="stamp.id"
+        class="sp-card"
+        @click="doInsert(stamp)"
+        title="點一下插入到畫面"
+      >
         <div class="sp-preview">
           <img v-if="stamp.imageUrl" :src="stamp.imageUrl" draggable="false" />
           <span v-else class="sp-no-img">?</span>
@@ -26,33 +32,33 @@
         <div class="sp-name" :title="stamp.name">{{ stamp.name }}</div>
         <div class="sp-author" v-if="stamp.authorUid !== myUid">{{ stamp.authorName }}</div>
         <div class="sp-actions">
-          <button class="sp-btn sp-ins" @click="doInsert(stamp)" title="插入到畫面">插入</button>
+          <button class="sp-btn sp-ins" @click.stop="doInsert(stamp)" title="插入到畫面">插入</button>
           <!-- Company tab: save/unsave (not own) -->
           <button
             v-if="tab === 'company' && stamp.authorUid !== myUid"
             class="sp-btn sp-save"
             :class="{ saved: savedIds.has(stamp.id) }"
-            @click="toggleSave(stamp)"
+            @click.stop="toggleSave(stamp)"
           >{{ savedIds.has(stamp.id) ? '✓已收藏' : '收藏' }}</button>
           <!-- My tab: unsave (saved from others) -->
           <button
             v-if="tab === 'mine' && stamp.authorUid !== myUid"
             class="sp-btn sp-unsave"
-            @click="toggleSave(stamp)"
+            @click.stop="toggleSave(stamp)"
           >取消收藏</button>
           <!-- Own stamps: share toggle -->
           <button
             v-if="stamp.authorUid === myUid"
             class="sp-btn sp-share"
             :class="{ shared: stamp.shared }"
-            @click="doToggleShare(stamp)"
+            @click.stop="doToggleShare(stamp)"
             :title="stamp.shared ? '取消分享' : '分享給公司'"
           >{{ stamp.shared ? '共用中' : '分享' }}</button>
           <!-- Own stamps: delete -->
           <button
             v-if="stamp.authorUid === myUid"
             class="sp-btn sp-del"
-            @click="doDelete(stamp)"
+            @click.stop="doDelete(stamp)"
             title="刪除"
           >刪除</button>
         </div>

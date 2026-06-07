@@ -1,43 +1,4 @@
 import { createRouter, createWebHistory } from "vue-router";
-import HomeView from "../views/HomeView.vue";
-import AdminView from "../views/AdminView.vue";
-import EmployeeView from "../views/EmployeeView.vue";
-import InventoryView from "../views/InventoryView.vue";
-import SettingsView from "../views/SettingsView.vue";
-import StaffView from "../views/StaffView.vue";
-import AttendanceView from "../views/AttendanceView.vue";
-import LeaveView from "../views/LeaveView.vue";
-import PayrollView from "../views/PayrollView.vue";
-import PayrollHelpView from "../views/PayrollHelpView.vue";
-import ReceivableHelpView from "../views/ReceivableHelpView.vue";
-import DrawingLayout from "../views/drawing/DrawingLayout.vue";
-import StraightDrawingView from "../views/drawing/StraightDrawingView.vue";
-import LShapeDrawingView from "../views/drawing/LShapeDrawingView.vue";
-import MShapeDrawingView from "../views/drawing/MShapeDrawingView.vue";
-import IslandDrawingView from "../views/drawing/IslandDrawingView.vue";
-import OrderEditView from "../views/OrderEditView.vue";
-import OrderSettingsView from "../views/OrderSettingsView.vue";
-import OrdersView from "../views/OrdersView.vue";
-import OrderImportView from "../views/OrderImportView.vue";
-import RepairTicketView from "../views/RepairTicketView.vue";
-import RepairListView from "../views/RepairListView.vue";
-import RepairPrintView from "../views/RepairPrintView.vue";
-import DispatchView from "../views/DispatchView.vue";
-import ProductionView from "../views/ProductionView.vue";
-import ReceivableItemsView from "../views/ReceivableItemsView.vue";
-import ReceivableBillsView from "../views/ReceivableBillsView.vue";
-import ReceivableBillDetailView from "../views/ReceivableBillDetailView.vue";
-import ReceivableBillPrintView from "../views/ReceivableBillPrintView.vue";
-import ReceivableBillSignedPrintView from "../views/ReceivableBillSignedPrintView.vue";
-import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
-import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
-import OrderSinkPrintView from "../views/OrderSinkPrintView.vue";
-import CustomerMgmtView from "../views/CustomerMgmtView.vue";
-import QuotePageView from "../views/QuotePageView.vue";
-import InstallTasksView from "../views/InstallTasksView.vue";
-import DispatchSheetView from "../views/DispatchSheetView.vue";
-import MyTodayTasksView from "../views/MyTodayTasksView.vue";
-import VehiclesView from "../views/VehiclesView.vue";
 import { auth } from "../firebase";
 import {
   getUserByUid,
@@ -51,8 +12,95 @@ import {
   mergeRoutePermissions,
 } from "../config/routePermissions";
 
+function lazyRoute(loader) {
+  return () =>
+    loader().catch(() => {
+      window.location.reload();
+    });
+}
+
+const HomeView = lazyRoute(() => import("../views/HomeView.vue"));
+const AdminView = lazyRoute(() => import("../views/AdminView.vue"));
+const EmployeeView = lazyRoute(() => import("../views/EmployeeView.vue"));
+const InventoryView = lazyRoute(() => import("../views/InventoryView.vue"));
+const SettingsView = lazyRoute(() => import("../views/SettingsView.vue"));
+const StaffView = lazyRoute(() => import("../views/StaffView.vue"));
+const AttendanceView = lazyRoute(() => import("../views/AttendanceView.vue"));
+const LeaveView = lazyRoute(() => import("../views/LeaveView.vue"));
+const PayrollView = lazyRoute(() => import("../views/PayrollView.vue"));
+const PayrollHelpView = lazyRoute(() => import("../views/PayrollHelpView.vue"));
+const ReceivableHelpView = lazyRoute(
+  () => import("../views/ReceivableHelpView.vue"),
+);
+const DrawingLayout = lazyRoute(
+  () => import("../views/drawing/DrawingLayout.vue"),
+);
+const StraightDrawingView = lazyRoute(
+  () => import("../views/drawing/StraightDrawingView.vue"),
+);
+const LShapeDrawingView = lazyRoute(
+  () => import("../views/drawing/LShapeDrawingView.vue"),
+);
+const MShapeDrawingView = lazyRoute(
+  () => import("../views/drawing/MShapeDrawingView.vue"),
+);
+const IslandDrawingView = lazyRoute(
+  () => import("../views/drawing/IslandDrawingView.vue"),
+);
+const OrderEditView = lazyRoute(() => import("../views/OrderEditView.vue"));
+const OrderSettingsView = lazyRoute(
+  () => import("../views/OrderSettingsView.vue"),
+);
+const OrdersView = lazyRoute(() => import("../views/OrdersView.vue"));
+const OrderImportView = lazyRoute(() => import("../views/OrderImportView.vue"));
+const RepairTicketView = lazyRoute(
+  () => import("../views/RepairTicketView.vue"),
+);
+const RepairListView = lazyRoute(() => import("../views/RepairListView.vue"));
+const RepairPrintView = lazyRoute(() => import("../views/RepairPrintView.vue"));
+const DispatchView = lazyRoute(() => import("../views/DispatchView.vue"));
+const ProductionView = lazyRoute(() => import("../views/ProductionView.vue"));
+const ReceivableItemsView = lazyRoute(
+  () => import("../views/ReceivableItemsView.vue"),
+);
+const ReceivableBillsView = lazyRoute(
+  () => import("../views/ReceivableBillsView.vue"),
+);
+const ReceivableBillDetailView = lazyRoute(
+  () => import("../views/ReceivableBillDetailView.vue"),
+);
+const ReceivableBillPrintView = lazyRoute(
+  () => import("../views/ReceivableBillPrintView.vue"),
+);
+const ReceivableBillSignedPrintView = lazyRoute(
+  () => import("../views/ReceivableBillSignedPrintView.vue"),
+);
+const OrderDrawingWrapper = lazyRoute(
+  () => import("../views/drawing/OrderDrawingWrapper.vue"),
+);
+const OrderConfirmationView = lazyRoute(
+  () => import("../views/drawing/OrderConfirmationView.vue"),
+);
+const OrderSinkPrintView = lazyRoute(
+  () => import("../views/OrderSinkPrintView.vue"),
+);
+const CustomerMgmtView = lazyRoute(
+  () => import("../views/CustomerMgmtView.vue"),
+);
+const QuotePageView = lazyRoute(() => import("../views/QuotePageView.vue"));
+const InstallTasksView = lazyRoute(
+  () => import("../views/InstallTasksView.vue"),
+);
+const DispatchSheetView = lazyRoute(
+  () => import("../views/DispatchSheetView.vue"),
+);
+const MyTodayTasksView = lazyRoute(
+  () => import("../views/MyTodayTasksView.vue"),
+);
+const VehiclesView = lazyRoute(() => import("../views/VehiclesView.vue"));
+
 // 記憶體快取：Firestore 設定讀取一次後存在此，null 表示「尚未載入」
-let _permCache = null;  // false = 已確認 Firestore 無資料；陣列 = 已取得設定
+let _permCache = null; // false = 已確認 Firestore 無資料；陣列 = 已取得設定
 async function getEffectivePermissions() {
   if (_permCache !== null) return _permCache;
   try {
@@ -80,10 +128,7 @@ const router = createRouter({
     {
       path: "/about",
       name: "about",
-      component: () =>
-        import("../views/AboutView.vue").catch(() => {
-          window.location.reload();
-        }),
+      component: lazyRoute(() => import("../views/AboutView.vue")),
       meta: { title: "說明" },
     },
     {
@@ -242,13 +287,21 @@ const router = createRouter({
       path: "/receivable-bills/:id/print",
       name: "receivable-bill-print",
       component: ReceivableBillPrintView,
-      meta: { roles: ["admin", "管理者", "會計"], title: "應收總表", printLayout: true },
+      meta: {
+        roles: ["admin", "管理者", "會計"],
+        title: "應收總表",
+        printLayout: true,
+      },
     },
     {
       path: "/receivable-bills/:id/sign-print",
       name: "receivable-bill-sign-print",
       component: ReceivableBillSignedPrintView,
-      meta: { roles: ["admin", "管理者", "會計"], title: "回簽列印", printLayout: true },
+      meta: {
+        roles: ["admin", "管理者", "會計"],
+        title: "回簽列印",
+        printLayout: true,
+      },
     },
     {
       path: "/orders/repair",
@@ -272,25 +325,42 @@ const router = createRouter({
       path: "/orders/repair/:id/print",
       name: "order-repair-print",
       component: RepairPrintView,
-      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "列印維修單", printLayout: true },
+      meta: {
+        roles: ["admin", "管理者"],
+        depts: ["1"],
+        title: "列印維修單",
+        printLayout: true,
+      },
     },
     {
       path: "/production",
       name: "production",
       component: ProductionView,
-      meta: { roles: ["員工", "admin", "管理者"], depts: ["3"], title: "生產流程" },
+      meta: {
+        roles: ["員工", "admin", "管理者"],
+        depts: ["3"],
+        title: "生產流程",
+      },
     },
     {
       path: "/customers",
       name: "customers",
       component: CustomerMgmtView,
-      meta: { roles: ["員工", "admin", "管理者"], depts: ["1"], title: "客戶管理" },
+      meta: {
+        roles: ["員工", "admin", "管理者"],
+        depts: ["1"],
+        title: "客戶管理",
+      },
     },
     {
       path: "/quote",
       name: "quote",
       component: QuotePageView,
-      meta: { roles: ["員工", "admin", "管理者"], depts: ["1"], title: "估價單" },
+      meta: {
+        roles: ["員工", "admin", "管理者"],
+        depts: ["1"],
+        title: "估價單",
+      },
     },
     {
       path: "/orders/:id/drawing",
@@ -308,7 +378,12 @@ const router = createRouter({
       path: "/orders/:id/sink-print",
       name: "order-sink-print",
       component: OrderSinkPrintView,
-      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "列印水槽", printLayout: true },
+      meta: {
+        roles: ["admin", "管理者"],
+        depts: ["1"],
+        title: "列印水槽",
+        printLayout: true,
+      },
     },
     {
       path: "/install-tasks",

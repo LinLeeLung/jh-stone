@@ -101,6 +101,13 @@ const DRAWING_TYPES = [
   { type: "island", label: "中島" },
 ];
 
+const DRAWING_TYPE_ALIASES = {
+  straight: ["straight", "one", "一字", "一字型", "直線", "直線型"],
+  "l-shape": ["l-shape", "l", "l型", "l 型", "L", "L型", "L 型"],
+  "m-shape": ["m-shape", "m", "m型", "m 型", "M", "M型", "M 型"],
+  island: ["island", "中島", "島", "中岛"],
+};
+
 const TYPE_COMPONENTS = {
   straight: defineAsyncComponent(() => import("./StraightDrawingView.vue")),
   "l-shape": defineAsyncComponent(() => import("./LShapeDrawingView.vue")),
@@ -112,8 +119,22 @@ const currentDrawing = computed(
   () => drawings.value.find((d) => d.id === currentId.value) ?? null,
 );
 
+function normalizeDrawingType(type) {
+  const raw = String(type || "").trim();
+  if (!raw) return "straight";
+  const rawLower = raw.toLowerCase();
+  for (const [normalized, aliases] of Object.entries(DRAWING_TYPE_ALIASES)) {
+    if (aliases.some((alias) => alias.toLowerCase() === rawLower)) {
+      return normalized;
+    }
+  }
+  return raw;
+}
+
 const drawingComponent = computed(() =>
-  currentDrawing.value ? TYPE_COMPONENTS[currentDrawing.value.type] : null,
+  currentDrawing.value
+    ? TYPE_COMPONENTS[normalizeDrawingType(currentDrawing.value.type)]
+    : null,
 );
 
 const stoneLabel = computed(() => {
@@ -123,7 +144,8 @@ const stoneLabel = computed(() => {
 });
 
 function typeLabel(type) {
-  return DRAWING_TYPES.find((t) => t.type === type)?.label ?? type;
+  const normalized = normalizeDrawingType(type);
+  return DRAWING_TYPES.find((t) => t.type === normalized)?.label ?? type;
 }
 
 async function loadAll() {

@@ -4,7 +4,7 @@
     @mousemove.prevent="onMouseMove"
     @mouseup="onMouseUp"
     @mouseleave="onMouseUp"
-    @click.self="selectedBlkId = null"
+    @click.self="clearSelections"
   >
     <!-- 工具列 -->
     <div class="conf-toolbar no-print">
@@ -17,12 +17,13 @@
       >
       <span class="toolbar-title">📋 生產確定單</span>
       <div class="toolbar-right">
-        <span class="hint">點選繪圖：移動；四角藍點：縮放</span>
+        <span class="hint">{{ toolbarHint }}</span>
         <!-- 手繪工具 -->
         <button
           class="btn-draw"
           :class="{ 'draw-on': drawTool === null }"
           @click="setDrawTool(null)"
+          title="選取與移動既有物件"
         >
           ↖ 移動
         </button>
@@ -30,6 +31,7 @@
           class="btn-draw"
           :class="{ 'draw-on': drawTool === 'pen' }"
           @click="setDrawTool('pen')"
+          title="自由手繪"
         >
           ✏️ 筆
         </button>
@@ -37,6 +39,7 @@
           class="btn-draw"
           :class="{ 'draw-on': drawTool === 'erase' }"
           @click="setDrawTool('erase')"
+          title="擦除手繪筆跡"
         >
           🧹 擦
         </button>
@@ -44,38 +47,79 @@
           class="btn-draw"
           :class="{ 'draw-on': drawTool === 'line' }"
           @click="setDrawTool('line')"
+          title="拖拉畫直線"
         >
           ╱ 直線
         </button>
         <button
           class="btn-draw"
+          :class="{ 'draw-on': drawTool === 'measure' }"
+          @click="setDrawTool('measure')"
+          title="拖拉畫測量線，會顯示長度"
+        >
+          ↔ 測量
+        </button>
+        <button
+          class="btn-draw"
           :class="{ 'draw-on': drawTool === 'rect' }"
           @click="setDrawTool('rect')"
+          title="拖拉畫矩形"
         >
           ▭ 框
         </button>
         <button
           class="btn-draw"
+          :class="{ 'draw-on': drawTool === 'ellipse' }"
+          @click="setDrawTool('ellipse')"
+          title="拖拉畫橢圓，Shift 可鎖成正圓"
+        >
+          ◯ 圓
+        </button>
+        <div
+          v-show="['rect', 'ellipse'].includes(drawTool) || ['rect', 'ellipse'].includes(selectedShapeOverlay?.type)"
+          class="rect-mode-btns"
+        >
+          <button
+            class="rect-mode-btn"
+            :class="{ active: rectStyle === 'outline' }"
+            title="邊框圖形"
+            @click="setRectStyleMode('outline')"
+          >
+            ▢
+          </button>
+          <button
+            class="rect-mode-btn"
+            :class="{ active: rectStyle === 'fill' }"
+            title="實體圖形"
+            @click="setRectStyleMode('fill')"
+          >
+            ■
+          </button>
+        </div>
+        <button
+          class="btn-draw"
           :class="{ 'draw-on': drawTool === 'text' }"
           @click="setDrawTool('text')"
+          title="點一下放入文字，可雙擊既有文字編輯"
         >
           T 文字
         </button>
         <input
-          v-show="drawTool && drawTool !== 'erase'"
+          v-show="(drawTool && drawTool !== 'erase') || selectedShapeOverlay || selectedTextOverlay"
           type="color"
-          v-model="drawColor"
+          :value="drawColor"
           class="color-picker"
           title="顏色"
+          @input="onColorChange"
         />
-        <div v-show="drawTool !== null" class="sz-btns">
+        <div v-show="drawTool !== null || selectedShapeOverlay || selectedTextOverlay" class="sz-btns">
           <button
             v-for="w in strokeWidths"
             :key="w"
             class="sz-btn"
             :class="{ 'sz-on': drawWidth === w }"
             :title="w + ' px'"
-            @click="drawWidth = w"
+            @click="setStrokeWidth(w)"
           >
             <span
               class="sz-line"
@@ -95,9 +139,35 @@
         >
           🗑️
         </button>
-        <button class="btn-img" @click="imgInputRef.click()">
-          📷 插入截圖
-        </button>
+        <div class="snapshot-tool">
+          <button
+            class="btn-img"
+            :disabled="snapshotting"
+            @click="copyConfirmedSnapshot"
+            title="快照工具：擷取這張確定單並複製到剪貼簿，可直接貼到 LINE"
+          >
+            {{ snapshotting ? "快照中…" : "📸 快照確定單" }}
+          </button>
+          <button
+            class="btn-img-caret"
+            :class="{ active: showSnapshotMenu }"
+            @click.stop="toggleSnapshotMenu"
+            title="選擇快照來源"
+          >
+            ▾
+          </button>
+          <div v-if="showSnapshotMenu" class="snapshot-menu">
+            <button class="snapshot-menu-item" @click="copyConfirmedSnapshot">
+              📋 複製確定單快照
+            </button>
+            <button class="snapshot-menu-item" @click="downloadConfirmedSnapshot">
+              💾 下載 PNG
+            </button>
+            <button class="snapshot-menu-item" @click="openImagePicker">
+              🖼️ 插入圖片
+            </button>
+          </div>
+        </div>
         <input
           ref="imgInputRef"
           type="file"
@@ -113,8 +183,27 @@
         >
           🔖 圖章
         </button>
-        <button class="btn-print" @click="doPrint">🖨️ 列印 / PDF</button>
-        <button class="btn-save" :disabled="saving" @click="doSave">
+        <button
+          v-show="selectedShapeOverlay?.type === 'measure'"
+          class="btn-draw"
+          @click="setMeasurementReferenceFromSelected"
+          title="把目前選中的測量線設定為實際距離，其他測量線會按比例更新"
+        >
+          📏 設基準
+        </button>
+        <span v-show="measurementScale !== 1" class="measure-scale-badge">
+          基準 {{ measurementScaleText }}
+        </span>
+        <button
+          v-show="measurementScale !== 1"
+          class="btn-draw"
+          @click="resetMeasurementScale"
+          title="清除基準比例，回到版面預設換算"
+        >
+          ↺ 重設基準
+        </button>
+        <button class="btn-print" @click="doPrint" title="列印或輸出 PDF">🖨️ 列印 / PDF</button>
+        <button class="btn-save" :disabled="saving" @click="doSave" title="儲存目前標註與設定">
           {{ saving ? "儲存中…" : "💾 儲存" }}
         </button>
         <!-- 手動上傳確定單 PDF（手繪版） -->
@@ -204,7 +293,14 @@
                     <tr>
                       <td class="lbl">客戶端業務</td>
                       <td class="val" colspan="3">
-                        {{ [order?.customerContact?.name, order?.customerContact?.phone].filter(Boolean).join(" ") }}
+                        {{
+                          [
+                            order?.customerContact?.name,
+                            order?.customerContact?.phone,
+                          ]
+                            .filter(Boolean)
+                            .join(" ")
+                        }}
                       </td>
                     </tr>
                     <tr>
@@ -218,7 +314,7 @@
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">備　　注</td>
+                      <td class="lbl">備　　註</td>
                       <td class="val note-val" colspan="3">
                         {{ orderRemarkDisplay }}
                       </td>
@@ -493,9 +589,13 @@
               </div>
               <div class="install-meta-row">
                 <span class="lbl-s">業主</span
-                ><span class="val-s owner-val">{{ order?.owner?.name || "" }}</span>
+                ><span class="val-s owner-val">{{
+                  order?.owner?.name || ""
+                }}</span>
                 <span class="lbl-s">電話</span
-                ><span class="val-s phone-val">{{ order?.owner?.phone || "" }}</span>
+                ><span class="val-s phone-val">{{
+                  order?.owner?.phone || ""
+                }}</span>
               </div>
             </div>
 
@@ -533,7 +633,10 @@
                     class="price-table"
                   >
                     <tbody>
-                      <tr v-for="(ln, i) in column" :key="`c${columnIndex}-${i}`">
+                      <tr
+                        v-for="(ln, i) in column"
+                        :key="`c${columnIndex}-${i}`"
+                      >
                         <td class="pt-desc">{{ ln.desc }}</td>
                         <td class="pt-calc">{{ ln.calc }}</td>
                         <td class="pt-amt">{{ ln.amt }}</td>
@@ -578,6 +681,10 @@
               </div>
               <div class="vf-row">
                 <span class="vf-lbl">傳真</span><span class="vf-val"></span>
+              </div>
+              <div class="vf-row">
+                <span class="vf-lbl">列印</span
+                ><span class="vf-val">{{ printedByName || "" }}</span>
               </div>
             </div>
           </div>
@@ -635,8 +742,8 @@
             class="text-tool-input"
             :style="{ fontSize: textBox.fontSize + 'px', color: drawColor }"
             rows="2"
-            placeholder="Enter 確認，Shift+Enter 換行"
-            @keydown.enter.exact.prevent="commitText"
+            placeholder="Enter 換行，Ctrl+Enter 確認"
+            @keydown.ctrl.enter.prevent="commitText"
             @keydown.escape="cancelText"
           />
         </div>
@@ -645,7 +752,7 @@
         <div
           v-for="ovl in textOverlays"
           :key="ovl.id"
-          class="txt-ovl"
+          :class="['txt-ovl', { 'txt-ovl-selected': selectedTextId === ovl.id }]"
           :style="{
             left: ovl.x + 'px',
             top: ovl.y + 'px',
@@ -653,6 +760,8 @@
             color: ovl.color,
           }"
           @mousedown.stop="startTxtOvlDrag($event, ovl)"
+          @click.stop="selectTextOverlay(ovl)"
+          @dblclick.stop="editTextOverlay(ovl)"
         >
           <button
             class="txt-ovl-del no-print"
@@ -661,6 +770,10 @@
           >
             ×
           </button>
+          <div
+            class="txt-ovl-rh no-print"
+            @mousedown.stop="startTxtOvlResize($event, ovl)"
+          />
           <div class="txt-ovl-content">{{ ovl.text }}</div>
         </div>
 
@@ -668,44 +781,107 @@
         <div
           v-for="ovl in shapeOverlays"
           :key="ovl.id"
-          class="shape-ovl"
+          :class="['shape-ovl', { 'shape-ovl-selected': selectedShapeId === ovl.id }]"
           :style="{
             left: Math.min(ovl.x1, ovl.x2) - ovl.width - 4 + 'px',
             top: Math.min(ovl.y1, ovl.y2) - ovl.width - 4 + 'px',
           }"
           @mousedown.stop="startShapeOvlDrag($event, ovl)"
+          @click.stop="selectShapeOverlay(ovl)"
         >
           <button
+            v-if="['line', 'measure', 'rect', 'ellipse'].includes(ovl.type)"
             class="shape-ovl-del no-print"
             @mousedown.stop
             @click.stop="removeShapeOvl(ovl.id)"
           >
             ×
           </button>
+          <div
+            v-if="['rect', 'ellipse'].includes(ovl.type)"
+            class="rh rh-se no-print"
+            @mousedown.stop="startShapeResize($event, ovl, 'se')"
+          />
           <svg
             :width="Math.abs(ovl.x2 - ovl.x1) + (ovl.width + 4) * 2"
             :height="Math.abs(ovl.y2 - ovl.y1) + (ovl.width + 4) * 2"
             style="display: block; overflow: visible; pointer-events: none"
           >
+            <defs v-if="ovl.type === 'measure'">
+              <marker
+                :id="`measure-arrow-start-${ovl.id}`"
+                markerWidth="8"
+                markerHeight="8"
+                refX="2"
+                refY="4"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M8,0 L0,4 L8,8 z" :fill="ovl.color" />
+              </marker>
+              <marker
+                :id="`measure-arrow-end-${ovl.id}`"
+                markerWidth="8"
+                markerHeight="8"
+                refX="6"
+                refY="4"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0,0 L8,4 L0,8 z" :fill="ovl.color" />
+              </marker>
+            </defs>
             <line
-              v-if="ovl.type === 'line'"
+              v-if="ovl.type === 'line' || ovl.type === 'measure'"
               :x1="ovl.x1 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4"
               :y1="ovl.y1 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4"
               :x2="ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4"
               :y2="ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4"
               :stroke="ovl.color"
               :stroke-width="ovl.width"
+              :marker-start="ovl.type === 'measure' ? `url(#measure-arrow-start-${ovl.id})` : null"
+              :marker-end="ovl.type === 'measure' ? `url(#measure-arrow-end-${ovl.id})` : null"
               stroke-linecap="round"
             />
+            <g v-if="ovl.type === 'measure'">
+              <rect
+                :x="((ovl.x1 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4) + (ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4)) / 2 - 30"
+                :y="((ovl.y1 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4) + (ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4)) / 2 - 24"
+                width="60"
+                height="18"
+                rx="3"
+                fill="rgba(255,255,255,0.92)"
+                :stroke="ovl.color"
+                stroke-width="1"
+              />
+              <text
+                :x="((ovl.x1 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4) + (ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4)) / 2"
+                :y="((ovl.y1 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4) + (ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4)) / 2 - 11"
+                :fill="ovl.color"
+                font-size="11"
+                font-weight="700"
+                text-anchor="middle"
+              >{{ formatMeasurementLabel(ovl) }}</text>
+            </g>
             <rect
               v-else-if="ovl.type === 'rect'"
               :x="ovl.width + 4"
               :y="ovl.width + 4"
               :width="Math.abs(ovl.x2 - ovl.x1)"
               :height="Math.abs(ovl.y2 - ovl.y1)"
-              :stroke="ovl.color"
-              :stroke-width="ovl.width"
-              fill="none"
+              :stroke="ovl.rectStyle === 'fill' ? 'none' : ovl.color"
+              :stroke-width="ovl.rectStyle === 'fill' ? 0 : ovl.width"
+              :fill="ovl.rectStyle === 'fill' ? ovl.color : 'none'"
+            />
+            <ellipse
+              v-else-if="ovl.type === 'ellipse'"
+              :cx="Math.abs(ovl.x2 - ovl.x1) / 2 + ovl.width + 4"
+              :cy="Math.abs(ovl.y2 - ovl.y1) / 2 + ovl.width + 4"
+              :rx="Math.abs(ovl.x2 - ovl.x1) / 2"
+              :ry="Math.abs(ovl.y2 - ovl.y1) / 2"
+              :stroke="ovl.rectStyle === 'fill' ? 'none' : ovl.color"
+              :stroke-width="ovl.rectStyle === 'fill' ? 0 : ovl.width"
+              :fill="ovl.rectStyle === 'fill' ? ovl.color : 'none'"
             />
           </svg>
         </div>
@@ -805,13 +981,14 @@
         <div
           v-for="sov in stampOverlays"
           :key="sov.id"
-          class="s-img"
+          :class="['s-img', { 's-img-selected': selectedStampId === sov.id }]"
           :style="{
             left: sov.x + 'px',
             top: sov.y + 'px',
             width: sov.w + 'px',
           }"
           @mousedown.stop="startImgDrag($event, sov)"
+          @click.stop="selectStampOverlay(sov)"
           @dblclick.stop="removeStampOvl(sov.id)"
         >
           <img
@@ -851,8 +1028,11 @@ import { useRoute, RouterLink } from "vue-router";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import {
+  auth,
+  authReadyPromise,
   getSalesOrder,
   getCustomerById,
+  getUserByUid,
   listOrderDrawings,
   getOrderConfirmation,
   saveOrderConfirmation,
@@ -867,6 +1047,7 @@ const orderId = computed(() => route.params.id);
 
 const order = ref(null);
 const customer = ref(null);
+const printedByName = ref("");
 
 const orderRemarkDisplay = computed(() => {
   const lines = [customer.value?.notes, order.value?.specialNotes]
@@ -964,6 +1145,7 @@ const priceBreakdown = computed(() => {
 const confirmedPdfUrl = ref(null);
 const pdfGenerating = ref(false);
 const pdfUploading = ref(false);
+const snapshotting = ref(false);
 const drawingBlocks = ref([]);
 const saving = ref(false);
 const saveMsg = ref("");
@@ -1015,7 +1197,195 @@ function mmToCm(val) {
   const cm = parseFloat(val) / 10;
   return isNaN(cm) ? "" : cm % 1 === 0 ? cm : parseFloat(cm.toFixed(1));
 }
+const A4_WIDTH_MM = 297;
+const A4_HEIGHT_MM = 210;
+const A4_WIDTH_PX = 1123;
+const A4_HEIGHT_PX = 794;
+const measurementScale = ref(1);
+const measurementScaleText = computed(() => `x${measurementScale.value.toFixed(3)}`);
+function getMeasurementMm(start, end) {
+  const dxMm = (end.x - start.x) * (A4_WIDTH_MM / A4_WIDTH_PX);
+  const dyMm = (end.y - start.y) * (A4_HEIGHT_MM / A4_HEIGHT_PX);
+  return Math.sqrt(dxMm * dxMm + dyMm * dyMm) * measurementScale.value;
+}
+function parseMeasurementInput(input) {
+  const raw = String(input || "").trim().toLowerCase();
+  if (!raw) return null;
+  const numeric = Number.parseFloat(raw.replace(/[^\d.\-]/g, ""));
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  if (raw.includes("mm") || raw.includes("毫米")) return numeric;
+  if (raw.includes("m") || raw.includes("公尺") || raw.includes("米")) return numeric * 1000;
+  return raw.includes("cm") || raw.includes("公分") ? numeric * 10 : numeric * 10;
+}
+function formatMeasurementLabel(shape) {
+  const mm = getMeasurementMm(
+    { x: Number(shape.x1 || 0), y: Number(shape.y1 || 0) },
+    { x: Number(shape.x2 || 0), y: Number(shape.y2 || 0) },
+  );
+  const cm = mmToCm(mm);
+  return cm === "" ? "" : `${cm} CM`;
+}
+function drawMeasurementArrowheads(ctx, start, end, color, width) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (!len) return;
+  const ux = dx / len;
+  const uy = dy / len;
+  const arrowLen = Math.max(10, width * 3.5);
+  const arrowHalf = Math.max(4, width * 1.6);
+  const drawHead = (tipX, tipY, dirX, dirY) => {
+    const baseX = tipX - dirX * arrowLen;
+    const baseY = tipY - dirY * arrowLen;
+    const leftX = baseX - dirY * arrowHalf;
+    const leftY = baseY + dirX * arrowHalf;
+    const rightX = baseX + dirY * arrowHalf;
+    const rightY = baseY - dirX * arrowHalf;
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(leftX, leftY);
+    ctx.lineTo(rightX, rightY);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  };
+  drawHead(start.x, start.y, -ux, -uy);
+  drawHead(end.x, end.y, ux, uy);
+}
+function setMeasurementReferenceFromSelected() {
+  const shape = selectedShapeOverlay.value;
+  if (!shape || shape.type !== "measure") return;
+  const baseRawMm = getMeasurementMm(
+    { x: Number(shape.x1 || 0), y: Number(shape.y1 || 0) },
+    { x: Number(shape.x2 || 0), y: Number(shape.y2 || 0) },
+  ) / measurementScale.value;
+  if (!baseRawMm) return;
+  const input = window.prompt(
+    "輸入這條基準線的實際距離，可用 cm / m / mm，例如 273cm 或 2.73m",
+    formatMeasurementLabel(shape),
+  );
+  if (input == null) return;
+  const actualMm = parseMeasurementInput(input);
+  if (!actualMm) {
+    window.alert("請輸入有效距離，例如 273cm、2.73m 或 2730mm");
+    return;
+  }
+  measurementScale.value = actualMm / baseRawMm;
+  markDirty();
+}
+function resetMeasurementScale() {
+  measurementScale.value = 1;
+  markDirty();
+}
+function getMeasurementLabelPos(start, end) {
+  return {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2 - 10,
+  };
+}
+function drawMeasurementLabel(ctx, start, end, color) {
+  const label = formatMeasurementLabel({ x1: start.x, y1: start.y, x2: end.x, y2: end.y });
+  if (!label) return;
+  const pos = getMeasurementLabelPos(start, end);
+  ctx.save();
+  ctx.font = 'bold 12px "Microsoft JhengHei", Arial, sans-serif';
+  const textWidth = ctx.measureText(label).width;
+  const boxWidth = textWidth + 10;
+  const boxHeight = 18;
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.rect(pos.x - boxWidth / 2, pos.y - boxHeight + 4, boxWidth, boxHeight);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, pos.x, pos.y - 4);
+  ctx.restore();
+}
 function markDirty() {
+  dirty.value = true;
+}
+function markAnnotationDirty() {
+  dirty.value = true;
+  _historyNeedsRecord = true;
+}
+function captureAnnotationSnapshot() {
+  return {
+    drawingBlocks: drawingBlocks.value.map((blk) => ({
+      drawingId: blk.drawingId,
+      x: blk.x,
+      y: blk.y,
+      scale: blk.scale,
+    })),
+    overlayImgs: overlayImgs.value.map((img) => ({ ...img })),
+    textOverlays: textOverlays.value.map((ovl) => ({ ...ovl })),
+    shapeOverlays: shapeOverlays.value.map((ovl) => ({ ...ovl })),
+    stampOverlays: stampOverlays.value.map((ovl) => ({ ...ovl })),
+    annotCanvas: annotCanvasRef.value
+      ? annotCanvasRef.value.toDataURL("image/png")
+      : null,
+    measurementScale: measurementScale.value,
+  };
+}
+function applyAnnotationSnapshot(snapshot) {
+  if (!snapshot) return;
+  _isRestoringAnnotationHistory = true;
+  clearSelections();
+  drawTool.value = null;
+  measurementScale.value = Number(snapshot.measurementScale) > 0 ? Number(snapshot.measurementScale) : 1;
+  overlayImgs.value = (snapshot.overlayImgs || []).map((img) => ({ ...img }));
+  textOverlays.value = (snapshot.textOverlays || []).map((ovl) => ({ ...ovl }));
+  shapeOverlays.value = (snapshot.shapeOverlays || []).map((ovl) => ({ ...ovl }));
+  stampOverlays.value = (snapshot.stampOverlays || []).map((ovl) => ({ ...ovl }));
+  const blockMap = new Map((snapshot.drawingBlocks || []).map((blk) => [blk.drawingId, blk]));
+  drawingBlocks.value.forEach((blk) => {
+    const saved = blockMap.get(blk.drawingId);
+    if (!saved) return;
+    blk.x = saved.x;
+    blk.y = saved.y;
+    blk.scale = saved.scale;
+  });
+  const canvas = annotCanvasRef.value;
+  if (canvas) {
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    if (snapshot.annotCanvas) restoreAnnotCanvas(snapshot.annotCanvas);
+  }
+  _historyNeedsRecord = false;
+  _isRestoringAnnotationHistory = false;
+}
+function getAnnotationSnapshotSignature(snapshot) {
+  return JSON.stringify(snapshot);
+}
+function resetAnnotationHistory() {
+  const snapshot = captureAnnotationSnapshot();
+  annotationHistory.value = [snapshot];
+  annotationHistoryIndex.value = 0;
+  _historyNeedsRecord = false;
+}
+function recordAnnotationHistory() {
+  if (_isRestoringAnnotationHistory) return;
+  const snapshot = captureAnnotationSnapshot();
+  const signature = getAnnotationSnapshotSignature(snapshot);
+  const current = annotationHistory.value[annotationHistoryIndex.value];
+  if (current && getAnnotationSnapshotSignature(current) === signature) {
+    _historyNeedsRecord = false;
+    return;
+  }
+  const nextHistory = annotationHistory.value.slice(0, annotationHistoryIndex.value + 1);
+  nextHistory.push(snapshot);
+  if (nextHistory.length > 50) nextHistory.shift();
+  annotationHistory.value = nextHistory;
+  annotationHistoryIndex.value = nextHistory.length - 1;
+  _historyNeedsRecord = false;
+}
+function undoAnnotationHistory() {
+  if (annotationHistoryIndex.value <= 0) return;
+  if (textBox.value.visible) cancelText();
+  annotationHistoryIndex.value -= 1;
+  applyAnnotationSnapshot(annotationHistory.value[annotationHistoryIndex.value]);
   dirty.value = true;
 }
 function splitVert(str) {
@@ -1024,6 +1394,10 @@ function splitVert(str) {
 
 // ── Drag & Resize ───────────────────────────────────────────────────
 let _mode = null; // 'drag' | 'resize'
+const annotationHistory = ref([]);
+const annotationHistoryIndex = ref(-1);
+let _historyNeedsRecord = false;
+let _isRestoringAnnotationHistory = false;
 let _activeBlk = null;
 let _dragSX = 0,
   _dragSY = 0;
@@ -1036,6 +1410,7 @@ const draggingId = ref(null);
 
 // ── 截圖疊層 ───────────────────────────────────────────────────
 const overlayImgs = ref([]);
+const showSnapshotMenu = ref(false);
 const imgInputRef = ref(null);
 const pdfUploadRef = ref(null);
 let _activeImg = null,
@@ -1051,17 +1426,70 @@ const _pendingOverlayUploads = new Map();
 // ── 手繪標注 canvas ──────────────────────────────────────────────
 const annotCanvasRef = ref(null);
 const previewCanvasRef = ref(null);
-const drawTool = ref(null); // null | 'pen' | 'erase' | 'line' | 'rect' | 'text'
+const drawTool = ref(null); // null | 'pen' | 'erase' | 'line' | 'measure' | 'rect' | 'ellipse' | 'text'
+const rectStyle = ref("outline");
 const drawColor = ref("#e00000");
 const drawWidth = ref(5);
 const strokeWidths = [1, 2, 3, 4, 5, 7, 9, 12, 16, 20];
+const selectedShapeId = ref(null);
+const selectedTextId = ref(null);
+const selectedStampId = ref(null);
 let _cdrawing = false;
 let _shapeStart = null; // { x, y } canvas coords
+
+const selectedShapeOverlay = computed(() =>
+  shapeOverlays.value.find((ovl) => ovl.id === selectedShapeId.value) || null,
+);
+const selectedTextOverlay = computed(() =>
+  textOverlays.value.find((ovl) => ovl.id === selectedTextId.value) || null,
+);
+const toolbarHint = computed(() => {
+  if (textBox.value.visible) {
+    return "文字編輯中：Enter 換行，Ctrl+Enter 確認，Esc 取消";
+  }
+  if (selectedTextOverlay.value) {
+    return "文字已選取：拖曳移動，右下角縮放，雙擊改內容，Delete 刪除，Esc 或點空白取消選取";
+  }
+  if (selectedShapeOverlay.value) {
+    const shapeLabel =
+      selectedShapeOverlay.value.type === "ellipse" ? "圓 / 橢圓" :
+      selectedShapeOverlay.value.type === "rect" ? "矩形" :
+      selectedShapeOverlay.value.type === "measure" ? "測量線" : "線條";
+    if (selectedShapeOverlay.value.type === "measure") {
+      return `${shapeLabel}已選取：拖曳移動，Delete 刪除，可按「設基準」輸入實際距離，也可重設基準，Esc 或點空白取消選取`;
+    }
+    if (selectedShapeOverlay.value.type === "line") {
+      return `${shapeLabel}已選取：拖曳移動，Delete 刪除，Esc 或點空白取消選取`;
+    }
+    return `${shapeLabel}已選取：拖曳移動，右下角縮放，右上角刪除，Delete 刪除，Esc 或點空白取消選取`;
+  }
+  switch (drawTool.value) {
+    case null:
+      return "移動模式：點選物件可選取並拖曳，Esc 或點空白取消選取";
+    case "pen":
+      return "畫筆：按住滑鼠自由手繪";
+    case "erase":
+      return "橡皮擦：按住滑鼠擦除手繪筆跡";
+    case "line":
+      return "直線：拖拉繪製直線";
+    case "measure":
+      return "測量：拖拉繪製測量線，顯示 CM，選取後可按「設基準」輸入實際距離，其他測量線會按比例更新";
+    case "rect":
+      return "矩形：拖拉繪製，可搭配 ▢ / ■ 切換邊框或實體";
+    case "ellipse":
+      return "圓 / 橢圓：拖拉繪製，按 Shift 可鎖成正圓，可搭配 ▢ / ■ 切換邊框或實體";
+    case "text":
+      return "文字：點一下放入文字，雙擊既有文字可編輯";
+    default:
+      return "點選物件可移動，右下角可縮放；也可用「快照確定單」複製整張畫面到剪貼簿貼到 LINE";
+  }
+});
 
 // 文字工具狀態
 const textBox = ref({
   visible: false,
   value: "",
+  editingId: null,
   x: 0,
   y: 0,
   canvasX: 0,
@@ -1074,10 +1502,264 @@ let _textDragSX = 0,
   _textDragSY = 0,
   _textOrigX = 0,
   _textOrigY = 0;
+let _activeTxtResize = null,
+  _trSX = 0,
+  _trOrigSize = 0;
 
 function setDrawTool(tool) {
   if (textBox.value.visible) cancelText();
+  showSnapshotMenu.value = false;
+  if (tool !== null) {
+    selectedShapeId.value = null;
+    selectedTextId.value = null;
+    selectedStampId.value = null;
+  }
   drawTool.value = tool !== null && drawTool.value === tool ? null : tool;
+}
+function clearSelections() {
+  selectedBlkId.value = null;
+  selectedShapeId.value = null;
+  selectedTextId.value = null;
+  selectedStampId.value = null;
+}
+function toggleSnapshotMenu() {
+  showSnapshotMenu.value = !showSnapshotMenu.value;
+}
+function openImagePicker() {
+  showSnapshotMenu.value = false;
+  imgInputRef.value?.click();
+}
+function setTransientMsg(message, timeout = 2600) {
+  saveMsg.value = message;
+  window.setTimeout(() => {
+    if (saveMsg.value === message) saveMsg.value = "";
+  }, timeout);
+}
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+async function buildConfirmedSnapshotCanvas() {
+  if (textBox.value.visible) {
+    throw new Error("請先完成文字編輯再快照");
+  }
+  const previousSelection = {
+    blk: selectedBlkId.value,
+    shape: selectedShapeId.value,
+    text: selectedTextId.value,
+    stamp: selectedStampId.value,
+  };
+  showSnapshotMenu.value = false;
+  clearSelections();
+  await nextTick();
+  try {
+    const el = pageRef.value;
+    if (!el) throw new Error("找不到確定單頁面");
+    const rect = el.getBoundingClientRect();
+    const w = Math.round(rect.width || el.offsetWidth || 1123);
+    const h = Math.round(rect.height || el.offsetHeight || 794);
+    return await html2canvas(el, {
+      scale: 3,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      backgroundColor: "#fff",
+      width: w,
+      height: h,
+      windowWidth: w,
+      windowHeight: h,
+    });
+  } finally {
+    selectedBlkId.value = previousSelection.blk;
+    selectedShapeId.value = previousSelection.shape;
+    selectedTextId.value = previousSelection.text;
+    selectedStampId.value = previousSelection.stamp;
+  }
+}
+async function buildConfirmedSnapshotBlob() {
+  const canvas = await buildConfirmedSnapshotCanvas();
+  return await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("無法產生快照圖片"));
+      },
+      "image/png",
+      1,
+    );
+  });
+}
+function getSnapshotFileName() {
+  const orderNo = String(order.value?.orderNo || orderId.value || "confirmation").replace(/[\\/:*?"<>|]+/g, "-");
+  return `${orderNo}-snapshot.png`;
+}
+async function copyConfirmedSnapshot() {
+  if (snapshotting.value) return;
+  snapshotting.value = true;
+  try {
+    const blob = await buildConfirmedSnapshotBlob();
+    if (!window.ClipboardItem || !navigator.clipboard?.write) {
+      downloadBlob(blob, getSnapshotFileName());
+      setTransientMsg("⚠ 目前瀏覽器不支援直接複製圖片，已改下載 PNG");
+      return;
+    }
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    setTransientMsg("✅ 已複製確定單快照，可直接到 LINE 貼上");
+  } catch (e) {
+    console.error("快照複製失敗", e);
+    setTransientMsg(`❌ 快照失敗：${e?.message || e}`, 3600);
+  } finally {
+    snapshotting.value = false;
+  }
+}
+async function downloadConfirmedSnapshot() {
+  if (snapshotting.value) return;
+  snapshotting.value = true;
+  try {
+    const blob = await buildConfirmedSnapshotBlob();
+    downloadBlob(blob, getSnapshotFileName());
+    setTransientMsg("✅ 已下載確定單快照 PNG");
+  } catch (e) {
+    console.error("快照下載失敗", e);
+    setTransientMsg(`❌ 快照失敗：${e?.message || e}`, 3600);
+  } finally {
+    snapshotting.value = false;
+  }
+}
+function syncToolbarFromShape(ovl) {
+  if (!ovl) return;
+  drawColor.value = ovl.color || "#e00000";
+  drawWidth.value = ovl.width || 5;
+  if (ovl.type === "rect" || ovl.type === "ellipse") {
+    rectStyle.value = ovl.rectStyle || "outline";
+  }
+}
+function textFontSizeToWidth(fontSize) {
+  const approx = Math.max(1, Math.round((Number(fontSize || 16) - 10) / 3));
+  return strokeWidths.reduce((best, next) =>
+    Math.abs(next - approx) < Math.abs(best - approx) ? next : best,
+  strokeWidths[0]);
+}
+function syncToolbarFromText(ovl) {
+  if (!ovl) return;
+  drawColor.value = ovl.color || "#e00000";
+  drawWidth.value = textFontSizeToWidth(ovl.fontSize);
+}
+function selectShapeOverlay(ovl) {
+  selectedBlkId.value = null;
+  selectedTextId.value = null;
+  selectedShapeId.value = ovl.id;
+  syncToolbarFromShape(ovl);
+}
+function selectTextOverlay(ovl) {
+  selectedBlkId.value = null;
+  selectedShapeId.value = null;
+  selectedStampId.value = null;
+  selectedTextId.value = ovl.id;
+  syncToolbarFromText(ovl);
+}
+function selectStampOverlay(ovl) {
+  selectedBlkId.value = null;
+  selectedShapeId.value = null;
+  selectedTextId.value = null;
+  selectedStampId.value = ovl.id;
+}
+function onColorChange(event) {
+  const value = event?.target?.value || "#e00000";
+  drawColor.value = value;
+  let changed = false;
+  if (selectedShapeOverlay.value) {
+    selectedShapeOverlay.value.color = value;
+    changed = true;
+  }
+  if (selectedTextOverlay.value) {
+    selectedTextOverlay.value.color = value;
+    changed = true;
+  }
+  if (changed) {
+    markAnnotationDirty();
+    recordAnnotationHistory();
+  }
+}
+function setStrokeWidth(value) {
+  drawWidth.value = value;
+  let changed = false;
+  if (selectedShapeOverlay.value) {
+    selectedShapeOverlay.value.width = value;
+    changed = true;
+  }
+  if (selectedTextOverlay.value) {
+    selectedTextOverlay.value.fontSize = value * 3 + 10;
+    changed = true;
+  }
+  if (changed) {
+    markAnnotationDirty();
+    recordAnnotationHistory();
+  }
+}
+function setRectStyleMode(style) {
+  rectStyle.value = style;
+  if (["rect", "ellipse"].includes(selectedShapeOverlay.value?.type)) {
+    selectedShapeOverlay.value.rectStyle = style;
+    markAnnotationDirty();
+    recordAnnotationHistory();
+  }
+}
+function getShapeEndPos(start, current, constrainCircle = false) {
+  if (!constrainCircle) return current;
+  const dx = current.x - start.x;
+  const dy = current.y - start.y;
+  const radius = Math.min(Math.abs(dx), Math.abs(dy));
+  return {
+    x: start.x + Math.sign(dx || 1) * radius,
+    y: start.y + Math.sign(dy || 1) * radius,
+  };
+}
+function drawPreviewShape(ctx, type, start, end) {
+  if (type === "line" || type === "measure") {
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    if (type === "measure") {
+      drawMeasurementArrowheads(ctx, start, end, drawColor.value, drawWidth.value);
+      drawMeasurementLabel(ctx, start, end, drawColor.value);
+    }
+    return;
+  }
+
+  const left = Math.min(start.x, end.x);
+  const top = Math.min(start.y, end.y);
+  const width = Math.abs(end.x - start.x);
+  const height = Math.abs(end.y - start.y);
+
+  if (type === "rect") {
+    if (rectStyle.value === "fill") {
+      ctx.fillStyle = drawColor.value;
+      ctx.fillRect(left, top, width, height);
+    } else {
+      ctx.beginPath();
+      ctx.strokeRect(left, top, width, height);
+    }
+    return;
+  }
+
+  if (type === "ellipse") {
+    ctx.beginPath();
+    ctx.ellipse(left + width / 2, top + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2);
+    if (rectStyle.value === "fill") {
+      ctx.fillStyle = drawColor.value;
+      ctx.fill();
+    } else {
+      ctx.stroke();
+    }
+  }
 }
 function getCanvasPos(e) {
   const c = annotCanvasRef.value;
@@ -1109,6 +1791,7 @@ function onCanvasDown(e) {
     textBox.value = {
       visible: true,
       value: "",
+      editingId: null,
       x: cssX,
       y: cssY,
       canvasX: x,
@@ -1137,7 +1820,7 @@ function onCanvasMove(e) {
     _applyStrokeStyle(ctx);
     ctx.lineTo(x, y);
     ctx.stroke();
-    markDirty();
+    markAnnotationDirty();
   } else if (drawTool.value === "erase") {
     ctx.globalCompositeOperation = "destination-out";
     ctx.lineWidth = drawWidth.value * 5;
@@ -1145,9 +1828,14 @@ function onCanvasMove(e) {
     ctx.lineJoin = "round";
     ctx.lineTo(x, y);
     ctx.stroke();
-    markDirty();
+    markAnnotationDirty();
   } else if (
-    (drawTool.value === "line" || drawTool.value === "rect") &&
+    (
+      drawTool.value === "line" ||
+      drawTool.value === "measure" ||
+      drawTool.value === "rect" ||
+      drawTool.value === "ellipse"
+    ) &&
     _shapeStart
   ) {
     const pc = previewCanvasRef.value;
@@ -1155,47 +1843,55 @@ function onCanvasMove(e) {
     const pctx = pc.getContext("2d");
     pctx.clearRect(0, 0, pc.width, pc.height);
     _applyStrokeStyle(pctx);
-    if (drawTool.value === "line") {
-      pctx.beginPath();
-      pctx.moveTo(_shapeStart.x, _shapeStart.y);
-      pctx.lineTo(x, y);
-      pctx.stroke();
-    } else {
-      pctx.beginPath();
-      pctx.strokeRect(
-        _shapeStart.x,
-        _shapeStart.y,
-        x - _shapeStart.x,
-        y - _shapeStart.y,
-      );
-    }
+    const end = getShapeEndPos(_shapeStart, { x, y }, drawTool.value === "ellipse" && e.shiftKey);
+    drawPreviewShape(pctx, drawTool.value, _shapeStart, end);
   }
 }
 function onCanvasUp(e) {
   if (
     _cdrawing &&
     _shapeStart &&
-    (drawTool.value === "line" || drawTool.value === "rect")
+    (
+      drawTool.value === "line" ||
+      drawTool.value === "measure" ||
+      drawTool.value === "rect" ||
+      drawTool.value === "ellipse"
+    )
   ) {
     let pos;
     try {
       pos = e ? getCanvasPos(e) : null;
     } catch {}
     if (pos) {
-      const dx = Math.abs(pos.x - _shapeStart.x);
-      const dy = Math.abs(pos.y - _shapeStart.y);
+      const end = getShapeEndPos(
+        _shapeStart,
+        pos,
+        drawTool.value === "ellipse" && e?.shiftKey,
+      );
+      const dy = Math.abs(end.y - _shapeStart.y);
+      const dx = Math.abs(end.x - _shapeStart.x);
       if (dx > 2 || dy > 2) {
-        shapeOverlays.value.push({
+        const newShape = {
           id: Date.now(),
           type: drawTool.value,
+          rectStyle:
+            drawTool.value === "rect" || drawTool.value === "ellipse"
+              ? rectStyle.value
+              : undefined,
           x1: _shapeStart.x,
           y1: _shapeStart.y,
-          x2: pos.x,
-          y2: pos.y,
+          x2: end.x,
+          y2: end.y,
           color: drawColor.value,
           width: drawWidth.value,
-        });
-        markDirty();
+        };
+        shapeOverlays.value.push(newShape);
+        if (["line", "measure", "rect", "ellipse"].includes(newShape.type)) {
+          drawTool.value = null;
+          selectShapeOverlay(newShape);
+        }
+        markAnnotationDirty();
+        recordAnnotationHistory();
       }
     }
     // clear preview
@@ -1220,23 +1916,43 @@ function commitText() {
   const tb = textBox.value;
   if (!tb.visible) return;
   const text = tb.value.trim();
-  if (text) {
+  if (tb.editingId != null) {
+    const existing = textOverlays.value.find((ovl) => ovl.id === tb.editingId);
+    if (existing) {
+      if (text) {
+        existing.text = text;
+        existing.fontSize = tb.fontSize;
+        existing.color = drawColor.value;
+        drawTool.value = null;
+        selectTextOverlay(existing);
+      } else {
+        textOverlays.value = textOverlays.value.filter((ovl) => ovl.id !== tb.editingId);
+        if (selectedTextId.value === tb.editingId) selectedTextId.value = null;
+      }
+      markAnnotationDirty();
+      recordAnnotationHistory();
+    }
+  } else if (text) {
     // 確認後轉為可拖移文字疊層，不燒入 canvas
     const HANDLE_H = 24; // 拖移 handle 高度
-    textOverlays.value.push({
+    const newTextOverlay = {
       id: Date.now(),
       x: tb.x,
       y: tb.y + HANDLE_H,
       text,
       fontSize: tb.fontSize,
       color: drawColor.value,
-    });
-    markDirty();
+    };
+    textOverlays.value.push(newTextOverlay);
+    drawTool.value = null;
+    selectTextOverlay(newTextOverlay);
+    markAnnotationDirty();
+    recordAnnotationHistory();
   }
   cancelText();
 }
 function cancelText() {
-  textBox.value = { ...textBox.value, visible: false, value: "" };
+  textBox.value = { ...textBox.value, visible: false, value: "", editingId: null };
 }
 function startTextDrag(e) {
   _textDragging = true;
@@ -1255,6 +1971,7 @@ let _activeTxtOvl = null,
   _toOrigY = 0;
 
 function startTxtOvlDrag(e, ovl) {
+  selectTextOverlay(ovl);
   _activeTxtOvl = ovl;
   _toSX = e.clientX;
   _toSY = e.clientY;
@@ -1262,42 +1979,81 @@ function startTxtOvlDrag(e, ovl) {
   _toOrigY = ovl.y;
   e.preventDefault();
 }
+function startTxtOvlResize(e, ovl) {
+  selectTextOverlay(ovl);
+  _activeTxtResize = ovl;
+  _trSX = e.clientX;
+  _trOrigSize = Number(ovl.fontSize || 16);
+  e.preventDefault();
+}
+function editTextOverlay(ovl) {
+  selectTextOverlay(ovl);
+  const HANDLE_H = 24;
+  textBox.value = {
+    visible: true,
+    value: ovl.text || "",
+    editingId: ovl.id,
+    x: ovl.x,
+    y: ovl.y - HANDLE_H,
+    canvasX: ovl.x,
+    canvasY: ovl.y,
+    fontSize: Number(ovl.fontSize || 16),
+  };
+  drawColor.value = ovl.color || drawColor.value;
+  drawWidth.value = textFontSizeToWidth(ovl.fontSize);
+  nextTick(() => textInputRef.value?.focus());
+}
 function removeTxtOvl(id) {
   textOverlays.value = textOverlays.value.filter((o) => o.id !== id);
-  markDirty();
+  if (selectedTextId.value === id) selectedTextId.value = null;
+  markAnnotationDirty();
+  recordAnnotationHistory();
 }
 
 // ── 圖章疊層 ─────────────────────────────────────────────────────
 const showStampPanel = ref(false);
 const stampOverlays = ref([]); // { id, stampId, url, x, y, w }
 function onStampInsert(stamp) {
-  stampOverlays.value.push({
+  const newStamp = {
     id: Date.now(),
     stampId: stamp.id,
     url: stamp.imageUrl,
     x: 200,
     y: 200,
     w: 120,
-  });
-  markDirty();
+  };
+  stampOverlays.value.push(newStamp);
+  showStampPanel.value = false;
+  selectStampOverlay(newStamp);
+  markAnnotationDirty();
+  recordAnnotationHistory();
 }
 function removeStampOvl(id) {
   stampOverlays.value = stampOverlays.value.filter((o) => o.id !== id);
-  markDirty();
+  if (selectedStampId.value === id) selectedStampId.value = null;
+  markAnnotationDirty();
+  recordAnnotationHistory();
 }
 
 // ── 直線/矩形疊層拖移 ────────────────────────────────────────────
-const shapeOverlays = ref([]); // { id, type, x1, y1, x2, y2, color, width }
+const shapeOverlays = ref([]); // { id, type, rectStyle?, x1, y1, x2, y2, color, width }
 let _activeShapeOvl = null,
+  _shapeResizeCorner = null,
   _soSX = 0,
   _soSY = 0,
   _soOX1 = 0,
   _soOY1 = 0,
   _soOX2 = 0,
-  _soOY2 = 0;
+  _soOY2 = 0,
+  _soLeft = 0,
+  _soTop = 0,
+  _soRight = 0,
+  _soBottom = 0;
 
 function startShapeOvlDrag(e, ovl) {
+  selectShapeOverlay(ovl);
   _activeShapeOvl = ovl;
+  _shapeResizeCorner = null;
   _soSX = e.clientX;
   _soSY = e.clientY;
   _soOX1 = ovl.x1;
@@ -1306,15 +2062,84 @@ function startShapeOvlDrag(e, ovl) {
   _soOY2 = ovl.y2;
   e.preventDefault();
 }
+function startShapeResize(e, ovl, corner) {
+  selectShapeOverlay(ovl);
+  _activeShapeOvl = ovl;
+  _shapeResizeCorner = corner;
+  _soSX = e.clientX;
+  _soSY = e.clientY;
+  _soLeft = Math.min(ovl.x1, ovl.x2);
+  _soTop = Math.min(ovl.y1, ovl.y2);
+  _soRight = Math.max(ovl.x1, ovl.x2);
+  _soBottom = Math.max(ovl.y1, ovl.y2);
+  e.preventDefault();
+  e.stopPropagation();
+}
 function removeShapeOvl(id) {
   shapeOverlays.value = shapeOverlays.value.filter((o) => o.id !== id);
-  markDirty();
+  if (selectedShapeId.value === id) selectedShapeId.value = null;
+  markAnnotationDirty();
+  recordAnnotationHistory();
+}
+function onAnnotPointerDown(e) {
+  const target = e.target;
+  if (!(target instanceof Element)) return;
+  if (!target.closest(".snapshot-tool")) {
+    showSnapshotMenu.value = false;
+  }
+  if (
+    target.closest(
+      ".conf-toolbar, .text-box-wrap, .txt-ovl, .shape-ovl, .drawing-blk, .stamp-panel",
+    )
+  ) {
+    return;
+  }
+  clearSelections();
+}
+function onAnnotKeydown(e) {
+  const target = e.target;
+  const tagName = target?.tagName?.toLowerCase?.() || "";
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    !e.shiftKey &&
+    e.key.toLowerCase() === "z"
+  ) {
+    if (textBox.value.visible) return;
+    if (tagName === "input" || tagName === "textarea" || target?.isContentEditable) return;
+    undoAnnotationHistory();
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "Escape") {
+    if (textBox.value.visible) cancelText();
+    clearSelections();
+    return;
+  }
+  if (textBox.value.visible) return;
+  if (e.key !== "Delete" && e.key !== "Backspace") return;
+  if (tagName === "input" || tagName === "textarea" || target?.isContentEditable) return;
+
+  if (selectedTextId.value != null) {
+    removeTxtOvl(selectedTextId.value);
+    e.preventDefault();
+    return;
+  }
+  if (selectedStampId.value != null) {
+    removeStampOvl(selectedStampId.value);
+    e.preventDefault();
+    return;
+  }
+  if (selectedShapeId.value != null) {
+    removeShapeOvl(selectedShapeId.value);
+    e.preventDefault();
+  }
 }
 function clearAnnotCanvas() {
   const c = annotCanvasRef.value;
   if (!c) return;
   c.getContext("2d").clearRect(0, 0, c.width, c.height);
-  markDirty();
+  markAnnotationDirty();
+  recordAnnotationHistory();
 }
 function restoreAnnotCanvas(dataUrl) {
   if (!dataUrl || !annotCanvasRef.value) return;
@@ -1335,7 +2160,8 @@ function onImgFile(e) {
 function addOverlayImg(src) {
   const id = Date.now();
   overlayImgs.value.push({ id, src, x: 260, y: 30, w: 300 });
-  markDirty();
+  markAnnotationDirty();
+  recordAnnotationHistory();
   if (!orderId.value) return;
   const p = uploadOverlayImage(orderId.value, src)
     .then((url) => {
@@ -1348,7 +2174,8 @@ function addOverlayImg(src) {
 }
 function removeOverlayImg(id) {
   overlayImgs.value = overlayImgs.value.filter((i) => i.id !== id);
-  markDirty();
+  markAnnotationDirty();
+  recordAnnotationHistory();
 }
 function startImgDrag(e, img) {
   _activeImg = img;
@@ -1417,21 +2244,56 @@ function onMouseMove(e) {
       y: _textOrigY + dy,
     };
   }
+  if (_activeTxtResize) {
+    const dx = e.clientX - _trSX;
+    _activeTxtResize.fontSize = Math.max(10, Math.round(_trOrigSize + dx / 2));
+    drawWidth.value = textFontSizeToWidth(_activeTxtResize.fontSize);
+    markAnnotationDirty();
+  }
   if (_activeTxtOvl) {
     const dx = e.clientX - _toSX;
     const dy = e.clientY - _toSY;
     _activeTxtOvl.x = _toOrigX + dx;
     _activeTxtOvl.y = _toOrigY + dy;
-    markDirty();
+    markAnnotationDirty();
   }
   if (_activeShapeOvl) {
     const dx = e.clientX - _soSX;
     const dy = e.clientY - _soSY;
-    _activeShapeOvl.x1 = _soOX1 + dx;
-    _activeShapeOvl.y1 = _soOY1 + dy;
-    _activeShapeOvl.x2 = _soOX2 + dx;
-    _activeShapeOvl.y2 = _soOY2 + dy;
-    markDirty();
+    if (
+      _shapeResizeCorner &&
+      ["rect", "ellipse"].includes(_activeShapeOvl.type)
+    ) {
+      const minSize = 8;
+      let left = _soLeft;
+      let top = _soTop;
+      let right = _soRight;
+      let bottom = _soBottom;
+
+      if (_shapeResizeCorner.includes("n")) {
+        top = Math.min(_soBottom - minSize, _soTop + dy);
+      }
+      if (_shapeResizeCorner.includes("s")) {
+        bottom = Math.max(_soTop + minSize, _soBottom + dy);
+      }
+      if (_shapeResizeCorner.includes("w")) {
+        left = Math.min(_soRight - minSize, _soLeft + dx);
+      }
+      if (_shapeResizeCorner.includes("e")) {
+        right = Math.max(_soLeft + minSize, _soRight + dx);
+      }
+
+      _activeShapeOvl.x1 = left;
+      _activeShapeOvl.y1 = top;
+      _activeShapeOvl.x2 = right;
+      _activeShapeOvl.y2 = bottom;
+    } else {
+      _activeShapeOvl.x1 = _soOX1 + dx;
+      _activeShapeOvl.y1 = _soOY1 + dy;
+      _activeShapeOvl.x2 = _soOX2 + dx;
+      _activeShapeOvl.y2 = _soOY2 + dy;
+    }
+    markAnnotationDirty();
   }
   if (_activeImg) {
     const dx = e.clientX - _aiSX;
@@ -1442,7 +2304,7 @@ function onMouseMove(e) {
     } else {
       _activeImg.w = Math.max(60, _aiOrigW + dx);
     }
-    markDirty();
+    markAnnotationDirty();
   }
   if (!_activeBlk) return;
   const dx = e.clientX - _dragSX;
@@ -1474,7 +2336,7 @@ function onMouseMove(e) {
     _activeBlk.x = nx;
     _activeBlk.y = ny;
   }
-  markDirty();
+  markAnnotationDirty();
 }
 
 function onMouseUp() {
@@ -1491,7 +2353,12 @@ function onMouseUp() {
   if (
     _cdrawing &&
     _shapeStart &&
-    (drawTool.value === "line" || drawTool.value === "rect")
+    (
+      drawTool.value === "line" ||
+      drawTool.value === "measure" ||
+      drawTool.value === "rect" ||
+      drawTool.value === "ellipse"
+    )
   ) {
     const pc = previewCanvasRef.value;
     if (pc) pc.getContext("2d").clearRect(0, 0, pc.width, pc.height);
@@ -1506,7 +2373,10 @@ function onMouseUp() {
   draggingId.value = null;
   _activeImg = null;
   _activeTxtOvl = null;
+  _activeTxtResize = null;
   _activeShapeOvl = null;
+  _shapeResizeCorner = null;
+  if (_historyNeedsRecord) recordAnnotationHistory();
 }
 
 // ── Load ────────────────────────────────────────────────────────────
@@ -1573,6 +2443,7 @@ async function loadAll() {
       }
     }
     if (conf?.cf) Object.assign(cf, conf.cf);
+    measurementScale.value = Number(conf?.measurementScale) > 0 ? Number(conf.measurementScale) : 1;
     if (Array.isArray(conf?.overlayImgs))
       overlayImgs.value = conf.overlayImgs.map((i) => ({ ...i }));
     if (Array.isArray(conf?.textOverlays))
@@ -1615,6 +2486,25 @@ async function loadAll() {
       });
     });
 
+    await authReadyPromise;
+    const currentUser = auth.currentUser;
+    if (currentUser?.uid) {
+      try {
+        const userDoc = await getUserByUid(currentUser.uid);
+        printedByName.value =
+          userDoc?.displayName ||
+          currentUser.displayName ||
+          currentUser.email ||
+          currentUser.uid;
+      } catch (e) {
+        console.warn("Could not load printed-by user", e);
+        printedByName.value =
+          currentUser.displayName || currentUser.email || currentUser.uid;
+      }
+    } else {
+      printedByName.value = "";
+    }
+
     // 沒有儲存過位置的話，從佔位 ref 取得預設座標
     await nextTick();
     if (drawingPlaceholderRef.value && pageRef.value) {
@@ -1636,6 +2526,7 @@ async function loadAll() {
     if (ord?.status === "confirmed" && !ord?.confirmedPdfUrl) {
       setTimeout(() => generateConfirmedPdf(), 800);
     }
+    resetAnnotationHistory();
   } catch (e) {
     console.error("loadAll error", e);
   }
@@ -1744,6 +2635,7 @@ async function doSave() {
       textOverlays: textOverlays.value.map((o) => ({ ...o })),
       shapeOverlays: shapeOverlays.value.map((o) => ({ ...o })),
       stampOverlays: stampOverlays.value.map((o) => ({ ...o })),
+      measurementScale: measurementScale.value,
       annotCanvas,
     });
     saveMsg.value = "✓ 已儲存";
@@ -1762,7 +2654,9 @@ async function doPrint() {
   const win = window.open("", "_blank");
   if (!win) return;
   try {
-    win.document.write("<title>生產確定單 PDF</title><p style=\"font-family:sans-serif;padding:16px\">PDF 產生中…</p>");
+    win.document.write(
+      '<title>生產確定單 PDF</title><p style="font-family:sans-serif;padding:16px">PDF 產生中…</p>',
+    );
     win.document.close();
     const blob = await buildConfirmedPdfBlob();
     const url = URL.createObjectURL(blob);
@@ -1777,9 +2671,13 @@ async function doPrint() {
 onMounted(() => {
   loadAll();
   document.addEventListener("paste", onPaste);
+  document.addEventListener("pointerdown", onAnnotPointerDown);
+  document.addEventListener("keydown", onAnnotKeydown);
 });
 onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
+  document.removeEventListener("pointerdown", onAnnotPointerDown);
+  document.removeEventListener("keydown", onAnnotKeydown);
 });
 </script>
 
@@ -1823,6 +2721,16 @@ onUnmounted(() => {
   font-size: 11px;
   color: #94a3b8;
 }
+.measure-scale-badge {
+  padding: 4px 8px;
+  background: #0f172a;
+  color: #cbd5e1;
+  border: 1px solid #475569;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
 .btn-img {
   padding: 5px 12px;
   background: #059669;
@@ -1831,6 +2739,65 @@ onUnmounted(() => {
   border-radius: 5px;
   cursor: pointer;
   font-size: 12px;
+}
+.btn-img:disabled,
+.btn-img-caret:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.snapshot-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.snapshot-tool .btn-img {
+  border-radius: 5px 0 0 5px;
+}
+.btn-img-caret {
+  padding: 5px 8px;
+  background: #047857;
+  color: #fff;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 0 5px 5px 0;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+.btn-img:hover,
+.btn-img-caret:hover,
+.btn-img-caret.active {
+  background: #047857;
+}
+.snapshot-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 146px;
+  padding: 6px;
+  background: #fff8dc;
+  border: 1px solid #d6c78d;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 30;
+}
+.snapshot-menu-item {
+  padding: 7px 10px;
+  background: transparent;
+  color: #1f2937;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.snapshot-menu-item:hover {
+  background: #fff3bf;
+  border-color: #d6c78d;
 }
 .btn-stamp {
   padding: 5px 12px;
@@ -1859,6 +2826,9 @@ onUnmounted(() => {
 }
 .s-img:hover {
   border-color: #a78bfa;
+}
+.s-img-selected {
+  border-color: #7c3aed;
 }
 .s-img:active {
   cursor: grabbing;
@@ -2666,6 +3636,14 @@ onUnmounted(() => {
   line-height: 1.3;
   padding: 2px 4px;
 }
+.txt-ovl-selected {
+  outline: none;
+  outline-offset: 0;
+}
+.txt-ovl:hover {
+  outline: 1px dashed rgba(37, 99, 235, 0.9);
+  outline-offset: 2px;
+}
 .txt-ovl:active {
   cursor: grabbing;
 }
@@ -2689,6 +3667,22 @@ onUnmounted(() => {
 .txt-ovl:hover .txt-ovl-del {
   display: block;
 }
+.txt-ovl-rh {
+  position: absolute;
+  bottom: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  background: #2563eb;
+  border: 2px solid #fff;
+  border-radius: 2px;
+  cursor: se-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.txt-ovl:hover .txt-ovl-rh {
+  opacity: 1;
+}
 
 /* ══ 直線/矩形疊層 ══ */
 .shape-ovl {
@@ -2697,8 +3691,15 @@ onUnmounted(() => {
   user-select: none;
   z-index: 13;
 }
+.shape-ovl-selected {
+  outline: 1px dashed rgba(37, 99, 235, 0.9);
+  outline-offset: 2px;
+}
 .shape-ovl:active {
   cursor: grabbing;
+}
+.shape-ovl:hover .rh {
+  display: block;
 }
 .shape-ovl-del {
   position: absolute;
@@ -2716,7 +3717,6 @@ onUnmounted(() => {
   cursor: pointer;
   display: none;
   padding: 0;
-  z-index: 1;
 }
 .shape-ovl:hover .shape-ovl-del {
   display: block;
@@ -2818,6 +3818,28 @@ onUnmounted(() => {
   background: #f59e0b;
   border-color: #d97706;
   color: #000;
+}
+.rect-mode-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.rect-mode-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.rect-mode-btn.active {
+  background: #f59e0b;
+  border-color: #d97706;
+  color: #111827;
 }
 .color-picker {
   width: 30px;

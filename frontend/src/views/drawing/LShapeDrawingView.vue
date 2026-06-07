@@ -451,12 +451,51 @@
             @change="redraw"
           />右靠櫃</label
         >
+        <label
+          ><input
+            type="radio"
+            value="右側落腳"
+            v-model="rightEnd"
+            @change="redraw"
+          />側落腳</label
+        >
         側板/櫃深<input
           type="number"
           v-model.number="rightEndDepth"
           class="number"
           @change="redraw"
         />
+        <template v-if="rightEnd === '右側落腳'">
+          腳高<input
+            type="number"
+            v-model.number="rightSideLeg.height"
+            class="number"
+            @change="redraw"
+          />
+          深<input
+            type="number"
+            v-model.number="rightSideLeg.depth"
+            class="number"
+            @change="redraw"
+          />
+          厚<input
+            type="number"
+            v-model.number="rightSideLeg.thickness"
+            class="number"
+            @change="redraw"
+          />
+          倒包<input
+            type="number"
+            v-model.number="rightSideLeg.wrap"
+            class="number"
+            @change="redraw"
+          />
+          工法<select v-model="rightSideLeg.method" @change="redraw">
+            <option value="K1">K1</option>
+            <option value="H1">H1</option>
+            <option value="H2">H2</option>
+          </select>
+        </template>
       </div>
       <div class="row">
         後側：
@@ -560,7 +599,14 @@ const leftEndDepth = ref(null);
 const leftSideLeg = reactive({
   height: 85,
   depth: 60,
-  thickness: 2,
+  thickness: 4,
+  wrap: 0,
+  method: "K1",
+});
+const rightSideLeg = reactive({
+  height: 85,
+  depth: 60,
+  thickness: 4,
   wrap: 0,
   method: "K1",
 });
@@ -606,6 +652,27 @@ function getBoxList(list) {
   return arr;
 }
 
+function setCorner(side) {
+  cornerSide.value = side;
+  redraw();
+}
+
+function clearLeft() {
+  leftCabins.value = [0, 0, 0, 0, 0, 0, 0];
+  leftPlus.value = null;
+  leftConnect.value = null;
+  leftCutToggled.value = false;
+  redraw();
+}
+
+function clearRight() {
+  rightCabins.value = [0, 0, 0, 0, 0, 0, 0];
+  rightPlus.value = null;
+  rightConnect.value = null;
+  rightCutToggled.value = false;
+  redraw();
+}
+
 function toggleLeftCut() {
   leftCutToggled.value = !leftCutToggled.value;
   redraw();
@@ -614,136 +681,108 @@ function toggleRightCut() {
   rightCutToggled.value = !rightCutToggled.value;
   redraw();
 }
-function setCorner(side) {
-  cornerSide.value = side;
-  redraw();
-}
-function clearLeft() {
-  for (let i = 0; i < leftCabins.value.length; i++) leftCabins.value[i] = null;
-  leftPlus.value = null;
-  redraw();
-}
-function clearRight() {
-  for (let i = 0; i < rightCabins.value.length; i++)
-    rightCabins.value[i] = null;
-  rightPlus.value = null;
-  redraw();
-}
-function clearAll() {
-  clearLeft();
-  clearRight();
-}
 
-// ─── 主繪圖 ──────────────────────────────────────────────
 function redraw() {
   if (!draw) return;
   draw.clear();
 
-  const w = sumCabins(leftCabins.value, leftPlus.value); // 左段總長
-  const wL = sumCabins(rightCabins.value, rightPlus.value); // 右段總長
+  const w = sumCabins(leftCabins.value, leftPlus.value);
   const h = parseFloat(leftDepth.value) || 60;
+  const wL = sumCabins(rightCabins.value, rightPlus.value);
   const hL = parseFloat(rightDepth.value) || 60;
   const x0 = ORIGIN_X;
   const y0 = ORIGIN_Y;
 
   if (w <= 0 && wL <= 0) return;
 
-  // 左段：(x0, y0) 寬 w、高 h
-  // 右段：(x0+w-hL, y0) 寬 hL、高 wL（向下延伸）
-  // 兩段重疊區即為轉角
-
-  // 繪製 L 型外框（兩個矩形拼合）
-  // 為避免內部重疊線，繪製複合路徑
   drawLShape(x0, y0, w, h, wL, hL);
 
-  // 桶身虛線（左段）—— 跳過右端轉角重疊區（x > x0 + w - hL）不標記
-  drawCabinDividersH(
-    getBoxList(leftCabins.value),
-    leftPlus.value,
-    x0,
-    y0,
-    h,
-    w,
-    wL > 0 ? hL : 0,
-  );
-  // 桶身虛線（右段）—— 從上而下；跳過轉角重疊區（y < y0 + h）不標記
-  drawCabinDividersV(
-    getBoxList(rightCabins.value),
-    rightPlus.value,
-    x0 + w - hL,
-    y0,
-    hL,
-    wL,
-    h,
-  );
+  if (w > 0) {
+    drawCabinDividersH(
+      getBoxList(leftCabins.value),
+      leftPlus.value,
+      x0,
+      y0,
+      h,
+      w,
+      wL > 0 ? hL : 0,
+    );
+  }
+  if (wL > 0) {
+    drawCabinDividersV(
+      getBoxList(rightCabins.value),
+      rightPlus.value,
+      x0 + w - hL,
+      y0,
+      hL,
+      wL,
+      w > 0 ? h : 0,
+    );
+  }
 
-  // 總長標註
   if (w > 0) drawTopLengthMarker(x0, y0, w);
   if (wL > 0) drawRightLengthMarker(x0 + w, y0, wL);
+  if (h > 0 && w > 0) drawLeftDepthLabel(x0, y0, h);
+  if (hL > 0 && wL > 0) drawBottomDepthLabel(x0 + w - hL, y0 + wL, hL);
 
-  // 左/右段深度標註
-  if (w > 0) drawLeftDepthLabel(x0, y0, h);
-  if (wL > 0) drawBottomDepthLabel(x0 + w - hL, y0 + wL, hL);
-
-  // 端側裝飾
-  if (w > 0) drawLeftEnd(x0, y0, h);
-  if (wL > 0) drawRightEnd(x0 + w - hL, y0 + wL, hL);
-
-  if (backOption.value === "後見光") {
-    if (w > 0) drawTri(x0 + w / 2 - hL / 2, y0 - 18, "d");
-    if (wL > 0) drawTri(x0 + w + 18, y0 + wL / 2, "l");
+  if (backOption.value === "後見光" && w > 0) {
+    drawTri(x0 + w / 2, y0 - 18, "d");
   }
-  if (backstop.value) {
-    // 內側背牆線
-    if (w > 0)
-      draw
-        .line(x0, y0 + 2, x0 + w - hL, y0 + 2)
-        .stroke({ width: 1, color: "black" });
-    if (wL > 0)
-      draw
-        .line(x0 + w - 2, y0, x0 + w - 2, y0 + wL)
-        .stroke({ width: 1, color: "black" });
+  if (backstop.value && w > 0) {
+    const bh = parseFloat(backHeight.value) || 2;
+    draw
+      .line(x0, y0 + bh, x0 + w, y0 + bh)
+      .stroke({ width: 1, color: "black" });
+  }
+  if (backstop.value && wL > 0) {
+    const bh = parseFloat(backHeight.value) || 2;
+    draw
+      .line(x0 + w - bh, y0, x0 + w - bh, y0 + wL)
+      .stroke({ width: 1, color: "black" });
   }
 
-  // 水槽 / 火爐（左段，沿 X 軸）
   for (const s of leftSinks) if (s.enabled) drawSinkH(s, x0, y0, h, w);
   for (const s of leftStoves) if (s.enabled) drawStoveH(s, x0, y0, h, w);
+  if (wL > 0) {
+    for (const s of rightSinks)
+      if (s.enabled) drawSinkV(s, x0 + w - hL, y0, hL, wL);
+    for (const s of rightStoves)
+      if (s.enabled) drawStoveV(s, x0 + w - hL, y0, hL, wL);
+  }
 
-  // 水槽 / 火爐（右段，沿 Y 軸）
-  for (const s of rightSinks)
-    if (s.enabled) drawSinkV(s, x0 + w - hL, y0, hL, wL);
-  for (const s of rightStoves)
-    if (s.enabled) drawStoveV(s, x0 + w - hL, y0, hL, wL);
-
-  // 接線
   if (leftCutToggled.value && w > 0) {
     const ltl = parseFloat(leftConnect.value);
     if (!isNaN(ltl) && ltl > 0 && ltl < w) drawCutLineH(x0, y0, h, w, ltl);
   }
   if (rightCutToggled.value && wL > 0) {
     const ltl = parseFloat(rightConnect.value);
-    if (!isNaN(ltl) && ltl > 0 && ltl < wL)
+    if (!isNaN(ltl) && ltl > 0 && ltl < wL) {
       drawCutLineV(x0 + w - hL, y0, hL, wL, ltl);
+    }
   }
 
-  // 轉角接線：決定哪一段含轉角
   if (cornerSide.value && w > 0 && wL > 0) {
     drawCornerJoint(x0, y0, w, h, wL, hL, cornerSide.value);
   }
 
-  // 後靠 / 背牆 —— 最後畫，避免被其它元素蓋住
+  if (w > 0) drawLeftEnd(x0, y0, h);
+  if (wL > 0) drawRightEnd(x0 + w - hL, y0 + wL, hL);
+
   if (backOption.value === "後靠牆") {
     if (w > 0) drawTopWall(x0, y0, w);
     if (wL > 0) drawRightSideWall(x0 + w, y0, wL);
   }
+
+  const contentRight = x0 + Math.max(w, hL) + 120;
+  const maxBottom = Math.max(w > 0 ? h : 0, wL > 0 ? wL : 0);
+  draw.size(Math.max(contentRight, 300), Math.max(y0 + maxBottom + 100, 300));
 }
 
-// ─── L 型外框 ────────────────────────────────────────────
 function drawLShape(x0, y0, w, h, wL, hL) {
   if (w > 0 && wL > 0) {
-    // 完整 L 形：外緣依序
-    // p1(x0,y0) → p2(x0+w,y0) → p3(x0+w,y0+wL) → p4(x0+w-hL,y0+wL)
-    //   → p5(x0+w-hL,y0+h) → p6(x0,y0+h) → close
+    const hasLeftSideLeg = leftEnd.value === "左側落腳";
+    const mergeLeftFrontFace =
+      leftEnd.value === "左側落腳" && leftSideLeg.method === "H2";
     const points = [
       [x0, y0],
       [x0 + w, y0],
@@ -752,52 +791,102 @@ function drawLShape(x0, y0, w, h, wL, hL) {
       [x0 + w - hL, y0 + h],
       [x0, y0 + h],
     ];
-    draw
+    const topShape = draw
       .polygon(points.map((p) => p.join(",")).join(" "))
-      .fill("white")
-      .stroke({ width: 1, color: "black" });
+      .fill("white");
+    if (!mergeLeftFrontFace && !hasLeftSideLeg) {
+      topShape.stroke({ width: 1, color: "black" });
+    } else {
+      topShape.stroke("none");
+      draw.line(x0, y0, x0 + w, y0).stroke({ width: 1, color: "black" });
+      draw
+        .line(x0, y0, x0, y0 + TABLETOP_THICKNESS)
+        .stroke({ width: 1, color: "black" });
+      if (hasLeftSideLeg) {
+        draw
+          .line(x0, y0 + TABLETOP_THICKNESS, x0, y0 + h)
+          .stroke({ width: 1, color: "black" });
+      }
+      draw
+        .line(x0 + w, y0, x0 + w, y0 + wL)
+        .stroke({ width: 1, color: "black" });
+      draw
+        .line(x0 + w, y0 + wL, x0 + w - hL, y0 + wL)
+        .stroke({ width: 1, color: "black" });
+      draw
+        .line(x0 + w - hL, y0 + wL, x0 + w - hL, y0 + h)
+        .stroke({ width: 1, color: "black" });
+      draw
+        .line(x0 + w - hL, y0 + h, x0, y0 + h)
+        .stroke({ width: 1, color: "black" });
+    }
 
     const innerCornerX = x0 + w - hL - TABLETOP_THICKNESS;
+    const leftInnerX = x0 + TABLETOP_THICKNESS;
+    const leftOuterX = x0 - TABLETOP_THICKNESS;
+    const leftFaceX = mergeLeftFrontFace ? x0 : leftOuterX;
+    const rightOuterX = x0 + w + TABLETOP_THICKNESS;
     const frontBottomY = y0 + h + TABLETOP_THICKNESS;
+    const bottomFrontY = y0 + wL + TABLETOP_THICKNESS;
+    const hideACLine =
+      leftEnd.value === "左側落腳" && leftSideLeg.method === "H1";
+    const hideRightBottomFrontLine =
+      rightEnd.value === "右側落腳" && rightSideLeg.method === "H1";
+    const acLineColor = "black";
 
     draw
-      .line(x0, frontBottomY, innerCornerX, frontBottomY)
+      .line(leftInnerX, frontBottomY, innerCornerX, frontBottomY)
       .stroke({ width: 1, color: "black" });
     draw
-      .line(
-        innerCornerX,
-        y0 + h,
-        innerCornerX,
-        y0 + wL,
-      )
+      .line(innerCornerX, frontBottomY, innerCornerX, y0 + wL)
+      .stroke({ width: 1, color: "black" });
+    if (!hideACLine) {
+      draw
+        .line(leftFaceX, y0 + TABLETOP_THICKNESS, leftFaceX, frontBottomY)
+        .stroke({ width: 1, color: acLineColor });
+    }
+    draw
+      .line(leftFaceX, y0 + TABLETOP_THICKNESS, x0, y0)
       .stroke({ width: 1, color: "black" });
     draw
-      .line(x0, y0 + h, x0, y0 + h + TABLETOP_THICKNESS)
+      .line(leftFaceX, frontBottomY, x0, y0 + h)
       .stroke({ width: 1, color: "black" });
     draw
-      .line(
-        x0 + w - hL,
-        y0 + h,
-        x0 + w - hL - TABLETOP_THICKNESS,
-        y0 + h,
-      )
+      .line(x0 + w - hL, y0 + h, innerCornerX, frontBottomY)
       .stroke({ width: 1, color: "black" });
     draw
-      .line(
-        x0 + w - hL,
-        y0 + wL,
-        x0 + w - hL - TABLETOP_THICKNESS,
-        y0 + wL,
-      )
+      .line(leftFaceX, frontBottomY, innerCornerX, frontBottomY)
       .stroke({ width: 1, color: "black" });
-  } else if (w > 0) {
+    draw
+      .line(innerCornerX, y0 + wL, innerCornerX, bottomFrontY)
+      .stroke({ width: 1, color: "black" });
+    if (!hideRightBottomFrontLine) {
+      draw
+        .line(innerCornerX, bottomFrontY, x0 + w, bottomFrontY)
+        .stroke({ width: 1, color: "black" });
+    }
+    draw
+      .line(x0 + w - hL, y0 + wL, innerCornerX, bottomFrontY)
+      .stroke({ width: 1, color: "black" });
+    draw
+      .line(x0 + w, y0 + wL, rightOuterX, bottomFrontY)
+      .stroke({ width: 1, color: "black" });
+    return;
+  }
+
+  if (w > 0) {
     draw
       .rect(w, h)
       .move(x0, y0)
       .fill("white")
       .stroke({ width: 1, color: "black" });
     draw
-      .line(x0, y0 + h + TABLETOP_THICKNESS, x0 + w, y0 + h + TABLETOP_THICKNESS)
+      .line(
+        x0,
+        y0 + h + TABLETOP_THICKNESS,
+        x0 + w,
+        y0 + h + TABLETOP_THICKNESS,
+      )
       .stroke({ width: 1, color: "black" });
     draw
       .line(x0, y0 + h, x0, y0 + h + TABLETOP_THICKNESS)
@@ -805,25 +894,16 @@ function drawLShape(x0, y0, w, h, wL, hL) {
     draw
       .line(x0 + w, y0 + h, x0 + w, y0 + h + TABLETOP_THICKNESS)
       .stroke({ width: 1, color: "black" });
-  } else if (wL > 0) {
+  }
+
+  if (w <= 0 && wL > 0) {
     draw
       .rect(hL, wL)
-      .move(x0 - hL, y0)
+      .move(x0, y0)
       .fill("white")
       .stroke({ width: 1, color: "black" });
     draw
-      .line(
-        x0 - hL - TABLETOP_THICKNESS,
-        y0,
-        x0 - hL - TABLETOP_THICKNESS,
-        y0 + wL,
-      )
-      .stroke({ width: 1, color: "black" });
-    draw
-      .line(x0 - hL, y0, x0 - hL - TABLETOP_THICKNESS, y0)
-      .stroke({ width: 1, color: "black" });
-    draw
-      .line(x0 - hL, y0 + wL, x0 - hL - TABLETOP_THICKNESS, y0 + wL)
+      .line(x0, y0 + wL, x0 + hL, y0 + wL)
       .stroke({ width: 1, color: "black" });
   }
 }
@@ -928,6 +1008,13 @@ function drawTextRot(text, x, y) {
   t.rotate(90, x, y);
 }
 
+function drawText(text, x, y, size = 10, color = "black") {
+  draw
+    .text(String(text))
+    .font({ size, family: "DFKai-sb", fill: color })
+    .move(x, y);
+}
+
 // 旋轉文字（以 cx, cy 為中心）——避免與標線重疊
 function drawRotLabel(text, cx, cy, angle = -90, fontSize = 12) {
   const t = draw
@@ -1007,6 +1094,7 @@ function drawRightEnd(x0, yBottom, hL) {
   if (rightEnd.value === "右靠側板")
     drawWallHatchBottom(x0, yBottom, hL, "側板");
   if (rightEnd.value === "右靠櫃") drawWallHatchBottom(x0, yBottom, hL, "櫃");
+  if (rightEnd.value === "右側落腳") drawRightSideLeg(x0, yBottom);
 }
 
 function drawWallHatchLeft(x, y, h, label) {
@@ -1029,225 +1117,250 @@ function drawWallHatchBottom(x, y, hL, label) {
     .move(x + hL / 2 - 6, y + 8);
 }
 
+function legPoint(x, y) {
+  return { x, y };
+}
+
+function legPad(point, angleDeg, distance) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return legPoint(
+    point.x + Math.cos(rad) * distance,
+    point.y - Math.sin(rad) * distance,
+  );
+}
+
+function drawLegLine(a, b) {
+  draw.line(a.x, a.y, b.x, b.y).stroke({ width: 1, color: "black" });
+}
+
+function drawLegDashedLine(a, b) {
+  draw
+    .line(a.x, a.y, b.x, b.y)
+    .stroke({ width: 1, color: "black", dasharray: "5,4" });
+}
+
+function drawLegPolyline(points) {
+  draw
+    .polyline(points.map((point) => [point.x, point.y]))
+    .fill("none")
+    .stroke({ width: 1, color: "black" });
+}
+
+function drawLegAngledText(text, x, y, size, angle) {
+  const node = draw.text(String(text)).font({ size, family: "DFKai-sb" });
+  node.move(x, y);
+  node.rotate(-angle, x, y);
+}
+
+function drawLegAngledTextCentered(text, cx, cy, size, angle) {
+  const node = draw.text(String(text)).font({ size, family: "DFKai-sb" });
+  const box = node.bbox();
+  node.move(cx - box.width / 2, cy - box.height / 2);
+  node.rotate(-angle, cx, cy);
+}
+
 function drawLeftSideLeg(x0, y0, h) {
   const legDepth = Math.max(0, parseFloat(leftSideLeg.depth) || 0);
   const legThickness = Math.max(0, parseFloat(leftSideLeg.thickness) || 0);
   const legHeight = Math.max(0, parseFloat(leftSideLeg.height) || 0);
   const legWrap = Math.max(0, parseFloat(leftSideLeg.wrap) || 0);
-  const method = String(leftSideLeg.method || "K1").trim() || "K1";
+  const legMethod = leftSideLeg.method || "K1";
+  if (legDepth <= 0 || legThickness <= 0 || legHeight <= 0) return;
+  const frontWrap = legWrap;
+  const backWrap = backOption.value === "後靠牆" ? 0 : legWrap;
+  const legAngle = 45;
+  const angleRad = (legAngle * Math.PI) / 180;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  const legFrontY = y0 + h;
+  const legTopY = legFrontY - legDepth;
+  const p0 = legPoint(x0, legTopY);
+  const p1 = legPoint(p0.x - legHeight * cos, p0.y + legHeight * sin);
+  const legBackTop = legPoint(
+    p0.x - TABLETOP_THICKNESS * cos,
+    p0.y + TABLETOP_THICKNESS * sin,
+  );
+  const p2 = legPoint(p1.x, p1.y + legDepth);
+  const p6 = legPoint(p0.x, legFrontY);
+  const p3 = legPoint(p2.x + legThickness, p2.y);
+  const p4 = legPoint(
+    p3.x + (legHeight - legThickness) * cos,
+    p3.y - (legHeight - legThickness) * sin,
+  );
+  const p7 = legPoint(p2.x, p2.y - frontWrap);
+  const p8 = legPoint(p0.x, p0.y + legDepth - frontWrap);
+  const p9 = legPoint(p1.x, p1.y + backWrap);
+  const p10 = legPoint(p0.x, p0.y + backWrap);
+  const p21 = legPoint(p2.x, p2.y + 10);
+  const k1Inset = Math.max(legThickness, 0);
+  const k1P3 = legPoint(p2.x + k1Inset, p2.y);
+  const k1Length = Math.max(
+    0,
+    legHeight - (sin === 0 ? TABLETOP_THICKNESS : TABLETOP_THICKNESS / sin),
+  );
+  const k1P4 = legPoint(k1P3.x + k1Length * cos, k1P3.y - k1Length * sin);
+  const p22 = legPoint(p1.x, p1.y - 55);
+  const p24 = { x: p22.x, y: p22.y - 5 };
+  const p26 = legPoint(p0.x, p0.y - 50);
+  const p28 = legPad(p24, legAngle, 10);
+  const p29 = legPad(p26, legAngle + 180, 10);
+  const p30 = legPad(p28, legAngle, 30);
+  const p31 = { x: (p24.x + p30.x) / 2, y: (p24.y + p30.y) / 2 };
+
+  const dh = (frontWrap - 12) / 2;
+  const dh2 = (backWrap - 12) / 2;
+  const pa = legPoint(p2.x + 18, p2.y - Math.tan(angleRad) * 18 - 2 - dh);
+  const pb = legPoint(p9.x + 18, p9.y - Math.tan(angleRad) * 18 - 2 - dh2);
+
+  if (legMethod === "H1" || legMethod === "H2") {
+    drawLegLine(legBackTop, p1);
+    drawLegLine(p1, p2);
+    drawLegLine(p2, p6);
+  } else {
+    drawLegLine(legBackTop, p1);
+    drawLegLine(p1, p2);
+    drawLegLine(p2, p6);
+  }
+
+  if (legMethod === "K1" || legMethod === "H1" || legMethod === "H2") {
+    drawLegLine(p2, k1P3);
+    drawLegLine(k1P3, k1P4);
+  }
+  if (frontWrap > 0) {
+    drawLegDashedLine(p7, p8);
+    drawLegAngledText(`${frontWrap}倒包石`, pa.x, pa.y, 6, legAngle);
+  }
+  if (backWrap > 0) {
+    drawLegDashedLine(p9, p10);
+    drawLegAngledText(`${backWrap}倒包石`, pb.x, pb.y, 6, legAngle);
+  }
+  if (legMethod === "K1" || legMethod === "H1" || legMethod === "H2") {
+    drawText(String(legThickness), p21.x, p21.y, 8);
+  }
+  drawLegAngledTextCentered(
+    String(legHeight),
+    p31.x + 8,
+    p31.y - 8,
+    16,
+    legAngle,
+  );
+  drawLegLine(p22, { x: p22.x, y: p22.y - 10 });
+  drawLegLine(p24, p28);
+  drawLegLine(p26, p29);
+}
+
+function drawRightSideLeg(x0, yBottom) {
+  const legDepth = Math.max(0, parseFloat(rightSideLeg.depth) || 0);
+  const legThickness = Math.max(0, parseFloat(rightSideLeg.thickness) || 0);
+  const legHeight = Math.max(0, parseFloat(rightSideLeg.height) || 0);
+  const legWrap = Math.max(0, parseFloat(rightSideLeg.wrap) || 0);
+  const legMethod = rightSideLeg.method || "K1";
   if (legDepth <= 0 || legThickness <= 0 || legHeight <= 0) return;
 
-  if (method === "H1") {
-    const projDx = Math.min(Math.max(legDepth * 0.66, 42), 96);
-    const projDy = Math.min(Math.max(legDepth * 0.26, 14), 28);
-    const topJoin = [x0, y0 + TABLETOP_THICKNESS];
-    const bottomJoin = [x0, y0 + h + TABLETOP_THICKNESS];
-    const leftTop = [x0 - projDx, y0 + projDy];
-    const leftBottom = [leftTop[0], leftTop[1] + (bottomJoin[1] - topJoin[1])];
+  const frontWrap = legWrap;
+  const backWrap = backOption.value === "後靠牆" ? 0 : legWrap;
+  const legAngle = 45;
+  const angleRad = (legAngle * Math.PI) / 180;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
 
-    draw
-      .polygon(
-        [leftTop, topJoin, bottomJoin, leftBottom]
-          .map((p) => p.join(","))
-          .join(" "),
-      )
-      .fill("white")
-      .stroke({ width: 1, color: "black" });
+  const toWorld = (p) => legPoint(x0 - p.y, yBottom - p.x);
 
-    const slopeLen = Math.sqrt(projDx * projDx + projDy * projDy) || 1;
-    const slopeUx = -projDx / slopeLen;
-    const slopeUy = projDy / slopeLen;
-    const profileLen = Math.max(10, legThickness * 5);
-    const profileDepth = Math.max(3, legThickness);
-    const sectionP1 = [bottomJoin[0], bottomJoin[1]];
-    const sectionP2 = [
-      sectionP1[0] + slopeUx * profileLen,
-      sectionP1[1] + slopeUy * profileLen,
-    ];
-    const sectionP3 = [sectionP2[0], sectionP2[1] + profileDepth];
-    const sectionP4 = [sectionP1[0], sectionP1[1] + profileDepth];
-    draw
-      .polygon([sectionP1, sectionP2, sectionP3, sectionP4].map((p) => p.join(",")).join(" "))
-      .fill("white")
-      .stroke({ width: 1, color: "black" });
+  // 局部座標：前端為原點，背向為 -Y；再映射到右台面底端
+  const p0 = legPoint(0, -legDepth);
+  const p1 = legPoint(-legHeight * cos, p0.y + legHeight * sin);
+  const legBackTop = legPoint(
+    p0.x - TABLETOP_THICKNESS * cos,
+    p0.y + TABLETOP_THICKNESS * sin,
+  );
+  const p2 = legPoint(p1.x, p1.y + legDepth);
+  const p6 = legPoint(0, 0);
+  const p7 = legPoint(p2.x, p2.y - frontWrap);
+  const p8 = legPoint(p0.x, p0.y + legDepth - frontWrap);
+  const p9 = legPoint(p1.x, p1.y + backWrap);
+  const p10 = legPoint(p0.x, p0.y + backWrap);
+  const p21 = legPoint(p2.x, p2.y + 10);
 
-    const inset = Math.max(6, legThickness * 0.9);
-    const innerTopStart = [leftTop[0] + inset, leftTop[1] + 6];
-    const innerTopEnd = [topJoin[0] - inset, topJoin[1] + 6];
-    const innerBottomStart = [leftBottom[0] + inset, leftBottom[1] - 6];
-    const innerBottomEnd = [bottomJoin[0] - inset, bottomJoin[1] - 6];
-    draw
-      .line(innerTopStart[0], innerTopStart[1], innerTopEnd[0], innerTopEnd[1])
-      .stroke({ width: 1, color: "black", dasharray: "5,4" });
-    draw
-      .line(
-        innerBottomStart[0],
-        innerBottomStart[1],
-        innerBottomEnd[0],
-        innerBottomEnd[1],
-      )
-      .stroke({ width: 1, color: "black", dasharray: "5,4" });
+  const k1Inset = Math.max(legThickness, 0);
+  const k1P3 = legPoint(p2.x + k1Inset, p2.y);
+  const k1Length = Math.max(
+    0,
+    legHeight - (sin === 0 ? TABLETOP_THICKNESS : TABLETOP_THICKNESS / sin),
+  );
+  const k1P4 = legPoint(k1P3.x + k1Length * cos, k1P3.y - k1Length * sin);
 
-    const wrapLabelText = `${legWrap > 0 ? legWrap : 12}側面包石`;
-    const topWrapLabel = draw.text(wrapLabelText).font({
-      size: 10,
-      family: "DFKai-sb",
-    });
-    topWrapLabel.move(leftTop[0] + 10, leftTop[1] + 6);
-    topWrapLabel.rotate(-56, leftTop[0] + 10, leftTop[1] + 6);
-    const bottomWrapLabel = draw.text(wrapLabelText).font({
-      size: 10,
-      family: "DFKai-sb",
-    });
-    bottomWrapLabel.move(leftBottom[0] + 10, leftBottom[1] - 18);
-    bottomWrapLabel.rotate(-56, leftBottom[0] + 10, leftBottom[1] - 18);
+  const p22 = legPoint(p1.x, p1.y - 55);
+  const p24 = { x: p22.x, y: p22.y - 5 };
+  const p26 = legPoint(p0.x, p0.y - 50);
+  const p28 = legPad(p24, legAngle, 10);
+  const p29 = legPad(p26, legAngle + 180, 10);
+  const p30 = legPad(p28, legAngle, 30);
+  const p31 = { x: (p24.x + p30.x) / 2, y: (p24.y + p30.y) / 2 };
 
-    const depthText = draw.text(String(legDepth)).font({
-      size: 12,
-      family: "DFKai-sb",
-    });
-    depthText.move(
-      leftTop[0] + (topJoin[0] - leftTop[0]) * 0.28 - 8,
-      leftTop[1] + (topJoin[1] - leftTop[1]) * 0.22 - 18,
-    );
-    depthText.rotate(-56, leftTop[0] + 24, leftTop[1] + 4);
+  const h1Inset = Math.max(TABLETOP_THICKNESS, legThickness);
+  const h1Start = legPoint(p1.x, p1.y + h1Inset);
+  const h1End = legPoint(p0.x, p0.y + h1Inset);
 
-    const heightText = draw.text(String(legHeight)).font({
-      size: 12,
-      family: "DFKai-sb",
-    });
-    heightText.move(
-      leftTop[0] - 24,
-      leftTop[1] + (leftBottom[1] - leftTop[1]) * 0.3,
-    );
-
-    const thicknessText = draw.text(String(legThickness)).font({
-      size: 12,
-      family: "DFKai-sb",
-    });
-    thicknessText.move(leftBottom[0] - 2, leftBottom[1] + 8);
-    return;
-  }
-
-  const visualThickness = Math.max(12, legThickness * 4);
-  const projDx = Math.min(Math.max(legDepth * 0.55, 22), 70);
-  const projDy = Math.min(Math.max(legDepth * 0.22, 10), 24);
-
-  const faceRight = x0 - 18;
-  const faceLeft = faceRight - visualThickness;
-  const faceTop = y0 + 14;
-  const faceBottom = faceTop + legHeight;
-
-  const backTopLeft = [faceLeft - projDx, faceTop - projDy];
-  const backTopRight = [faceRight - projDx, faceTop - projDy];
-  const backBottomLeft = [faceLeft - projDx, faceBottom - projDy];
-
-  draw
-    .polygon(
-      [
-        [faceLeft, faceTop],
-        [faceRight, faceTop],
-        [backTopRight[0], backTopRight[1]],
-        [backTopLeft[0], backTopLeft[1]],
-      ]
-        .map((p) => p.join(","))
-        .join(" "),
-    )
-    .fill("#efe3cb")
-    .stroke({ width: 1, color: "black" });
-
-  draw
-    .polygon(
-      [
-        [faceLeft, faceTop],
-        [faceLeft, faceBottom],
-        [backBottomLeft[0], backBottomLeft[1]],
-        [backTopLeft[0], backTopLeft[1]],
-      ]
-        .map((p) => p.join(","))
-        .join(" "),
-    )
-    .fill("#e3d0ad")
-    .stroke({ width: 1, color: "black" });
-
-  draw
-    .rect(visualThickness, legHeight)
-    .move(faceLeft, faceTop)
-    .fill("#f8f1e3")
-    .stroke({ width: 1, color: "black" });
-
-  draw
-    .line(faceLeft, faceTop, backTopLeft[0], backTopLeft[1])
-    .stroke({ width: 1, color: "black" });
-  draw
-    .line(faceRight, faceTop, backTopRight[0], backTopRight[1])
-    .stroke({ width: 1, color: "black" });
-  draw
-    .line(faceLeft, faceBottom, backBottomLeft[0], backBottomLeft[1])
-    .stroke({ width: 1, color: "black" });
-
-  if (legWrap > 0) {
-    const wrapRatio = Math.min(1, legWrap / Math.max(legDepth, 1));
-    const wrapStartX = faceLeft - projDx * wrapRatio;
-    const wrapStartY = faceTop - projDy * wrapRatio;
-    draw
-      .line(wrapStartX, wrapStartY, faceLeft + visualThickness * 0.7, faceTop + legHeight * 0.12)
-      .stroke({ width: 1, color: "#c87f0a", dasharray: "3,3" });
-    draw
-      .text(`倒包${legWrap}`)
-      .font({ size: 10, family: "DFKai-sb", fill: "#c87f0a" })
-      .move(backTopLeft[0] - 4, faceTop + legHeight * 0.38);
-  }
-
-  const label = draw
-    .text(`側落腳 ${method}`)
-    .font({ size: 11, family: "DFKai-sb", fill: "#7a4b00" });
-  label.move(backTopLeft[0], backTopLeft[1] - 20);
-
-  const tLabel = draw
-    .text(`T${legThickness}`)
-    .font({ size: 10, family: "DFKai-sb", fill: "#7a4b00" });
-  tLabel.move(faceLeft + 2, faceTop + 4);
-
-  const heightLineX = backTopLeft[0] - 18;
-  draw
-    .line(heightLineX, faceTop, heightLineX, faceBottom)
-    .stroke({ width: 0.5, color: "black" });
-  draw
-    .line(heightLineX - 4, faceTop, heightLineX + 4, faceTop)
-    .stroke({ width: 0.5, color: "black" });
-  draw
-    .line(heightLineX - 4, faceBottom, heightLineX + 4, faceBottom)
-    .stroke({ width: 0.5, color: "black" });
-  const heightText = draw.text(String(legHeight)).font({
-    size: 12,
-    family: "DFKai-sb",
-  });
-  const heightBox = heightText.bbox();
-  heightText.move(
-    heightLineX - 8 - heightBox.width,
-    faceTop + legHeight / 2 - heightBox.height / 2,
+  const topDx = p1.x - p0.x;
+  const topDy = p1.y - p0.y;
+  const topLen = Math.hypot(topDx, topDy) || 1;
+  const rightDx = p6.x - p0.x;
+  const rightDy = p6.y - p0.y;
+  const rightLen = Math.hypot(rightDx, rightDy) || 1;
+  const h2Inset = Math.max(5, legThickness * 2.4);
+  const h2SeamTop = legPoint(
+    p0.x + (topDx / topLen) * h2Inset,
+    p0.y + (topDy / topLen) * h2Inset,
+  );
+  const h2SeamRight = legPoint(
+    p0.x + (rightDx / rightLen) * h2Inset,
+    p0.y + (rightDy / rightLen) * h2Inset,
   );
 
-  const depthLineY = faceBottom + 18;
-  draw
-    .line(backBottomLeft[0], depthLineY, faceLeft, depthLineY)
-    .stroke({ width: 0.5, color: "black" });
-  draw
-    .line(backBottomLeft[0], depthLineY - 4, backBottomLeft[0], depthLineY + 4)
-    .stroke({ width: 0.5, color: "black" });
-  draw
-    .line(faceLeft, depthLineY - 4, faceLeft, depthLineY + 4)
-    .stroke({ width: 0.5, color: "black" });
-  const depthText = draw.text(String(legDepth)).font({
-    size: 12,
-    family: "DFKai-sb",
-  });
-  const depthBox = depthText.bbox();
-  depthText.move(
-    backBottomLeft[0] + (projDx - depthBox.width) / 2,
-    depthLineY + 2,
+  const dh = (frontWrap - 12) / 2;
+  const dh2 = (backWrap - 12) / 2;
+  const pa = legPoint(p2.x + 18, p2.y - Math.tan(angleRad) * 18 - 2 - dh);
+  const pb = legPoint(p9.x + 18, p9.y - Math.tan(angleRad) * 18 - 2 - dh2);
+
+  drawLegLine(toWorld(legBackTop), toWorld(p1));
+  drawLegLine(toWorld(p1), toWorld(p2));
+  drawLegLine(toWorld(p2), toWorld(p6));
+
+  if (legMethod === "K1" || legMethod === "H1" || legMethod === "H2") {
+    drawLegLine(toWorld(p2), toWorld(k1P3));
+    drawLegLine(toWorld(k1P3), toWorld(k1P4));
+  }
+  if (legMethod === "H2") {
+    drawLegLine(toWorld(p0), toWorld(h2SeamTop));
+    drawLegLine(toWorld(p0), toWorld(h2SeamRight));
+  }
+
+  if (frontWrap > 0) {
+    drawLegDashedLine(toWorld(p7), toWorld(p8));
+    const paw = toWorld(pa);
+    drawLegAngledText(`${frontWrap}倒包石`, paw.x, paw.y, 6, legAngle);
+  }
+  if (backWrap > 0) {
+    drawLegDashedLine(toWorld(p9), toWorld(p10));
+    const pbw = toWorld(pb);
+    drawLegAngledText(`${backWrap}倒包石`, pbw.x, pbw.y, 6, legAngle);
+  }
+  if (legMethod === "K1" || legMethod === "H1" || legMethod === "H2") {
+    const p21w = toWorld(p21);
+    drawText(String(legThickness), p21w.x, p21w.y, 8);
+  }
+
+  const p31w = toWorld(p31);
+  drawLegAngledTextCentered(
+    String(legHeight),
+    p31w.x + 8,
+    p31w.y - 8,
+    16,
+    legAngle,
   );
+  drawLegLine(toWorld(p22), toWorld({ x: p22.x, y: p22.y - 10 }));
+  drawLegLine(toWorld(p24), toWorld(p28));
+  drawLegLine(toWorld(p26), toWorld(p29));
 }
 
 function drawTopWall(x0, y0, w) {
@@ -1469,10 +1582,10 @@ function drawCornerJoint(x0, y0, w, h, wL, hL, side) {
     const xb = x0 + w;
     draw
       .line(xa, y, xb, y)
-      .stroke({ width: 1.5, color: "red", dasharray: "6,3" });
+      .stroke({ width: 1.5, color: "black", dasharray: "6,3" });
     const t = draw
       .text("接線（左含轉角）")
-      .font({ size: 11, family: "DFKai-sb", fill: "red" });
+      .font({ size: 11, family: "DFKai-sb", fill: "black" });
     t.move(xb + 8, y - 8);
   } else if (side === "right") {
     const x = x0 + w - hL;
@@ -1480,10 +1593,10 @@ function drawCornerJoint(x0, y0, w, h, wL, hL, side) {
     const yb = y0 + h;
     draw
       .line(x, ya, x, yb)
-      .stroke({ width: 1.5, color: "red", dasharray: "6,3" });
+      .stroke({ width: 1.5, color: "black", dasharray: "6,3" });
     const t = draw
       .text("接線（右含轉角）")
-      .font({ size: 11, family: "DFKai-sb", fill: "red" });
+      .font({ size: 11, family: "DFKai-sb", fill: "black" });
     t.move(x + 4, ya - 16);
   }
 }

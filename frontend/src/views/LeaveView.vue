@@ -719,7 +719,7 @@
             border-radius: 4px;
           "
         >
-          {{ p.name }}：實際 {{ p.actual }}h ／ 申報 {{ p.official }}h
+          {{ p.name }}：實際 {{ formatHour(p.actual) }}h ／ 申報 {{ formatHour(p.official) }}h
           <span v-if="p.official > 46"> ⚠ 超過46h</span>
         </span>
       </div>
@@ -742,7 +742,7 @@
             <td>{{ deptLabel(r.dept) }}</td>
             <td>{{ r.date }}</td>
             <td>{{ r.startTime }} – {{ r.endTime }}</td>
-            <td>{{ r.hours }} h</td>
+            <td>{{ formatHour(r.hours) }} h</td>
             <td>
               <input
                 type="number"
@@ -1050,6 +1050,10 @@ const otReportByPerson = computed(() => {
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+function formatHour(value) {
+  return (Math.round((Number(value) || 0) * 10) / 10).toFixed(1);
+}
+
 function statusLabel(s) {
   return (
     {
