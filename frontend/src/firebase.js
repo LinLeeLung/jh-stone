@@ -70,6 +70,8 @@ const DEFAULT_PRICE_REDACT_BOX = {
 };
 
 const MULTIPART_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+const DESIGN_REVIEW_CHECKLIST_TEMPLATE_DOC_ID =
+  "designReviewChecklistTemplate";
 
 const authReadyPromise = new Promise((resolve) => {
   const unsubscribe = onAuthStateChanged(auth, () => {
@@ -1613,6 +1615,60 @@ export async function saveSystemSettings(payload = {}) {
             .map((h) => ({ date: h.date, name: String(h.name || "") }))
         : [],
       lunchSheetCsvUrl: String(payload.lunchSheetCsvUrl || "").trim(),
+    },
+    { merge: true },
+  );
+}
+
+export async function getDesignReviewChecklistTemplate() {
+  const normalize = (items) =>
+    (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        id: String(item?.id || "").trim(),
+        text: String(item?.text || "").trim(),
+      }))
+      .filter((item) => item.id && item.text);
+
+  // New path (staff-writable): customerPricing/__designReviewChecklistTemplate__
+  const templateRef = doc(
+    db,
+    "customerPricing",
+    DESIGN_REVIEW_CHECKLIST_TEMPLATE_DOC_ID,
+  );
+  const templateSnap = await getDoc(templateRef);
+  if (templateSnap.exists()) {
+    const data = templateSnap.data() || {};
+    return normalize(data.items || data.templateItems);
+  }
+
+  // Backward compatibility: legacy path in SystemSettings.
+  const legacyRef = doc(db, "SystemSettings", "designReviewChecklist");
+  const legacySnap = await getDoc(legacyRef);
+  if (!legacySnap.exists()) return [];
+  const legacyData = legacySnap.data() || {};
+  return normalize(legacyData.items);
+}
+
+export async function saveDesignReviewChecklistTemplate(items = []) {
+  const user = await getSignedInUser();
+  const normalizedItems = (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      text: String(item?.text || "").trim(),
+    }))
+    .filter((item) => item.id && item.text);
+
+  await setDoc(
+    doc(db, "customerPricing", DESIGN_REVIEW_CHECKLIST_TEMPLATE_DOC_ID),
+    {
+      customerId: DESIGN_REVIEW_CHECKLIST_TEMPLATE_DOC_ID,
+      customerName: "Design Review Checklist Template",
+      templateItems: normalizedItems,
+      items: normalizedItems,
+      templateType: "designReviewChecklist",
+      updatedAt: serverTimestamp(),
+      updatedByUid: user.uid,
+      updatedByEmail: user.email || "",
     },
     { merge: true },
   );
@@ -3903,6 +3959,13 @@ export async function downloadConfirmedPdfBytes(orderId) {
   return new Uint8Array(await getBytes(ref));
 }
 
+// Download arbitrary storage file bytes by storage path.
+export async function downloadStorageFileBytes(storagePath) {
+  if (!storagePath) throw new Error("storagePath 必填");
+  const ref = storageRef(storage, storagePath);
+  return new Uint8Array(await getBytes(ref));
+}
+
 export async function batchMarkDispatched(orderIds) {
   if (!orderIds?.length) return;
   await authReadyPromise;
@@ -4909,6 +4972,14 @@ export async function getCustomerPricing(customerId) {
   return snap.exists() ? snap.data() : null;
 }
 
+export async function getCustomerPricingByCustomerName(customerName) {
+  const key = buildCustomerPricingKey(customerName);
+  if (!key) return null;
+  await authReadyPromise;
+  const snap = await getDoc(doc(db, "customerPricing", key));
+  return snap.exists() ? snap.data() : null;
+}
+
 // 更新客戶計價記憶
 // 各 *Prices 參數為「本次要新增/覆蓋的鍵值對」，會 merge 到既有 map 上
 // 不傳的 map 不會動到既有資料
@@ -4949,4 +5020,132 @@ export async function updateCustomerPricing(
     updatedAt: serverTimestamp(),
   };
   await setDoc(ref, merged, { merge: true });
+}
+
+function buildCustomerPricingKey(rawCustomerName = "") {
+  const normalized = String(rawCustomerName || "").trim().toLowerCase();
+  if (!normalized) return "";
+  return normalized
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9\u4e00-\u9fff_-]/g, "")
+    .slice(0, 80);
+}
+
+function buildSitePriceEntryKey(projectName = "", color = "") {
+  const raw = `${String(projectName || "").trim()}__${String(color || "").trim()}`;
+  return raw
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9\u4e00-\u9fff_-]/g, "")
+    .slice(0, 120);
+}
+
+export async function saveCustomerSitePrice({
+  customerName,
+  projectName,
+  color,
+  price,
+  sinkPrice,
+  stovePrice,
+  entryKey,
+} = {}) {
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || "";
+
+  const cleanCustomerName = String(customerName || "").trim();
+  const cleanProjectName = String(projectName || "").trim();
+  const cleanColor = String(color || "").trim();
+  const totalPrice = Number(price || 0);
+  const sink = Number(sinkPrice || 0);
+  const stove = Number(stovePrice || 0);
+
+  if (!cleanCustomerName || !cleanProjectName || !cleanColor) {
+    throw new Error("客戶、案名、顏色為必填");
+  }
+  if ([totalPrice, sink, stove].some((n) => Number.isNaN(n) || n < 0)) {
+    throw new Error("價格欄位需為大於等於 0 的數字");
+  }
+
+  const customerId = buildCustomerPricingKey(cleanCustomerName);
+  if (!customerId) throw new Error("客戶名稱格式無效");
+
+  const ref = doc(db, "customerPricing", customerId);
+  const snap = await getDoc(ref);
+  const cur = snap.exists() ? snap.data() : {};
+  const sitePriceEntries = { ...(cur.sitePriceEntries || {}) };
+  const targetEntryKey = String(entryKey || "").trim()
+    || buildSitePriceEntryKey(cleanProjectName, cleanColor)
+    || `${Date.now()}`;
+
+  sitePriceEntries[targetEntryKey] = {
+    customerName: cleanCustomerName,
+    projectName: cleanProjectName,
+    color: cleanColor,
+    price: totalPrice,
+    sinkPrice: sink,
+    stovePrice: stove,
+    updatedAt: new Date().toISOString(),
+    updatedByUid: uid,
+  };
+
+  await setDoc(
+    ref,
+    {
+      customerId,
+      customerName: cleanCustomerName,
+      sitePriceEntries,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  return { customerId, entryKey: targetEntryKey };
+}
+
+export async function listCustomerSitePrices(customerName) {
+  const pricing = await getCustomerPricingByCustomerName(customerName);
+  const entries = Object.entries(pricing?.sitePriceEntries || {}).map(
+    ([entryKey, item]) => ({
+      entryKey,
+      customerName: String(item?.customerName || pricing?.customerName || "").trim(),
+      projectName: String(item?.projectName || "").trim(),
+      color: String(item?.color || "").trim(),
+      price: Number(item?.price || 0),
+      sinkPrice: Number(item?.sinkPrice || 0),
+      stovePrice: Number(item?.stovePrice || 0),
+      updatedAt: String(item?.updatedAt || ""),
+      updatedByUid: String(item?.updatedByUid || ""),
+    }),
+  );
+  entries.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  return entries;
+}
+
+export async function deleteCustomerSitePrice({ customerName, entryKey } = {}) {
+  const cleanEntryKey = String(entryKey || "").trim();
+  if (!cleanEntryKey) throw new Error("entryKey 必填");
+  const key = buildCustomerPricingKey(customerName);
+  if (!key) throw new Error("客戶名稱必填");
+
+  await authReadyPromise;
+  const ref = doc(db, "customerPricing", key);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return false;
+
+  const cur = snap.data() || {};
+  const sitePriceEntries = { ...(cur.sitePriceEntries || {}) };
+  if (!(cleanEntryKey in sitePriceEntries)) return false;
+  delete sitePriceEntries[cleanEntryKey];
+
+  await setDoc(
+    ref,
+    {
+      customerId: key,
+      customerName: String(customerName || cur.customerName || "").trim(),
+      sitePriceEntries,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+  return true;
 }

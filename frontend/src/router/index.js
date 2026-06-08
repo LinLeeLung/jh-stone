@@ -78,6 +78,9 @@ const ReceivableBillSignedPrintView = lazyRoute(
 const OrderDrawingWrapper = lazyRoute(
   () => import("../views/drawing/OrderDrawingWrapper.vue"),
 );
+const OrderOriginalReviewView = lazyRoute(
+  () => import("../views/drawing/OrderOriginalReviewView.vue"),
+);
 const OrderConfirmationView = lazyRoute(
   () => import("../views/drawing/OrderConfirmationView.vue"),
 );
@@ -367,6 +370,12 @@ const router = createRouter({
       name: "order-drawing",
       component: OrderDrawingWrapper,
       meta: { roles: ["admin", "管理者"], depts: ["1"], title: "訂單繪圖" },
+    },
+    {
+      path: "/orders/:id/original-review",
+      name: "order-original-review",
+      component: OrderOriginalReviewView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "原圖對圖註記" },
     },
     {
       path: "/orders/:id/confirmation",

@@ -13,6 +13,9 @@
         <RouterLink class="btn-aux" to="/dispatch-sheet"
           >🚚 派車表單</RouterLink
         >
+        <button class="btn-aux" type="button" @click="openSitePriceModal">
+          工地價格
+        </button>
         <RouterLink class="btn-primary" to="/orders/new"
           >＋ 新建訂單</RouterLink
         >
@@ -227,19 +230,121 @@
     <p v-if="!loading && rows.length >= loadLimit" class="hint hint-more">
       顯示最近 {{ loadLimit }} 筆，使用上方搜尋縮小範圍。
     </p>
+
+    <div
+      v-if="showSitePriceModal"
+      class="site-price-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="工地價格輸入"
+      @click.self="closeSitePriceModal"
+    >
+      <div class="site-price-card">
+        <h3>工地價格輸入</h3>
+        <div class="site-price-grid">
+          <label>
+            客戶
+            <input
+              v-model.trim="sitePriceForm.customerName"
+              type="text"
+              list="site-price-customer-options"
+              placeholder="輸入關鍵字找客戶，例如：林、王、企業"
+            />
+            <datalist id="site-price-customer-options">
+              <option
+                v-for="name in customerKeywordOptions"
+                :key="name"
+                :value="name"
+              />
+            </datalist>
+            <span class="site-price-input-tip">可輸入關鍵字快速找客戶名稱</span>
+          </label>
+          <label>
+            案名
+            <input v-model.trim="sitePriceForm.projectName" type="text" placeholder="例如：林口A5-10F" />
+          </label>
+          <label>
+            顏色
+            <input v-model.trim="sitePriceForm.color" type="text" placeholder="例如：雪白石" />
+          </label>
+          <label>
+            價格
+            <input v-model.number="sitePriceForm.price" type="number" min="0" step="1" placeholder="0" />
+          </label>
+          <label>
+            水槽價格
+            <input v-model.number="sitePriceForm.sinkPrice" type="number" min="0" step="1" placeholder="0" />
+          </label>
+          <label>
+            火爐價格
+            <input v-model.number="sitePriceForm.stovePrice" type="number" min="0" step="1" placeholder="0" />
+          </label>
+        </div>
+
+        <div class="site-price-list">
+          <div class="site-price-list-head">
+            <strong>既有工地價格</strong>
+            <span class="muted" v-if="sitePriceLoading">載入中...</span>
+          </div>
+          <p v-if="!sitePriceLoading && !sitePriceRows.length" class="muted small">
+            輸入客戶後可查看既有資料
+          </p>
+          <div v-else class="site-price-list-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>案名</th>
+                  <th>顏色</th>
+                  <th>價格</th>
+                  <th>水槽</th>
+                  <th>火爐</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in sitePriceRows" :key="item.entryKey">
+                  <td>{{ item.projectName || "—" }}</td>
+                  <td>{{ item.color || "—" }}</td>
+                  <td>{{ Number(item.price || 0).toLocaleString() }}</td>
+                  <td>{{ Number(item.sinkPrice || 0).toLocaleString() }}</td>
+                  <td>{{ Number(item.stovePrice || 0).toLocaleString() }}</td>
+                  <td class="site-price-op">
+                    <button class="btn-mini" type="button" @click="editSitePriceEntry(item)">修改</button>
+                    <button class="btn-mini" type="button" @click="deleteSitePriceEntry(item)">刪除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <p v-if="sitePriceMsg" class="site-price-msg">{{ sitePriceMsg }}</p>
+        <div class="site-price-actions">
+          <button v-if="editingSitePriceKey" class="btn-aux" type="button" @click="cancelSitePriceEdit">取消修改</button>
+          <button class="btn-aux" type="button" @click="closeSitePriceModal">關閉</button>
+          <button class="btn-primary" type="button" :disabled="sitePriceSaving" @click="saveSitePriceEntry">
+            {{ sitePriceSaving ? "儲存中..." : editingSitePriceKey ? "更新" : "儲存" }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { computed, ref, onMounted, watch } from "vue";
+import { useRouter } from "vue-router";
 import {
+  deleteCustomerSitePrice,
+  listCustomerSitePrices,
+  listCustomers,
   listSalesOrders,
   listOrderDrawings,
-  listOrderAttachments,
   searchSalesOrdersByKeyword,
   updateSalesOrder,
   auth,
   getUserByUid,
+  saveCustomerSitePrice,
   userHasAnyDept,
   userHasAnyRole,
 } from "../firebase";
@@ -261,12 +366,35 @@ const rows = ref([]);
 const filtered = ref([]);
 const isAdmin = ref(false);
 const canDispatch = ref(false);
+const router = useRouter();
 
 const keyword = ref("");
 const statusFilter = ref("");
 const sinkStatusFilter = ref("");
 const sortCol = ref("updatedAt");
 const sortDir = ref(-1); // 1=asc, -1=desc
+const showSitePriceModal = ref(false);
+const sitePriceSaving = ref(false);
+const sitePriceMsg = ref("");
+const sitePriceLoading = ref(false);
+const editingSitePriceKey = ref("");
+const sitePriceRows = ref([]);
+const sitePriceForm = ref({
+  customerName: "",
+  projectName: "",
+  color: "",
+  price: 0,
+  sinkPrice: 0,
+  stovePrice: 0,
+});
+let latestSitePriceLoad = 0;
+const allCustomerNames = ref([]);
+const customerKeywordOptions = computed(() => {
+  const source = Array.isArray(allCustomerNames.value) ? allCustomerNames.value : [];
+  const kw = String(sitePriceForm.value.customerName || "").trim().toLowerCase();
+  if (!kw) return source.slice(0, 30);
+  return source.filter((name) => String(name || "").toLowerCase().includes(kw)).slice(0, 30);
+});
 let latestFilterRun = 0;
 let latestDrawingHydration = 0;
 
@@ -354,6 +482,19 @@ onMounted(async () => {
     }
     const salesOrders = await listSalesOrders({ limit: loadLimit }).catch(() => []);
     rows.value = salesOrders;
+    const nameSet = new Set(
+      salesOrders
+        .map((item) => String(item.customerName || "").trim())
+        .filter(Boolean),
+    );
+    const customerMaster = await listCustomers().catch(() => []);
+    for (const customer of customerMaster) {
+      const name = String(customer?.name || "").trim();
+      if (name) nameSet.add(name);
+    }
+    allCustomerNames.value = Array.from(nameSet).sort((a, b) =>
+      a.localeCompare(b, "zh-Hant"),
+    );
     await hydrateDrawingFlags(salesOrders);
   } finally {
     loading.value = false;
@@ -504,18 +645,7 @@ async function openOriginalDesign(order) {
     alert("此訂單不支援查看原圖檔。");
     return;
   }
-
-  try {
-    const files = await listOrderAttachments(order.id, "designFiles");
-    const latestFile = files[0];
-    if (!latestFile?.url) {
-      alert("此訂單尚無原圖檔。");
-      return;
-    }
-    window.open(latestFile.url, "_blank", "noopener,noreferrer");
-  } catch (error) {
-    alert("原圖檔開啟失敗：" + (error?.message || error));
-  }
+  router.push(`/orders/${order.id}/original-review`);
 }
 
 function hasSinkStatus(order, val) {
@@ -568,6 +698,138 @@ function fmtStaffWithMonthDay(staff, dateVal) {
   const parts = [staff || "", fmtMonthDay(dateVal)].filter(Boolean);
   return parts.join(" ") || "—";
 }
+
+function resetSitePriceForm() {
+  sitePriceForm.value = {
+    customerName: "",
+    projectName: "",
+    color: "",
+    price: 0,
+    sinkPrice: 0,
+    stovePrice: 0,
+  };
+}
+
+async function loadSitePriceRows() {
+  const customerName = String(sitePriceForm.value.customerName || "").trim();
+  if (!customerName) {
+    sitePriceRows.value = [];
+    return;
+  }
+  const runId = ++latestSitePriceLoad;
+  sitePriceLoading.value = true;
+  try {
+    const rows = await listCustomerSitePrices(customerName);
+    if (runId !== latestSitePriceLoad) return;
+    sitePriceRows.value = Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (runId !== latestSitePriceLoad) return;
+    sitePriceRows.value = [];
+    sitePriceMsg.value = `讀取歷史資料失敗：${error?.message || error}`;
+  } finally {
+    if (runId === latestSitePriceLoad) sitePriceLoading.value = false;
+  }
+}
+
+function editSitePriceEntry(item) {
+  editingSitePriceKey.value = String(item?.entryKey || "");
+  sitePriceForm.value = {
+    customerName: String(item?.customerName || sitePriceForm.value.customerName || "").trim(),
+    projectName: String(item?.projectName || "").trim(),
+    color: String(item?.color || "").trim(),
+    price: Number(item?.price || 0),
+    sinkPrice: Number(item?.sinkPrice || 0),
+    stovePrice: Number(item?.stovePrice || 0),
+  };
+  sitePriceMsg.value = "已載入資料，修改後按更新";
+}
+
+function cancelSitePriceEdit() {
+  editingSitePriceKey.value = "";
+  sitePriceMsg.value = "";
+  resetSitePriceForm();
+}
+
+async function deleteSitePriceEntry(item) {
+  const customerName = String(sitePriceForm.value.customerName || item?.customerName || "").trim();
+  const entryKey = String(item?.entryKey || "").trim();
+  if (!customerName || !entryKey) return;
+  if (!confirm(`確定刪除工地案「${item?.projectName || ""} / ${item?.color || ""}」嗎？`)) return;
+
+  sitePriceSaving.value = true;
+  sitePriceMsg.value = "";
+  try {
+    await deleteCustomerSitePrice({ customerName, entryKey });
+    if (editingSitePriceKey.value === entryKey) {
+      cancelSitePriceEdit();
+      sitePriceForm.value.customerName = customerName;
+    }
+    await loadSitePriceRows();
+    sitePriceMsg.value = "已刪除工地價格";
+  } catch (error) {
+    sitePriceMsg.value = `刪除失敗：${error?.message || error}`;
+  } finally {
+    sitePriceSaving.value = false;
+  }
+}
+
+function openSitePriceModal() {
+  sitePriceMsg.value = "";
+  showSitePriceModal.value = true;
+  void loadSitePriceRows();
+}
+
+function closeSitePriceModal() {
+  showSitePriceModal.value = false;
+  sitePriceSaving.value = false;
+  sitePriceLoading.value = false;
+  editingSitePriceKey.value = "";
+}
+
+async function saveSitePriceEntry() {
+  const payload = {
+    customerName: String(sitePriceForm.value.customerName || "").trim(),
+    projectName: String(sitePriceForm.value.projectName || "").trim(),
+    color: String(sitePriceForm.value.color || "").trim(),
+    price: Number(sitePriceForm.value.price || 0),
+    sinkPrice: Number(sitePriceForm.value.sinkPrice || 0),
+    stovePrice: Number(sitePriceForm.value.stovePrice || 0),
+  };
+
+  if (!payload.customerName || !payload.projectName || !payload.color) {
+    sitePriceMsg.value = "請填寫客戶、案名、顏色";
+    return;
+  }
+
+  sitePriceSaving.value = true;
+  sitePriceMsg.value = "";
+  try {
+    await saveCustomerSitePrice({
+      ...payload,
+      entryKey: editingSitePriceKey.value || undefined,
+    });
+    sitePriceMsg.value = editingSitePriceKey.value ? "已更新工地價格" : "已儲存工地價格";
+    const keepCustomerName = payload.customerName;
+    editingSitePriceKey.value = "";
+    resetSitePriceForm();
+    sitePriceForm.value.customerName = keepCustomerName;
+    await loadSitePriceRows();
+  } catch (error) {
+    sitePriceMsg.value = `儲存失敗：${error?.message || error}`;
+  } finally {
+    sitePriceSaving.value = false;
+  }
+}
+
+watch(
+  () => String(sitePriceForm.value.customerName || "").trim(),
+  () => {
+    if (!showSitePriceModal.value) return;
+    editingSitePriceKey.value = "";
+    sitePriceMsg.value = "";
+    void loadSitePriceRows();
+  },
+);
 </script>
 
 <style scoped>
@@ -935,12 +1197,127 @@ function fmtStaffWithMonthDay(staff, dateVal) {
   padding: 12px 0;
 }
 
+.site-price-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.36);
+  display: grid;
+  place-items: center;
+  z-index: 90;
+  padding: 16px;
+}
+
+.site-price-card {
+  width: min(760px, 100%);
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #dbe1e8;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+  padding: 16px;
+}
+
+.site-price-card h3 {
+  margin: 0 0 12px;
+}
+
+.site-price-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.site-price-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.site-price-grid input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 14px;
+}
+
+.site-price-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.site-price-msg {
+  margin: 10px 0 0;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.site-price-list {
+  margin-top: 12px;
+  border-top: 1px dashed #dbe1e8;
+  padding-top: 10px;
+}
+
+.site-price-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.site-price-list-table {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.site-price-list-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.site-price-list-table th,
+.site-price-list-table td {
+  border-bottom: 1px solid #f1f5f9;
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.site-price-list-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+}
+
+.site-price-op {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.site-price-input-tip {
+  font-size: 12px;
+  color: #6b7280;
+}
+
 @media (min-width: 1200px) {
   .orders-view {
     width: calc(100vw - 24px);
     margin-left: calc(50% - 50vw + 12px);
     padding-left: 12px;
     padding-right: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .site-price-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

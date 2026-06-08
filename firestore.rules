@@ -340,6 +340,27 @@ service cloud.firestore {
           && request.resource.data.uploadedByUid == request.auth.uid;
         allow delete: if isStaff();
       }
+
+      match /designReviewFiles/{fileId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
+
+      match /designReviewPdfs/{fileId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
+
+      match /designReviewOverlays/{fileId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
     }
 
     // repairTickets（維修單）：員工可讀，建立者需為自己；管理者可修改/刪除

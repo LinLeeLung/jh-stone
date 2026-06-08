@@ -280,6 +280,26 @@
             <button class="btn-mini" type="button" @click="form.pricePerCm = customerPricing.defaultPricePerCm">套用</button>
           </div>
           <div v-else class="muted small">尚無此客戶計價記錄</div>
+
+          <div v-if="isSiteCategory" class="site-price-list-block">
+            <div class="pricing-history-head" style="margin-top:6px">
+              <span>🏗️ 工地案價格（同客戶・同顏色）</span>
+            </div>
+            <div v-if="sitePriceMatches.length" class="pricing-suggestions">
+              <div
+                v-for="entry in sitePriceMatches"
+                :key="`${entry.projectName}-${entry.color}-${entry.updatedAt || ''}`"
+                class="pricing-sugg-item"
+              >
+                <span class="muted small">{{ entry.projectName }} / {{ entry.color }}</span>
+                <strong>{{ Number(entry.price || 0).toLocaleString() }} 元/cm</strong>
+                <span class="muted small">水槽 {{ Number(entry.sinkPrice || 0).toLocaleString() }}、火爐 {{ Number(entry.stovePrice || 0).toLocaleString() }}</span>
+                <button class="btn-mini" type="button" @click="applySiteProjectPrice(entry)">套用</button>
+              </div>
+            </div>
+            <div v-else class="muted small">尚無符合目前石材顏色的工地案價格</div>
+          </div>
+
           <div class="pricing-sugg-item" style="margin-top:6px">
             <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
               <input
@@ -808,6 +828,7 @@ import {
   sendConfirmation,
   createProductionJob,
   getCustomerPricing,
+  getCustomerPricingByCustomerName,
   updateCustomerPricing,
   listOrderDrawings,
   updateIssuedOrderNo,
@@ -847,6 +868,29 @@ const suggestedPrices = computed(() => {
     }
   }
   return result;
+});
+
+const isSiteCategory = computed(
+  () => String(form.value.category || "").trim() === "工地",
+);
+
+const sitePriceMatches = computed(() => {
+  if (!isSiteCategory.value || !customerPricing.value) return [];
+  const entries = Object.values(customerPricing.value.sitePriceEntries || {});
+  if (!entries.length) return [];
+
+  const colors = new Set(
+    (form.value.stones || [])
+      .map((s) => String(s?.color || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (!colors.size) return [];
+
+  return entries
+    .filter((entry) => colors.has(String(entry?.color || "").trim().toLowerCase()))
+    .sort((a, b) =>
+      String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || "")),
+    );
 });
 
 // ─── 發單作業 ────────────────────────────────────────────────
@@ -1562,6 +1606,51 @@ function applySuggestion(li) {
   }
 }
 
+function applySiteProjectPrice(entry) {
+  const ppc = Number(entry?.price || 0);
+  if (ppc > 0) form.value.pricePerCm = ppc;
+
+  const sink = Number(entry?.sinkPrice || 0);
+  const stove = Number(entry?.stovePrice || 0);
+  for (const li of form.value.lineItems || []) {
+    if (li.category === "sink" && sink > 0) {
+      li.unitPrice = sink;
+      recalcLineAmount(li);
+    }
+    if (li.category === "stove" && stove > 0) {
+      li.unitPrice = stove;
+      recalcLineAmount(li);
+    }
+  }
+}
+
+function mergePricingDocs(primaryDoc, byNameDoc) {
+  if (!primaryDoc && !byNameDoc) return null;
+  const primary = primaryDoc || {};
+  const byName = byNameDoc || {};
+  return {
+    ...byName,
+    ...primary,
+    stonePrices: { ...(byName.stonePrices || {}), ...(primary.stonePrices || {}) },
+    sinkPrices: { ...(byName.sinkPrices || {}), ...(primary.sinkPrices || {}) },
+    stovePrices: { ...(byName.stovePrices || {}), ...(primary.stovePrices || {}) },
+    specialPrices: { ...(byName.specialPrices || {}), ...(primary.specialPrices || {}) },
+    sitePriceEntries: { ...(byName.sitePriceEntries || {}), ...(primary.sitePriceEntries || {}) },
+  };
+}
+
+async function loadCustomerPricingForCurrentForm() {
+  const customerId = String(form.value.customerId || "").trim();
+  const customerName = String(form.value.customerName || "").trim();
+  const [byId, byName] = await Promise.all([
+    customerId ? getCustomerPricing(customerId).catch(() => null) : Promise.resolve(null),
+    customerName
+      ? getCustomerPricingByCustomerName(customerName).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  customerPricing.value = mergePricingDocs(byId, byName);
+}
+
 // ─── 從繪圖資料產生檯面明細 ──────────────────────────────
 // 回傳 { cm, formula }；formula 為人可讀的計算式（讓客戶看得到怎麼算）
 //   一字型：sum = 枱面厚 + 背牆 + 台面深度
@@ -1867,7 +1956,7 @@ async function pickCustomer(c) {
   customerKeyword.value = `${c.code || ""} ${c.name || ""}`.trim();
   showCustomerList.value = false;
   // 載入歷史價格
-  customerPricing.value = await getCustomerPricing(form.value.customerId);
+  await loadCustomerPricingForCurrentForm();
   // 如果尚未填價格，自動帶入上次預設
   if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {
     form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
@@ -2188,7 +2277,7 @@ async function saveOrder({ createNext = false, silent = false } = {}) {
               defaultPricePerCm: defaultPpc,
             });
             if (!createNext) {
-              customerPricing.value = await getCustomerPricing(pricingSource.customerId);
+              await loadCustomerPricingForCurrentForm();
             }
           }
         }
@@ -2285,7 +2374,7 @@ async function loadAll() {
         }
         // 載入客戶計價記憑
         if (form.value.customerId) {
-          customerPricing.value = await getCustomerPricing(form.value.customerId);
+          await loadCustomerPricingForCurrentForm();
         }
         lastSavedPayloadSignature.value = getPayloadSignature();
       }
@@ -2324,7 +2413,7 @@ async function loadAll() {
             `${data.customerId || ""} ${data.customerName || ""}`.trim();
           // 載入客戶歷史價
           if (form.value.customerId) {
-            customerPricing.value = await getCustomerPricing(form.value.customerId);
+            await loadCustomerPricingForCurrentForm();
           }
           sessionStorage.removeItem("pendingOrderFromEstimate");
         }

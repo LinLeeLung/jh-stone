@@ -38,6 +38,7 @@ export const DEFAULT_ROUTE_PERMISSIONS = [
   { path: '/orders/dispatch',   title: '發單作業',       group: '訂單',     roles: ['admin', '管理者'], depts: ['1'] },
   { path: '/orders/import',     title: '匯入訂單',       group: '訂單',     roles: ['admin', '管理者'] },
   { path: '/orders/:id/drawing',      title: '訂單繪圖',   group: '訂單', roles: ['admin', '管理者'], depts: ['1'] },
+  { path: '/orders/:id/original-review', title: '原圖對圖註記', group: '訂單', roles: ['admin', '管理者'], depts: ['1'] },
   { path: '/orders/:id/confirmation', title: '生產確定單', group: '訂單', roles: ['admin', '管理者'], depts: ['1'] },
 
   // ── 會計 ──────────────────────────────────────────────────────────────

@@ -105,13 +105,28 @@
           T 文字
         </button>
         <input
-          v-show="(drawTool && drawTool !== 'erase') || selectedShapeOverlay || selectedTextOverlay"
-          type="color"
-          :value="drawColor"
-          class="color-picker"
-          title="顏色"
-          @input="onColorChange"
+          v-show="drawTool === 'text'"
+          ref="quickTextInputRef"
+          v-model="quickTextDraft"
+          class="quick-text-input"
+          type="text"
+          placeholder="先輸入文字，再點位置可連續貼上"
         />
+        <div
+          v-show="(drawTool && drawTool !== 'erase') || selectedShapeOverlay || selectedTextOverlay"
+          class="common-color-palette"
+          title="常用顏色"
+        >
+          <button
+            v-for="color in commonColors"
+            :key="color"
+            class="color-swatch"
+            :class="{ active: drawColor === color }"
+            :style="{ background: color }"
+            type="button"
+            @click="setDrawColor(color)"
+          />
+        </div>
         <div v-show="drawTool !== null || selectedShapeOverlay || selectedTextOverlay" class="sz-btns">
           <button
             v-for="w in strokeWidths"
@@ -1445,8 +1460,11 @@ const _pendingOverlayUploads = new Map();
 const annotCanvasRef = ref(null);
 const previewCanvasRef = ref(null);
 const drawTool = ref(null); // null | 'pen' | 'erase' | 'line' | 'measure' | 'rect' | 'ellipse' | 'text'
+const quickTextDraft = ref("");
+const quickTextInputRef = ref(null);
 const rectStyle = ref("outline");
 const drawColor = ref("#e00000");
+const commonColors = ["#ffffff", "#e00000", "#2563eb", "#16a34a", "#111827"];
 const drawWidth = ref(5);
 const strokeWidths = [1, 2, 3, 4, 5, 7, 9, 12, 16, 20];
 const selectedShapeId = ref(null);
@@ -1497,7 +1515,7 @@ const toolbarHint = computed(() => {
     case "ellipse":
       return "圓 / 橢圓：拖拉繪製，按 Shift 可鎖成正圓，可搭配 ▢ / ■ 切換邊框或實體";
     case "text":
-      return "文字：點一下放入文字，雙擊既有文字可編輯";
+      return "文字：先輸入內容後可連續點位貼上；留空時採彈出輸入框，雙擊既有文字可編輯";
     default:
       return "點選物件可移動，右下角可縮放；也可用「快照確定單」複製整張畫面到剪貼簿貼到 LINE";
   }
@@ -1532,7 +1550,11 @@ function setDrawTool(tool) {
     selectedTextId.value = null;
     selectedStampId.value = null;
   }
-  drawTool.value = tool !== null && drawTool.value === tool ? null : tool;
+  const nextTool = tool !== null && drawTool.value === tool ? null : tool;
+  drawTool.value = nextTool;
+  if (nextTool === "text") {
+    nextTick(() => quickTextInputRef.value?.focus());
+  }
 }
 function clearSelections() {
   selectedBlkId.value = null;
@@ -1690,6 +1712,9 @@ function selectStampOverlay(ovl) {
 }
 function onColorChange(event) {
   const value = event?.target?.value || "#e00000";
+  setDrawColor(value);
+}
+function setDrawColor(value) {
   drawColor.value = value;
   let changed = false;
   if (selectedShapeOverlay.value) {
@@ -1806,6 +1831,24 @@ function onCanvasDown(e) {
     const cssX = e.clientX - rect.left;
     const cssY = e.clientY - rect.top;
     const fontSize = drawWidth.value * 3 + 10;
+
+    const quickText = String(quickTextDraft.value || "").trim();
+    if (quickText) {
+      const newTextOverlay = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        x: cssX,
+        y: cssY,
+        text: quickText,
+        fontSize,
+        color: drawColor.value,
+      };
+      textOverlays.value.push(newTextOverlay);
+      selectTextOverlay(newTextOverlay);
+      markAnnotationDirty();
+      recordAnnotationHistory();
+      return;
+    }
+
     textBox.value = {
       visible: true,
       value: "",
@@ -3893,6 +3936,21 @@ onBeforeRouteLeave(async () => {
   line-height: 1.3;
 }
 
+.quick-text-input {
+  min-width: 240px;
+  height: 28px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid #94a3b8;
+  background: #ffffff;
+  color: #111827;
+  font-size: 12px;
+}
+
+.quick-text-input::placeholder {
+  color: #6b7280;
+}
+
 /* ══ 手繪工具按鈕 ══ */
 .btn-draw {
   padding: 4px 10px;
@@ -3930,14 +3988,23 @@ onBeforeRouteLeave(async () => {
   border-color: #d97706;
   color: #111827;
 }
-.color-picker {
-  width: 30px;
-  height: 26px;
-  border: none;
-  padding: 1px;
-  border-radius: 4px;
+.common-color-palette {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+}
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #475569;
+  border-radius: 5px;
   cursor: pointer;
-  background: none;
+  flex-shrink: 0;
+}
+.color-swatch.active {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px #f59e0b;
 }
 .sz-btns {
   display: flex;
