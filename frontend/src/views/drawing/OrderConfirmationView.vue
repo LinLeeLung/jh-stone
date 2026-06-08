@@ -673,7 +673,7 @@
               </div>
               <div class="vf-row">
                 <span class="vf-lbl">打板</span
-                ><span class="vf-val">{{ order?.templatingStaff || "" }}</span>
+                ><span class="vf-val">{{ fmtStaffWithMonthDay(order?.templatingStaff, order?.templatingDate) }}</span>
               </div>
               <div class="vf-row">
                 <span class="vf-lbl">對圖</span
@@ -1024,7 +1024,7 @@
 
 <script setup>
 import { ref, computed, reactive, onMounted, onUnmounted, nextTick } from "vue";
-import { useRoute, RouterLink } from "vue-router";
+import { useRoute, RouterLink, onBeforeRouteLeave } from "vue-router";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import {
@@ -1032,10 +1032,12 @@ import {
   authReadyPromise,
   getSalesOrder,
   getCustomerById,
+  getCustomerPricing,
   getUserByUid,
   listOrderDrawings,
   getOrderConfirmation,
   saveOrderConfirmation,
+  updateCustomerPricing,
   uploadOverlayImage,
   uploadConfirmedPdf,
   refreshConfirmedPdfDownloadUrl,
@@ -1151,6 +1153,8 @@ const saving = ref(false);
 const saveMsg = ref("");
 const selectedBlkId = ref(null);
 const dirty = ref(false);
+let savePromise = null;
+const CUSTOMER_EDGE_TYPES = new Set(["round", "bevel", "dull"]);
 
 const pageRef = ref(null);
 const drawingPlaceholderRef = ref(null);
@@ -1164,6 +1168,11 @@ const cf = reactive({
   price: "",
   panelType: "", // '' | 'a' | 'b' | 'c' | 'd' | 'e'
 });
+
+function normalizePreferredEdgeType(value) {
+  const normalized = String(value || "").trim();
+  return CUSTOMER_EDGE_TYPES.has(normalized) ? normalized : "";
+}
 
 // ── Computed ────────────────────────────────────────────────────────
 const stoneTypeLbl = computed(() => {
@@ -1191,6 +1200,15 @@ function fmtDate(val) {
   if (!val) return "";
   const d = val?.toDate ? val.toDate() : new Date(val);
   return isNaN(d) ? "" : d.toLocaleDateString("zh-TW");
+}
+function fmtMonthDay(val) {
+  if (!val) return "";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return isNaN(d) ? "" : `${d.getMonth() + 1}/${d.getDate()}`;
+}
+function fmtStaffWithMonthDay(staff, dateVal) {
+  const parts = [staff || "", fmtMonthDay(dateVal)].filter(Boolean);
+  return parts.join(" ");
 }
 function mmToCm(val) {
   if (!val) return "";
@@ -2423,11 +2441,17 @@ async function loadAll() {
     ]);
     order.value = ord;
     customer.value = null;
+    let customerPricing = null;
     if (ord?.customerId) {
       try {
-        customer.value = await getCustomerById(ord.customerId);
+        const [customerDoc, pricingDoc] = await Promise.all([
+          getCustomerById(ord.customerId),
+          getCustomerPricing(ord.customerId),
+        ]);
+        customer.value = customerDoc;
+        customerPricing = pricingDoc;
       } catch (e) {
-        console.warn("Could not load customer notes", e);
+        console.warn("Could not load customer notes or preferences", e);
       }
     }
     confirmedPdfUrl.value = ord?.confirmedPdfUrl || null;
@@ -2443,6 +2467,14 @@ async function loadAll() {
       }
     }
     if (conf?.cf) Object.assign(cf, conf.cf);
+    if (!normalizePreferredEdgeType(conf?.cf?.edgeType)) {
+      const preferredEdgeType = normalizePreferredEdgeType(
+        customerPricing?.preferredConfirmationEdgeType,
+      );
+      if (preferredEdgeType) {
+        cf.edgeType = preferredEdgeType;
+      }
+    }
     measurementScale.value = Number(conf?.measurementScale) > 0 ? Number(conf.measurementScale) : 1;
     if (Array.isArray(conf?.overlayImgs))
       overlayImgs.value = conf.overlayImgs.map((i) => ({ ...i }));
@@ -2615,38 +2647,78 @@ async function generateConfirmedPdf() {
 }
 
 // ── Save ────────────────────────────────────────────────────────────
+async function persistConfirmation({ showSuccess = true, showFailure = true } = {}) {
+  if (savePromise) return savePromise;
+
+  savePromise = (async () => {
+    if (_pendingOverlayUploads.size)
+      await Promise.allSettled([..._pendingOverlayUploads.values()]);
+    saving.value = true;
+    try {
+      const annotCanvas = annotCanvasRef.value
+        ? annotCanvasRef.value.toDataURL("image/png")
+        : null;
+      await saveOrderConfirmation(orderId.value, {
+        drawingBlocks: Object.fromEntries(
+          drawingBlocks.value.map((b) => [
+            b.drawingId,
+            { x: b.x, y: b.y, scale: b.scale },
+          ]),
+        ),
+        cf: { ...cf },
+        overlayImgs: overlayImgs.value.map((i) => ({ ...i })),
+        textOverlays: textOverlays.value.map((o) => ({ ...o })),
+        shapeOverlays: shapeOverlays.value.map((o) => ({ ...o })),
+        stampOverlays: stampOverlays.value.map((o) => ({ ...o })),
+        measurementScale: measurementScale.value,
+        annotCanvas,
+      });
+      const preferredEdgeType = normalizePreferredEdgeType(cf.edgeType);
+      if (order.value?.customerId && preferredEdgeType) {
+        await updateCustomerPricing(order.value.customerId, {
+          customerName: order.value.customerName,
+          preferredConfirmationEdgeType: preferredEdgeType,
+        });
+      }
+      dirty.value = false;
+      if (showSuccess) {
+        saveMsg.value = "✓ 已儲存";
+        setTimeout(() => {
+          if (saveMsg.value === "✓ 已儲存") saveMsg.value = "";
+        }, 2000);
+      }
+      return true;
+    } catch (e) {
+      if (showFailure) saveMsg.value = "儲存失敗";
+      throw e;
+    } finally {
+      saving.value = false;
+      savePromise = null;
+    }
+  })();
+
+  return savePromise;
+}
+
 async function doSave() {
-  if (_pendingOverlayUploads.size)
-    await Promise.allSettled([..._pendingOverlayUploads.values()]);
-  saving.value = true;
   try {
-    const annotCanvas = annotCanvasRef.value
-      ? annotCanvasRef.value.toDataURL("image/png")
-      : null;
-    await saveOrderConfirmation(orderId.value, {
-      drawingBlocks: Object.fromEntries(
-        drawingBlocks.value.map((b) => [
-          b.drawingId,
-          { x: b.x, y: b.y, scale: b.scale },
-        ]),
-      ),
-      cf: { ...cf },
-      overlayImgs: overlayImgs.value.map((i) => ({ ...i })),
-      textOverlays: textOverlays.value.map((o) => ({ ...o })),
-      shapeOverlays: shapeOverlays.value.map((o) => ({ ...o })),
-      stampOverlays: stampOverlays.value.map((o) => ({ ...o })),
-      measurementScale: measurementScale.value,
-      annotCanvas,
-    });
-    saveMsg.value = "✓ 已儲存";
-    dirty.value = false;
-    setTimeout(() => {
-      saveMsg.value = "";
-    }, 2000);
-  } catch (e) {
-    saveMsg.value = "儲存失敗";
-  } finally {
-    saving.value = false;
+    await persistConfirmation();
+  } catch (_) {}
+}
+
+function triggerBestEffortSave() {
+  if (!dirty.value || saving.value || !orderId.value) return;
+  void persistConfirmation({ showSuccess: false, showFailure: false }).catch(() => {});
+}
+
+function handleConfirmationPageHide() {
+  triggerBestEffortSave();
+}
+
+function handleConfirmationVisibilityChange() {
+  if (typeof document === "undefined") return;
+  if (document.visibilityState === "hidden") {
+    triggerBestEffortSave();
   }
 }
 
@@ -2673,11 +2745,28 @@ onMounted(() => {
   document.addEventListener("paste", onPaste);
   document.addEventListener("pointerdown", onAnnotPointerDown);
   document.addEventListener("keydown", onAnnotKeydown);
+  document.addEventListener("visibilitychange", handleConfirmationVisibilityChange);
+  window.addEventListener("pagehide", handleConfirmationPageHide);
+  window.addEventListener("beforeunload", handleConfirmationPageHide);
 });
 onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
   document.removeEventListener("pointerdown", onAnnotPointerDown);
   document.removeEventListener("keydown", onAnnotKeydown);
+  document.removeEventListener("visibilitychange", handleConfirmationVisibilityChange);
+  window.removeEventListener("pagehide", handleConfirmationPageHide);
+  window.removeEventListener("beforeunload", handleConfirmationPageHide);
+});
+
+onBeforeRouteLeave(async () => {
+  if (!dirty.value) return true;
+  try {
+    await persistConfirmation({ showSuccess: false, showFailure: false });
+    return true;
+  } catch (_) {
+    setTransientMsg("離開前自動儲存失敗，請先手動儲存", 4000);
+    return false;
+  }
 });
 </script>
 
@@ -3002,7 +3091,7 @@ onUnmounted(() => {
   padding: 0 6px 4px;
   border-bottom: 2px solid #000;
   height: 24px;
-  background: #d4d4d4;
+  background: #fff;
 }
 .doc-star {
   font-size: 13px;
@@ -3136,7 +3225,7 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  background: #fafafa;
+  background: #fff;
 }
 
 .fields-tbl {
@@ -3151,7 +3240,7 @@ onUnmounted(() => {
   vertical-align: top;
 }
 .lbl {
-  background: #e8e8e8;
+  background: #fff;
   font-weight: 600;
   width: 62px;
   white-space: nowrap;
@@ -3159,7 +3248,7 @@ onUnmounted(() => {
   font-size: 11px;
 }
 .lbl-s {
-  background: #e8e8e8;
+  background: #fff;
   font-weight: 600;
   width: 24px;
   white-space: nowrap;
@@ -3218,7 +3307,7 @@ onUnmounted(() => {
 }
 .edge-opt.checked {
   border-color: #333;
-  background: #f0f0f0;
+  background: #fff;
 }
 .edge-check {
   display: flex;
@@ -3257,7 +3346,7 @@ onUnmounted(() => {
 }
 .panel-opt.checked {
   border-color: #333;
-  background: #f0f0f0;
+  background: #fff;
 }
 
 .section-head {
@@ -3270,7 +3359,7 @@ onUnmounted(() => {
   width: 18px;
   flex-shrink: 0;
   border-right: 1px solid #000;
-  background: #f0f0f0;
+  background: #fff;
   line-height: 1.3;
   text-align: center;
   word-break: break-all;
@@ -3303,7 +3392,7 @@ onUnmounted(() => {
   text-align: left;
 }
 .detail-tbl th {
-  background: #e8e8e8;
+  background: #fff;
   font-size: 10px;
   line-height: 1.2;
 }
@@ -3363,7 +3452,7 @@ onUnmounted(() => {
   padding: 1px 6px 3px;
   font-size: 10px;
   border-bottom: 1px solid #000;
-  background: #fffbeb;
+  background: #fff;
   height: 18px;
   display: flex;
   align-items: flex-start;

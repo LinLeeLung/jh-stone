@@ -10,7 +10,8 @@
     "logs": "firebase functions:log",
     "migrate:ordered-at": "node backfill-ordered-at.mjs",
     "migrate:legacy-ordered-at": "node backfill-legacy-ordered-at.mjs",
-    "migrate:issued-ordered-at": "node backfill-issued-ordered-at.mjs"
+    "migrate:issued-ordered-at": "node backfill-issued-ordered-at.mjs",
+    "migrate:searchable-address": "node backfill-salesorder-searchable-address.mjs"
   },
   "engines": {
     "node": "24"

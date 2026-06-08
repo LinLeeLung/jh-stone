@@ -1883,26 +1883,90 @@ export async function getSalesOrder(id) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
+function normalizeSearchableAddress(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+
+  text = text.normalize("NFKC");
+  text = text.replace(/臺/g, "台");
+  text = text.replace(/[（(][^）)]*[）)]/g, "");
+  text = text.replace(/[（(].*$/, "");
+  text = text.replace(/^[^\u4e00-\u9fffA-Za-z0-9]+/, "");
+  text = text.replace(/^\d{1,2}[:：]\d{2}/, "");
+  text = text.replace(/(?:密碼|密码|門禁|门禁|備註|备注)[:：#＃]?.*$/i, "");
+  text = text.replace(/[#＃].*$/, "");
+  text = text.replace(/([樓Ff])[-－].*$/, "$1");
+  text = text.replace(/((?:號(?:之\d+)?|樓(?:之\d+)?|室))(?:[-－+＋].*)$/, "$1");
+  text = text.trim();
+  text = text.replace(/^(?:台灣|台湾)/, "");
+  text = text.replace(/^[\u4e00-\u9fff]{2,3}[縣市]/, "");
+  text = text.replace(/^[\u4e00-\u9fff]{1,4}(?:區|鄉|鎮|市)/, "");
+  text = text.replace(/[\s,，、。．.\/\\]/g, "");
+  text = text.replace(/([段巷弄號樓室層Ff])\1+/g, "$1");
+  return text.trim();
+}
+
+function withSalesOrderSearchFields(data = {}) {
+  if (!data || typeof data !== "object") return data;
+  const payload = { ...data };
+  if (!Object.prototype.hasOwnProperty.call(payload, "siteAddress")) return payload;
+  payload.searchableAddress = normalizeSearchableAddress(payload.siteAddress);
+  return payload;
+}
+
 export async function findSalesOrdersBySiteAddress(siteAddress, options = {}) {
   const cleanAddress = String(siteAddress || "").trim();
-  if (!cleanAddress) return [];
+  const normalizedAddress = normalizeSearchableAddress(cleanAddress);
+  if (!cleanAddress && !normalizedAddress) return [];
 
   const excludeId = String(options.excludeId || "").trim();
   const lim = Math.max(1, Math.min(20, Number(options.limit || 8)));
-  const snap = await getDocs(
-    query(
-      collection(db, "salesOrders"),
-      where("siteAddress", "==", cleanAddress),
-      limit(lim),
-    ),
-  );
+  const queries = [];
 
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
+  if (cleanAddress) {
+    queries.push(
+      getDocs(
+        query(
+          collection(db, "salesOrders"),
+          where("siteAddress", "==", cleanAddress),
+          limit(lim),
+        ),
+      ),
+    );
+  }
+
+  if (normalizedAddress) {
+    queries.push(
+      getDocs(
+        query(
+          collection(db, "salesOrders"),
+          where("searchableAddress", "==", normalizedAddress),
+          limit(lim),
+        ),
+      ),
+    );
+  }
+
+  const results = await Promise.all(queries);
+  const seen = new Set();
+  const matches = [];
+
+  results.forEach((snap) => {
+    snap.docs.forEach((docSnap) => {
+      if (seen.has(docSnap.id)) return;
+      seen.add(docSnap.id);
+      matches.push({ id: docSnap.id, ...docSnap.data() });
+    });
+  });
+
+  return matches
     .filter((order) => order.id !== excludeId)
     .sort((a, b) =>
-      String(b.orderedAt || "").localeCompare(String(a.orderedAt || "")),
-    );
+      String(b.orderedAt || b.createdAt || "").localeCompare(
+        String(a.orderedAt || a.createdAt || ""),
+      ),
+    )
+    .slice(0, lim);
 }
 
 // 列出銷售訂單（依建檔時間倒序，預設 100 筆）
@@ -1913,9 +1977,13 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
   const limitValue = Number(lim);
 
   if (Number.isFinite(limitValue) && limitValue > 0) {
-    constraints.push(orderBy("createdAt", "desc"));
-    constraints.push(limit(limitValue));
-    const snap = await getDocs(query(ref, ...constraints));
+    const snap = await getDocs(
+      query(ref, ...constraints, orderBy("updatedAt", "desc"), limit(limitValue)),
+    ).catch(async () => {
+      // Fallback for older datasets or index gaps: keep the list usable even if
+      // updatedAt ordering is temporarily unavailable.
+      return getDocs(query(ref, ...constraints, orderBy("createdAt", "desc"), limit(limitValue)));
+    });
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   }
 
@@ -1927,10 +1995,10 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
     .map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => {
       const ta =
-        _coerceJsDate(a.createdAt || a.updatedAt || a.orderedAt)?.getTime() ||
+        _coerceJsDate(a.updatedAt || a.createdAt || a.orderedAt)?.getTime() ||
         0;
       const tb =
-        _coerceJsDate(b.createdAt || b.updatedAt || b.orderedAt)?.getTime() ||
+        _coerceJsDate(b.updatedAt || b.createdAt || b.orderedAt)?.getTime() ||
         0;
       return tb - ta;
     });
@@ -3254,14 +3322,117 @@ export async function searchOrdersByOrderNo(keyword, { limit: lim = 20 } = {}) {
       const rankDiff = sortRank(a) - sortRank(b);
       if (rankDiff !== 0) return rankDiff;
       const ta =
-        _coerceJsDate(a.createdAt || a.updatedAt || a.orderedAt || a.promisedAt)?.getTime() ||
+        _coerceJsDate(a.updatedAt || a.createdAt || a.orderedAt || a.promisedAt)?.getTime() ||
         0;
       const tb =
-        _coerceJsDate(b.createdAt || b.updatedAt || b.orderedAt || b.promisedAt)?.getTime() ||
+        _coerceJsDate(b.updatedAt || b.createdAt || b.orderedAt || b.promisedAt)?.getTime() ||
         0;
       return tb - ta;
     })
     .slice(0, limitValue);
+}
+
+export async function searchSalesOrdersByKeyword(keyword, { limit: lim = 20 } = {}) {
+  await authReadyPromise;
+  const rawKeyword = String(keyword || "").trim();
+  if (!rawKeyword) return [];
+
+  const limitValue = Math.max(1, Math.min(50, Number(lim) || 20));
+  const salesRef = collection(db, "salesOrders");
+  const tasks = [];
+  const normalizedKeyword = normalizeSearchableAddress(rawKeyword);
+
+  const orderKeyword = rawKeyword.toUpperCase();
+  if (/^[A-Za-z0-9-]+$/.test(orderKeyword) && orderKeyword.length >= 2) {
+    tasks.push(
+      getDocs(query(salesRef, where("orderNo", "==", orderKeyword), limit(limitValue))),
+    );
+    tasks.push(
+      getDocs(
+        query(
+          salesRef,
+          where("orderNo", ">=", orderKeyword),
+          where("orderNo", "<=", `${orderKeyword}\uf8ff`),
+          orderBy("orderNo"),
+          limit(limitValue),
+        ),
+      ),
+    );
+  }
+
+  const customerVariants = Array.from(
+    new Set(
+      [rawKeyword, /[A-Za-z]/.test(rawKeyword) ? rawKeyword.toUpperCase() : ""]
+        .map((value) => String(value || "").trim())
+        .filter((value) => value.length >= 2),
+    ),
+  );
+
+  for (const value of customerVariants) {
+    tasks.push(
+      getDocs(
+        query(
+          salesRef,
+          where("customerName", ">=", value),
+          where("customerName", "<=", `${value}\uf8ff`),
+          orderBy("customerName"),
+          limit(limitValue),
+        ),
+      ),
+    );
+  }
+
+  const rawAddressVariants = Array.from(
+    new Set([rawKeyword].map((value) => String(value || "").trim()).filter((value) => value.length >= 2)),
+  );
+
+  for (const value of rawAddressVariants) {
+    tasks.push(
+      getDocs(
+        query(
+          salesRef,
+          where("siteAddress", ">=", value),
+          where("siteAddress", "<=", `${value}\uf8ff`),
+          orderBy("siteAddress"),
+          limit(limitValue),
+        ),
+      ),
+    );
+  }
+
+  if (normalizedKeyword.length >= 2) {
+    tasks.push(
+      getDocs(
+        query(
+          salesRef,
+          where("searchableAddress", ">=", normalizedKeyword),
+          where("searchableAddress", "<=", `${normalizedKeyword}\uf8ff`),
+          orderBy("searchableAddress"),
+          limit(limitValue),
+        ),
+      ),
+    );
+  }
+
+  if (!tasks.length) return [];
+
+  const results = await Promise.all(tasks);
+  const matches = [];
+  const seen = new Set();
+
+  for (const snap of results) {
+    snap.docs.forEach((docSnap) => {
+      if (seen.has(docSnap.id)) return;
+      seen.add(docSnap.id);
+      matches.push({ id: docSnap.id, ...docSnap.data() });
+    });
+  }
+
+  return matches.sort((a, b) =>
+    String(b.orderedAt || b.createdAt || "").localeCompare(
+      String(a.orderedAt || a.createdAt || ""),
+    ),
+  );
 }
 
 // 刪除所有標記為測試資料的訂單
@@ -3307,7 +3478,7 @@ export async function createSalesOrder(data) {
   const uid = auth.currentUser?.uid || null;
   const payload = {
     status: "draft",
-    ...data,
+    ...withSalesOrderSearchFields(data),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     createdByUid: uid,
@@ -3716,7 +3887,7 @@ export async function deleteOrderAttachment(
 export async function updateSalesOrder(id, data) {
   const uid = auth.currentUser?.uid || null;
   await updateDoc(doc(db, "salesOrders", id), {
-    ...data,
+    ...withSalesOrderSearchFields(data),
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
   });
@@ -4232,12 +4403,36 @@ export async function getOrderConfirmation(orderId) {
   return snap.exists() ? snap.data() : null;
 }
 
+function stripUndefinedDeep(value) {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripUndefinedDeep(item))
+      .filter((item) => item !== undefined);
+  }
+  if (!value || typeof value !== "object") return value;
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+
+  const output = {};
+  Object.entries(value).forEach(([key, entryValue]) => {
+    const sanitized = stripUndefinedDeep(entryValue);
+    if (sanitized !== undefined) output[key] = sanitized;
+  });
+  return output;
+}
+
 export async function saveOrderConfirmation(orderId, layout) {
   const uid = auth.currentUser?.uid || null;
+  const sanitizedLayout = stripUndefinedDeep(layout) || {};
   await setDoc(doc(db, "salesOrders", orderId, "confirmationDoc", "layout"), {
-    ...layout,
+    ...sanitizedLayout,
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
+  });
+  await updateDoc(doc(db, "salesOrders", orderId), {
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+    confirmationUpdatedAt: serverTimestamp(),
   });
 }
 
@@ -4727,6 +4922,7 @@ export async function updateCustomerPricing(
     specialPrices,
     defaultPricePerCm,
     skipOversizeScaling,
+    preferredConfirmationEdgeType,
   } = {},
 ) {
   if (!customerId) return;
@@ -4746,6 +4942,10 @@ export async function updateCustomerPricing(
       skipOversizeScaling === undefined
         ? (cur.skipOversizeScaling ?? false)
         : !!skipOversizeScaling,
+    preferredConfirmationEdgeType:
+      preferredConfirmationEdgeType === undefined
+        ? (cur.preferredConfirmationEdgeType || "")
+        : String(preferredConfirmationEdgeType || "").trim(),
     updatedAt: serverTimestamp(),
   };
   await setDoc(ref, merged, { merge: true });

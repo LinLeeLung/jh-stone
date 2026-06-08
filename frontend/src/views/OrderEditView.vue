@@ -787,7 +787,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import {
   listCustomers,
   listProductModels,
@@ -1126,6 +1126,8 @@ const isEdit = computed(() => !!route.params.id);
 const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
+const lastSavedPayloadSignature = ref("");
+let savePromise = null;
 
 const customers = ref([]);
 const sinkModels = ref([]);
@@ -2051,6 +2053,15 @@ function toPayload() {
   };
 }
 
+function getPayloadSignature() {
+  return JSON.stringify(toPayload());
+}
+
+const hasUnsavedEditChanges = computed(() => {
+  if (!isEdit.value || loading.value || !lastSavedPayloadSignature.value) return false;
+  return getPayloadSignature() !== lastSavedPayloadSignature.value;
+});
+
 function resetForNewOrder() {
   form.value = createEmptyOrderForm();
   customerKeyword.value = "";
@@ -2067,177 +2078,132 @@ function resetForNewOrder() {
   lastSiteAddressAlertKey.value = "";
 }
 
-function isFormNavigableElement(el) {
-  if (el instanceof HTMLInputElement) {
-    return !["hidden", "file", "button", "submit", "reset"].includes(el.type);
-  }
-  return el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement;
-}
+async function saveOrder({ createNext = false, silent = false } = {}) {
+  if (savePromise) return savePromise;
 
-function getFormFocusableElements() {
-  const root = document.querySelector(".form-grid");
-  if (!(root instanceof HTMLElement)) return [];
-  return Array.from(root.querySelectorAll("input, select, textarea")).filter((el) => {
-    if (!(el instanceof HTMLElement)) return false;
-    if (!isFormNavigableElement(el)) return false;
-    if (el.getAttribute("tabindex") === "-1") return false;
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
-      if (el.disabled || el.readOnly) return false;
+  savePromise = (async () => {
+    if (!form.value.customerId) {
+      if (!silent) alert("請先選擇客戶");
+      return false;
     }
-    return el.offsetParent !== null;
-  });
-}
-
-function focusFirstField() {
-  const first = getFormFocusableElements()[0];
-  if (first instanceof HTMLElement) first.focus();
-}
-
-function updateOrderHeaderHeight() {
-  const root = orderEditRef.value;
-  const header = pageHeaderRef.value;
-  if (!(root instanceof HTMLElement) || !(header instanceof HTMLElement)) return;
-  root.style.setProperty("--order-header-height", `${Math.ceil(header.offsetHeight)}px`);
-}
-
-function moveFocusToNextField(current) {
-  const fields = getFormFocusableElements();
-  const index = fields.indexOf(current);
-  if (index < 0) return;
-  const next = fields[index + 1];
-  if (next instanceof HTMLElement) {
-    next.focus();
-    if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) {
-      next.select?.();
-    }
-  }
-}
-
-function onFormKeydown(event) {
-  if (event.key !== "Enter" || event.isComposing) return;
-  const target = event.target;
-  if (!isFormNavigableElement(target)) return;
-  if (target instanceof HTMLTextAreaElement && event.shiftKey) return;
-  event.preventDefault();
-  moveFocusToNextField(target);
-}
-
-async function saveOrder({ createNext = false } = {}) {
-  if (!form.value.customerId) {
-    alert("請先選擇客戶");
-    return false;
-  }
-  if (!isEdit.value && draftSiteAddressDuplicates.value.length) {
-    const firstDraft = draftSiteAddressDuplicates.value[0];
-    const shouldOpen = confirm("此安裝地點已有草稿，建議直接使用既有草稿，不需再新建。\n\n是否直接前往第一筆草稿？");
-    if (shouldOpen && firstDraft?.id) {
-      router.push({ name: "order-edit", params: { id: firstDraft.id } });
-    }
-    return false;
-  }
-  saving.value = true;
-  try {
-    const pricingSource = {
-      customerId: form.value.customerId,
-      customerName: form.value.customerName,
-      lineItems: (form.value.lineItems || []).map((li) => ({ ...li })),
-      pricePerCm: form.value.pricePerCm,
-      stones: (form.value.stones || []).map((stone) => ({ ...stone })),
-      orderNo: form.value.orderNo || "",
-    };
-    const payload = toPayload();
-    if (isEdit.value) {
-      await updateSalesOrder(route.params.id, payload);
-      if (createNext) {
-        await router.push({ name: "order-new" });
-        resetForNewOrder();
-        await nextTick();
-        focusFirstField();
-        alert("已更新，已切換到新建訂單");
-      } else {
-        alert("已更新");
+    if (!isEdit.value && draftSiteAddressDuplicates.value.length) {
+      if (silent) return false;
+      const firstDraft = draftSiteAddressDuplicates.value[0];
+      const shouldOpen = confirm("此安裝地點已有草稿，建議直接使用既有草稿，不需再新建。\n\n是否直接前往第一筆草稿？");
+      if (shouldOpen && firstDraft?.id) {
+        router.push({ name: "order-edit", params: { id: firstDraft.id } });
       }
-    } else {
-      const id = await createSalesOrder(payload);
-      if (createNext) {
-        resetForNewOrder();
-        if (route.name !== "order-new" || route.query.fromEstimate === "1") {
-          await router.replace({ name: "order-new" });
-        }
-        await nextTick();
-        focusFirstField();
-        alert(`已建立訂單 (id: ${id})，可直接輸入下一筆`);
-      } else {
-        alert(`已建立訂單 (id: ${id})`);
-        router.replace({ name: "order-edit", params: { id } });
-      }
+      return false;
     }
-    // 儲存客戶計價記憶：收集 lineItems 裡有 priceKey + unitPrice 的項目
-    if (pricingSource.customerId) {
-      const stonePrices = {};
-      const sinkPrices = {};
-      const stovePrices = {};
-      const specialPrices = {};
-      let defaultPpc = pricingSource.pricePerCm || null;
-      const today = new Date().toISOString().slice(0, 10);
-      const orderNo = pricingSource.orderNo || "";
 
-      const buckets = {
-        countertop: stonePrices,
-        sink: sinkPrices,
-        stove: stovePrices,
-        special: specialPrices,
-      };
-
-      for (const li of pricingSource.lineItems || []) {
-        if (!li.priceKey || !li.unitPrice) continue;
-        const bucket = buckets[li.category];
-        if (!bucket) continue;
-        bucket[li.priceKey] = {
-          lastPrice: Number(li.unitPrice),
-          lastDate: today,
-          lastOrderNo: orderNo,
+      saving.value = true;
+      try {
+        const pricingSource = {
+          customerId: form.value.customerId,
+          customerName: form.value.customerName,
+          lineItems: (form.value.lineItems || []).map((li) => ({ ...li })),
+          pricePerCm: form.value.pricePerCm,
+          stones: (form.value.stones || []).map((stone) => ({ ...stone })),
+          orderNo: form.value.orderNo || "",
         };
-        if (li.category === "countertop") defaultPpc = Number(li.unitPrice);
-      }
+        const payload = toPayload();
+        if (isEdit.value) {
+          await updateSalesOrder(route.params.id, payload);
+          lastSavedPayloadSignature.value = getPayloadSignature();
+          if (createNext) {
+            await router.push({ name: "order-new" });
+            resetForNewOrder();
+            await nextTick();
+            focusFirstField();
+            if (!silent) alert("已更新，已切換到新建訂單");
+          } else if (!silent) {
+            alert("已更新");
+          }
+        } else {
+          const id = await createSalesOrder(payload);
+          if (createNext) {
+            resetForNewOrder();
+            if (route.name !== "order-new" || route.query.fromEstimate === "1") {
+              await router.replace({ name: "order-new" });
+            }
+            await nextTick();
+            focusFirstField();
+            if (!silent) alert(`已建立訂單 (id: ${id})，可直接輸入下一筆`);
+          } else {
+            if (!silent) alert(`已建立訂單 (id: ${id})`);
+            router.replace({ name: "order-edit", params: { id } });
+          }
+        }
+        // 儲存客戶計價記憶：收集 lineItems 裡有 priceKey + unitPrice 的項目
+        if (pricingSource.customerId) {
+          const stonePrices = {};
+          const sinkPrices = {};
+          const stovePrices = {};
+          const specialPrices = {};
+          let defaultPpc = pricingSource.pricePerCm || null;
+          const today = new Date().toISOString().slice(0, 10);
+          const orderNo = pricingSource.orderNo || "";
 
-      // 舊路徑：若未使用 lineItems，仍用 pricePerCm + stones 記一筆
-      if (!pricingSource.lineItems?.length && pricingSource.pricePerCm) {
-        for (const s of pricingSource.stones || []) {
-          const key = [s.brand, s.color].filter(Boolean).join('/');
-          if (key) stonePrices[key] = {
-            lastPrice: Number(pricingSource.pricePerCm),
-            lastDate: today,
-            lastOrderNo: orderNo,
+          const buckets = {
+            countertop: stonePrices,
+            sink: sinkPrices,
+            stove: stovePrices,
+            special: specialPrices,
           };
-        }
-      }
 
-      const hasAny =
-        Object.keys(stonePrices).length ||
-        Object.keys(sinkPrices).length ||
-        Object.keys(stovePrices).length ||
-        Object.keys(specialPrices).length ||
-        defaultPpc;
-      if (hasAny) {
-        await updateCustomerPricing(pricingSource.customerId, {
-          customerName: pricingSource.customerName,
-          stonePrices, sinkPrices, stovePrices, specialPrices,
-          defaultPricePerCm: defaultPpc,
-        });
-        if (!createNext) {
-          customerPricing.value = await getCustomerPricing(pricingSource.customerId);
+          for (const li of pricingSource.lineItems || []) {
+            if (!li.priceKey || !li.unitPrice) continue;
+            const bucket = buckets[li.category];
+            if (!bucket) continue;
+            bucket[li.priceKey] = {
+              lastPrice: Number(li.unitPrice),
+              lastDate: today,
+              lastOrderNo: orderNo,
+            };
+            if (li.category === "countertop") defaultPpc = Number(li.unitPrice);
+          }
+
+          // 舊路徑：若未使用 lineItems，仍用 pricePerCm + stones 記一筆
+          if (!pricingSource.lineItems?.length && pricingSource.pricePerCm) {
+            for (const s of pricingSource.stones || []) {
+              const key = [s.brand, s.color].filter(Boolean).join('/');
+              if (key) stonePrices[key] = {
+                lastPrice: Number(pricingSource.pricePerCm),
+                lastDate: today,
+                lastOrderNo: orderNo,
+              };
+            }
+          }
+
+          const hasAny =
+            Object.keys(stonePrices).length ||
+            Object.keys(sinkPrices).length ||
+            Object.keys(stovePrices).length ||
+            Object.keys(specialPrices).length ||
+            defaultPpc;
+          if (hasAny) {
+            await updateCustomerPricing(pricingSource.customerId, {
+              customerName: pricingSource.customerName,
+              stonePrices, sinkPrices, stovePrices, specialPrices,
+              defaultPricePerCm: defaultPpc,
+            });
+            if (!createNext) {
+              customerPricing.value = await getCustomerPricing(pricingSource.customerId);
+            }
+          }
         }
+        return true;
+      } catch (e) {
+        console.error(e);
+        if (!silent) alert("儲存失敗：" + (e?.message || e));
+        return false;
+      } finally {
+        saving.value = false;
+        savePromise = null;
       }
-    }
-    return true;
-  } catch (e) {
-    console.error(e);
-    alert("儲存失敗：" + (e?.message || e));
-    return false;
-  } finally {
-    saving.value = false;
-  }
+    })();
+
+    return savePromise;
 }
 
 async function onSave() {
@@ -2321,6 +2287,7 @@ async function loadAll() {
         if (form.value.customerId) {
           customerPricing.value = await getCustomerPricing(form.value.customerId);
         }
+        lastSavedPayloadSignature.value = getPayloadSignature();
       }
     }
     if (isEdit.value) {
@@ -2373,6 +2340,15 @@ async function loadAll() {
   }
 }
 
+function triggerBestEffortEditAutoSave() {
+  if (!hasUnsavedEditChanges.value || saving.value) return;
+  void saveOrder({ silent: true }).catch(() => {});
+}
+
+function handleOrderEditPageHide() {
+  triggerBestEffortEditAutoSave();
+}
+
 onMounted(async () => {
   await loadAll();
   await nextTick();
@@ -2381,11 +2357,23 @@ onMounted(async () => {
     headerResizeObserver = new ResizeObserver(() => updateOrderHeaderHeight());
     headerResizeObserver.observe(pageHeaderRef.value);
   }
+  window.addEventListener("pagehide", handleOrderEditPageHide);
+  window.addEventListener("beforeunload", handleOrderEditPageHide);
 });
 
 onUnmounted(() => {
+  window.removeEventListener("pagehide", handleOrderEditPageHide);
+  window.removeEventListener("beforeunload", handleOrderEditPageHide);
   headerResizeObserver?.disconnect();
   headerResizeObserver = null;
+});
+
+onBeforeRouteLeave(async () => {
+  if (!hasUnsavedEditChanges.value) return true;
+  const saved = await saveOrder({ silent: true });
+  if (saved) return true;
+  alert("離開前自動儲存失敗，請先手動儲存。");
+  return false;
 });
 </script>
 

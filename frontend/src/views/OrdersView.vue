@@ -97,7 +97,7 @@
             :class="{ 'row-has-drawings': orderHasDrawings(o) }"
           >
             <td class="col-actions">
-              <template v-if="o._source !== 'Orders'">
+              <div class="actions-wrap">
                 <RouterLink class="btn-mini" :to="`/orders/${o.id}/edit`"
                   >編輯</RouterLink
                 >
@@ -121,15 +121,9 @@
                   :to="`/orders/${o.id}/drawing`"
                   >繪圖</RouterLink
                 >
-              </template>
-              <span
-                v-else
-                class="dim"
-                title="此為派車表匯入的舊訂單,僅供瀏覽;新流程訂單才支援編輯/繪圖"
-                >舊單</span
-              >
+              </div>
             </td>
-            <td class="col-staff">{{ o.templatingStaff || "—" }}</td>
+            <td class="col-staff">{{ fmtStaffWithMonthDay(o.templatingStaff, o.templatingDate) }}</td>
             <td class="col-staff">{{ o.drawingStaff || "—" }}</td>
             <td class="col-date">{{ fmtDate(o.orderedAt) }}</td>
             <td class="col-date">{{ fmtDate(o.promisedAt) }}</td>
@@ -240,10 +234,9 @@
 import { ref, onMounted } from "vue";
 import {
   listSalesOrders,
-  listOrders,
   listOrderDrawings,
   listOrderAttachments,
-  searchOrdersByOrderNo,
+  searchSalesOrdersByKeyword,
   updateSalesOrder,
   auth,
   getUserByUid,
@@ -262,7 +255,7 @@ const STATUS_LABEL = {
   cancelled: "已取消",
 };
 
-const loadLimit = 1000; // 拉大以避免被 legacy 鏡像佔滿前 N 名後過濾掉
+const loadLimit = 1000; // 首頁僅預載最近 salesOrders，搜尋再補查較舊資料
 const loading = ref(true);
 const rows = ref([]);
 const filtered = ref([]);
@@ -272,8 +265,8 @@ const canDispatch = ref(false);
 const keyword = ref("");
 const statusFilter = ref("");
 const sinkStatusFilter = ref("");
-const sortCol = ref("");
-const sortDir = ref(1); // 1=asc, -1=desc
+const sortCol = ref("updatedAt");
+const sortDir = ref(-1); // 1=asc, -1=desc
 let latestFilterRun = 0;
 let latestDrawingHydration = 0;
 
@@ -304,6 +297,10 @@ const STATUS_ORDER = [
 
 function sortVal(o, col) {
   switch (col) {
+    case "updatedAt": {
+      const d = parseDateValue(o.confirmationUpdatedAt || o.updatedAt || o.createdAt || o.orderedAt);
+      return d ? d.getTime() : 0;
+    }
     case "orderedAt": {
       const v = o.orderedAt;
       if (!v) return Infinity;
@@ -355,24 +352,9 @@ onMounted(async () => {
       isAdmin.value = userHasAnyRole(u, ["admin", "管理者"]);
       canDispatch.value = isAdmin.value || userHasAnyDept(u, ["1"]);
     }
-    const [so, lo] = await Promise.all([
-      listSalesOrders({ limit: loadLimit }).catch(() => []),
-      listOrders({ limit: loadLimit }).catch(() => []),
-    ]);
-    // 合併:salesOrders 在前 (ERP 新訂單), Orders 在後 (legacy);
-    // 以 orderNo 去重,同一訂單號以 salesOrders 為主
-    const seenNo = new Set();
-    const merged = [];
-    for (const o of so) {
-      if (o.orderNo) seenNo.add(String(o.orderNo));
-      merged.push(o);
-    }
-    for (const o of lo) {
-      if (o.orderNo && seenNo.has(String(o.orderNo))) continue;
-      merged.push(o);
-    }
-    rows.value = merged;
-    await hydrateDrawingFlags(merged);
+    const salesOrders = await listSalesOrders({ limit: loadLimit }).catch(() => []);
+    rows.value = salesOrders;
+    await hydrateDrawingFlags(salesOrders);
   } finally {
     loading.value = false;
     applyFilter();
@@ -383,7 +365,6 @@ async function hydrateDrawingFlags(list) {
   const candidates = list
     .filter(
       (order) =>
-        order._source !== "Orders" &&
         !order.hasDrawings &&
         !Object.keys(order.pendingSignDrawingVersions || {}).length,
     )
@@ -431,6 +412,7 @@ function matchesKeyword(order, kw) {
     order.orderNo,
     order.customerName,
     order.siteAddress,
+    order.searchableAddress,
     order.category,
     stonesText,
   ]
@@ -445,9 +427,11 @@ function matchesFilters(order, kw, st, sk) {
   return matchesKeyword(order, kw);
 }
 
-function shouldRemoteLookup(rawKeyword) {
+function shouldRemoteKeywordLookup(rawKeyword) {
   const clean = String(rawKeyword || "").trim();
-  return clean.length >= 4 && /^[A-Za-z0-9-]+$/.test(clean);
+  if (clean.length < 2) return false;
+  if (/^[A-Za-z0-9-]+$/.test(clean)) return clean.length >= 3;
+  return true;
 }
 
 function mergeUniqueOrders(...groups) {
@@ -455,7 +439,7 @@ function mergeUniqueOrders(...groups) {
   const seen = new Set();
   for (const group of groups) {
     for (const order of group) {
-      const key = `${order._source || "salesOrders"}:${order.id}`;
+      const key = String(order.id || "");
       if (seen.has(key)) continue;
       seen.add(key);
       merged.push(order);
@@ -486,13 +470,13 @@ async function applyFilter() {
 
   let result = rows.value.filter((order) => matchesFilters(order, kw, st, sk));
 
-  if (shouldRemoteLookup(rawKeyword)) {
-    const remoteMatches = await searchOrdersByOrderNo(rawKeyword, {
-      limit: 20,
-    }).catch((error) => {
-      console.warn("OrdersView: remote order lookup failed", error);
-      return [];
-    });
+  if (shouldRemoteKeywordLookup(rawKeyword)) {
+    const remoteMatches = await searchSalesOrdersByKeyword(rawKeyword, {
+        limit: 20,
+      }).catch((error) => {
+        console.warn("OrdersView: remote keyword lookup failed", error);
+        return [];
+      });
     if (filterRunId !== latestFilterRun) return;
     const filteredRemote = remoteMatches.filter((order) =>
       matchesFilters(order, kw, st, sk),
@@ -505,10 +489,6 @@ async function applyFilter() {
 }
 
 async function onStatusChange(order, newStatus) {
-  if (order._source === "Orders") {
-    alert("此為派車表匯入的舊訂單,無法在此修改狀態。請至原系統調整。");
-    return;
-  }
   const old = order.status;
   order.status = newStatus; // optimistic update
   try {
@@ -520,7 +500,7 @@ async function onStatusChange(order, newStatus) {
 }
 
 async function openOriginalDesign(order) {
-  if (!order?.id || order?._source === "Orders") {
+  if (!order?.id) {
     alert("此訂單不支援查看原圖檔。");
     return;
   }
@@ -565,24 +545,28 @@ function sinkBadges(order) {
     });
 }
 
+function parseDateValue(val) {
+  if (!val) return null;
+  if (val?.toDate) return val.toDate();
+  const n = Number(val);
+  if (!isNaN(n) && n > 0 && n < 100000) return new Date((n - 25569) * 86400 * 1000);
+  if (!isNaN(n) && n >= 1000000000000) return new Date(n);
+  return new Date(String(val).slice(0, 10));
+}
+
 function fmtDate(val) {
-  if (!val) return "—";
-  let d;
-  if (val?.toDate) {
-    d = val.toDate();
-  } else {
-    const n = Number(val);
-    if (!isNaN(n) && n > 0 && n < 100000) {
-      // Excel 序號（字串或數字皆可）：base = 1899-12-30
-      d = new Date((n - 25569) * 86400 * 1000);
-    } else if (!isNaN(n) && n >= 1000000000000) {
-      d = new Date(n); // Unix ms
-    } else {
-      d = new Date(String(val).slice(0, 10)); // "2026-05-24"
-    }
-  }
-  if (isNaN(d)) return "—";
-  return d.toLocaleDateString("zh-TW");
+  const d = parseDateValue(val);
+  return !d || isNaN(d) ? "" : d.toLocaleDateString("zh-TW");
+}
+
+function fmtMonthDay(val) {
+  const d = parseDateValue(val);
+  return !d || isNaN(d) ? "" : `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function fmtStaffWithMonthDay(staff, dateVal) {
+  const parts = [staff || "", fmtMonthDay(dateVal)].filter(Boolean);
+  return parts.join(" ") || "—";
 }
 </script>
 
@@ -630,8 +614,8 @@ function fmtDate(val) {
   overflow-x: auto;
 }
 .orders-table {
-  width: max(1760px, 100%);
-  min-width: 1760px;
+  width: max(1860px, 100%);
+  min-width: 1860px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 13.5px;
@@ -827,13 +811,15 @@ function fmtDate(val) {
   max-width: 76px;
 }
 .col-staff {
-  white-space: nowrap;
+  white-space: normal;
   color: #374151;
-  width: 64px;
-  min-width: 64px;
-  max-width: 64px;
+  width: 88px;
+  min-width: 88px;
+  max-width: 88px;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.35;
+  word-break: break-word;
 }
 .col-status {
   width: 70px;
@@ -852,9 +838,16 @@ function fmtDate(val) {
 }
 .col-actions {
   text-align: right;
-  width: 120px;
-  min-width: 120px;
-  max-width: 120px;
+  width: 172px;
+  min-width: 172px;
+  max-width: 172px;
+  white-space: normal;
+}
+.actions-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
 }
 .btn-mini {
   font-size: 12px;
