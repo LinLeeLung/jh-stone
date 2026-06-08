@@ -35,6 +35,22 @@
 
     <div class="review-layout">
       <aside class="panel">
+        <div class="panel-block drawing-shortcut">
+          <h3>本單繪圖</h3>
+          <div class="drawing-actions">
+            <RouterLink class="btn" :to="`/orders/${orderId}/drawing`">前往繪圖</RouterLink>
+            <a
+              class="btn"
+              :href="`/orders/${orderId}/drawing`"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              另開繪圖
+            </a>
+            <button class="btn" type="button" @click="openDrawingSplitView">並排開啟</button>
+          </div>
+        </div>
+
         <h2>對圖檢核</h2>
         <div class="checklist-head muted">
           已完成 {{ checklistDoneCount }} / {{ checklistItems.length }}
@@ -271,7 +287,7 @@
 
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, nextTick } from "vue";
-import { useRoute, RouterLink } from "vue-router";
+import { useRoute, useRouter, RouterLink } from "vue-router";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import {
@@ -285,7 +301,28 @@ import {
 } from "../../firebase";
 
 const route = useRoute();
+const router = useRouter();
 const orderId = computed(() => String(route.params.id || ""));
+
+function openDrawingSplitView() {
+  if (!orderId.value) return;
+  const resolved = router.resolve({ name: "order-drawing", params: { id: orderId.value } });
+  const width = Math.max(980, Math.round(window.innerWidth * 0.58));
+  const height = Math.max(700, Math.round(window.innerHeight * 0.9));
+  const left = Math.max(0, window.screenX + (window.outerWidth - width));
+  const top = Math.max(0, window.screenY + 40);
+  const features = [
+    "noopener=yes",
+    "noreferrer=yes",
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+    "resizable=yes",
+    "scrollbars=yes",
+  ].join(",");
+  window.open(resolved.href, "order-drawing-split", features);
+}
 
 const order = ref(null);
 const designFiles = ref([]);
@@ -1324,6 +1361,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .review-page {
   padding: 12px;
+  min-height: 100vh;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .review-header {
   display: flex;
@@ -1358,6 +1401,9 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .panel,
 .canvas-section {
@@ -1365,21 +1411,41 @@ onBeforeUnmount(() => {
   border: 1px solid #dbe1e8;
   border-radius: 10px;
   padding: 12px;
+  min-height: 0;
+}
+.panel {
+  overflow: auto;
+}
+.canvas-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .canvas-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 .canvas-main {
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .tools-side {
   border-left: 1px dashed #dbe1e8;
   padding-left: 12px;
-  position: sticky;
-  top: 8px;
+  position: relative;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
 }
 .panel h2,
 .panel h3 {
@@ -1441,6 +1507,19 @@ textarea {
 .panel-block {
   margin-top: 12px;
 }
+.drawing-shortcut {
+  margin-top: 0;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.drawing-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .thumb {
   width: 100%;
   border: 1px solid #e5e7eb;
@@ -1449,8 +1528,10 @@ textarea {
 .image-canvas-wrap {
   position: relative;
   width: 100%;
-  min-height: 300px;
+  min-height: 0;
+  flex: 1;
   overflow: auto;
+  direction: ltr;
   border: 1px solid #e5e7eb;
   background: #fafafa;
 }
@@ -1588,11 +1669,17 @@ textarea {
 }
 
 @media (max-width: 900px) {
+  .review-page {
+    min-height: auto;
+    overflow: visible;
+  }
   .review-layout {
     grid-template-columns: 1fr;
+    min-height: auto;
   }
   .canvas-body {
     grid-template-columns: 1fr;
+    height: auto;
   }
   .tools-side {
     border-left: none;
@@ -1600,6 +1687,14 @@ textarea {
     padding-left: 0;
     padding-top: 10px;
     position: static;
+  }
+  .panel,
+  .canvas-section {
+    overflow: visible;
+  }
+  .image-canvas-wrap {
+    min-height: 300px;
+    flex: none;
   }
 }
 </style>
