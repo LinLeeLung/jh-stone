@@ -726,6 +726,7 @@ const props = defineProps({
 
 const saving = ref(false);
 const saveMsg = ref("");
+const savedSignature = ref("");
 
 const svgContainerRef = ref(null);
 let draw = null;
@@ -924,6 +925,20 @@ function getSnapshot() {
   };
 }
 
+function getStateSignature() {
+  const snap = getSnapshot();
+  const { svgContent, ...stateOnly } = snap;
+  return JSON.stringify(stateOnly);
+}
+
+function hasUnsavedChanges() {
+  if (!props.orderId || !props.drawingId) return false;
+  if (!savedSignature.value) return false;
+  return getStateSignature() !== savedSignature.value;
+}
+
+defineExpose({ hasUnsavedChanges });
+
 function restoreSnapshot(snap) {
   if (!snap) return;
   if (Array.isArray(snap.midCabins)) midCabins.value = [...snap.midCabins];
@@ -1003,6 +1018,7 @@ async function saveDrawing() {
   saving.value = true;
   try {
     await updateOrderDrawing(props.orderId, props.drawingId, getSnapshot());
+    savedSignature.value = getStateSignature();
     saveMsg.value = "✓ 已儲存";
     setTimeout(() => {
       saveMsg.value = "";
@@ -1023,6 +1039,7 @@ onMounted(() => {
     preFillFromOrder(props.order);
   }
   redraw();
+  savedSignature.value = getStateSignature();
   document.addEventListener("paste", onPaste);
 });
 onUnmounted(() => {

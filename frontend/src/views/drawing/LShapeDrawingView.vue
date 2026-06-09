@@ -1,5 +1,12 @@
 <template>
   <div class="drawing-page">
+    <div v-if="props.orderId" class="save-bar">
+      <button class="btn-save" :disabled="saving" @click="saveDrawing">
+        {{ saving ? "儲存中…" : "💾 儲存繪圖" }}
+      </button>
+      <span v-if="saveMsg" class="save-msg">{{ saveMsg }}</span>
+    </div>
+
     <!-- 轉角歸屬（接線位置） -->
     <div class="row corner-row">
       <button
@@ -544,6 +551,18 @@
 <script setup>
 import { ref, reactive, onMounted } from "vue";
 import { SVG } from "@svgdotjs/svg.js";
+import { updateOrderDrawing } from "../../firebase";
+
+const props = defineProps({
+  orderId: { type: String, default: null },
+  drawingId: { type: String, default: null },
+  savedState: { type: Object, default: null },
+  order: { type: Object, default: null },
+});
+
+const saving = ref(false);
+const saveMsg = ref("");
+const savedSignature = ref("");
 
 const svgContainerRef = ref(null);
 let draw = null;
@@ -625,10 +644,135 @@ const ORIGIN_X = 200;
 const ORIGIN_Y = 120;
 const TABLETOP_THICKNESS = 4;
 
+function getSnapshot() {
+  return {
+    leftCabins: [...leftCabins.value],
+    leftDepth: leftDepth.value,
+    leftPlus: leftPlus.value,
+    leftConnect: leftConnect.value,
+    leftCutToggled: leftCutToggled.value,
+    rightCabins: [...rightCabins.value],
+    rightDepth: rightDepth.value,
+    rightPlus: rightPlus.value,
+    rightConnect: rightConnect.value,
+    rightCutToggled: rightCutToggled.value,
+    cornerSide: cornerSide.value,
+    leftSinks: leftSinks.map((s) => ({ ...s })),
+    leftStoves: leftStoves.map((s) => ({ ...s })),
+    rightSinks: rightSinks.map((s) => ({ ...s })),
+    rightStoves: rightStoves.map((s) => ({ ...s })),
+    leftEnd: leftEnd.value,
+    leftEndDepth: leftEndDepth.value,
+    leftSideLeg: { ...leftSideLeg },
+    rightSideLeg: { ...rightSideLeg },
+    rightEnd: rightEnd.value,
+    rightEndDepth: rightEndDepth.value,
+    backOption: backOption.value,
+    backstop: backstop.value,
+    backHeight: backHeight.value,
+    svgContent: draw ? draw.svg() : "",
+  };
+}
+
+function getStateSignature() {
+  const snap = getSnapshot();
+  const { svgContent, ...stateOnly } = snap;
+  return JSON.stringify(stateOnly);
+}
+
+function hasUnsavedChanges() {
+  if (!props.orderId || !props.drawingId) return false;
+  if (!savedSignature.value) return false;
+  return getStateSignature() !== savedSignature.value;
+}
+
+defineExpose({ hasUnsavedChanges });
+
+function restoreSnapshot(snap) {
+  if (!snap) return;
+  if (Array.isArray(snap.leftCabins)) leftCabins.value = [...snap.leftCabins];
+  if (snap.leftDepth != null) leftDepth.value = snap.leftDepth;
+  if (snap.leftPlus != null) leftPlus.value = snap.leftPlus;
+  if (snap.leftConnect != null) leftConnect.value = snap.leftConnect;
+  if (snap.leftCutToggled != null) leftCutToggled.value = snap.leftCutToggled;
+  if (Array.isArray(snap.rightCabins)) rightCabins.value = [...snap.rightCabins];
+  if (snap.rightDepth != null) rightDepth.value = snap.rightDepth;
+  if (snap.rightPlus != null) rightPlus.value = snap.rightPlus;
+  if (snap.rightConnect != null) rightConnect.value = snap.rightConnect;
+  if (snap.rightCutToggled != null)
+    rightCutToggled.value = snap.rightCutToggled;
+  if (snap.cornerSide !== undefined) cornerSide.value = snap.cornerSide;
+  if (snap.leftEnd != null) leftEnd.value = snap.leftEnd;
+  if (snap.leftEndDepth != null) leftEndDepth.value = snap.leftEndDepth;
+  if (snap.rightEnd != null) rightEnd.value = snap.rightEnd;
+  if (snap.rightEndDepth != null) rightEndDepth.value = snap.rightEndDepth;
+  if (snap.backOption != null) backOption.value = snap.backOption;
+  if (snap.backstop != null) backstop.value = snap.backstop;
+  if (snap.backHeight != null) backHeight.value = snap.backHeight;
+  if (snap.leftSideLeg && typeof snap.leftSideLeg === "object") {
+    Object.assign(leftSideLeg, snap.leftSideLeg);
+  }
+  if (snap.rightSideLeg && typeof snap.rightSideLeg === "object") {
+    Object.assign(rightSideLeg, snap.rightSideLeg);
+  }
+
+  const restoreArr = (snapArr, target) => {
+    if (!Array.isArray(snapArr)) return;
+    snapArr.forEach((s, i) => {
+      if (target[i]) Object.assign(target[i], s);
+    });
+  };
+  restoreArr(snap.leftSinks, leftSinks);
+  restoreArr(snap.leftStoves, leftStoves);
+  restoreArr(snap.rightSinks, rightSinks);
+  restoreArr(snap.rightStoves, rightStoves);
+}
+
+function preFillFromOrder(ord) {
+  if (!ord) return;
+  const s1 = ord.sinks?.[0];
+  if (s1) {
+    leftSinks[0].enabled = true;
+    if (s1.holeWidthMm) leftSinks[0].sinkLength = s1.holeWidthMm / 10;
+    if (s1.holeDepthMm) leftSinks[0].sinkDepth = s1.holeDepthMm / 10;
+    if (s1.holeRadiusMm) leftSinks[0].R = s1.holeRadiusMm / 10;
+  }
+  const s2 = ord.sinks?.[1];
+  if (s2) {
+    rightSinks[0].enabled = true;
+    if (s2.holeWidthMm) rightSinks[0].sinkLength = s2.holeWidthMm / 10;
+    if (s2.holeDepthMm) rightSinks[0].sinkDepth = s2.holeDepthMm / 10;
+    if (s2.holeRadiusMm) rightSinks[0].R = s2.holeRadiusMm / 10;
+  }
+}
+
+async function saveDrawing() {
+  if (!props.orderId || !props.drawingId) return;
+  saving.value = true;
+  try {
+    await updateOrderDrawing(props.orderId, props.drawingId, getSnapshot());
+    savedSignature.value = getStateSignature();
+    saveMsg.value = "✓ 已儲存";
+    setTimeout(() => {
+      saveMsg.value = "";
+    }, 2000);
+  } catch (e) {
+    saveMsg.value = "儲存失敗";
+  } finally {
+    saving.value = false;
+  }
+}
+
 // ─── 生命週期 ────────────────────────────────────────────
 onMounted(() => {
   draw = SVG().addTo(svgContainerRef.value).size(1400, 900);
+  if (props.savedState) {
+    restoreSnapshot(props.savedState);
+  } else if (props.order) {
+    preFillFromOrder(props.order);
+  }
   redraw();
+  savedSignature.value = getStateSignature();
 });
 
 // ─── 工具 ────────────────────────────────────────────────
@@ -1623,6 +1767,28 @@ input[type="radio"] {
 .drawing-page {
   padding: 10px;
   font-size: 14px;
+}
+.save-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.btn-save {
+  background: #1f4bb8;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.save-msg {
+  color: #2d7d46;
+  font-size: 13px;
 }
 .row {
   display: flex;

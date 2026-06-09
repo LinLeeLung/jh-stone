@@ -530,8 +530,9 @@ async function getPdfJs() {
 async function getPdfWasmUrl() {
   if (!_pdfWasmUrlPromise) {
     _pdfWasmUrlPromise = (async () => {
-      const jbig2WasmUrl = (await import("pdfjs-dist/wasm/jbig2.wasm?url")).default;
-      return String(jbig2WasmUrl || "").replace(/jbig2\.wasm(?:\?.*)?$/i, "");
+      const base = String(import.meta.env.BASE_URL || "/");
+      const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+      return `${normalizedBase}pdfjs/`;
     })();
   }
   return _pdfWasmUrlPromise;

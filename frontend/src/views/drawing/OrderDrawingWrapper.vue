@@ -64,6 +64,7 @@
     <!-- 繪圖 canvas 區 -->
     <div class="drawing-canvas-area" v-if="currentDrawing">
       <component
+        ref="drawingViewRef"
         :is="drawingComponent"
         :key="currentId"
         :order="order"
@@ -77,7 +78,7 @@
 
 <script setup>
 import { ref, computed, onMounted, defineAsyncComponent } from "vue";
-import { useRoute, RouterLink } from "vue-router";
+import { useRoute, RouterLink, onBeforeRouteLeave } from "vue-router";
 import {
   getSalesOrder,
   listOrderDrawings,
@@ -93,6 +94,7 @@ const drawings = ref([]);
 const currentId = ref(null);
 const loading = ref(true);
 const showAddMenu = ref(false);
+const drawingViewRef = ref(null);
 
 const DRAWING_TYPES = [
   { type: "straight", label: "一字型" },
@@ -143,6 +145,21 @@ const stoneLabel = computed(() => {
   return [s.brand, s.color].filter(Boolean).join(" ");
 });
 
+function currentDrawingHasUnsavedChanges() {
+  const vm = drawingViewRef.value;
+  if (!vm || typeof vm.hasUnsavedChanges !== "function") return false;
+  try {
+    return vm.hasUnsavedChanges();
+  } catch {
+    return false;
+  }
+}
+
+function confirmDiscardChanges() {
+  if (!currentDrawingHasUnsavedChanges()) return true;
+  return window.confirm("目前有未儲存變更，確定要離開嗎？");
+}
+
 function typeLabel(type) {
   const normalized = normalizeDrawingType(type);
   return DRAWING_TYPES.find((t) => t.type === normalized)?.label ?? type;
@@ -166,6 +183,7 @@ async function loadAll() {
 }
 
 async function addDrawing(type) {
+  if (!confirmDiscardChanges()) return;
   showAddMenu.value = false;
   const id = await createOrderDrawing(orderId.value, type);
   await loadAll();
@@ -173,10 +191,13 @@ async function addDrawing(type) {
 }
 
 function selectDrawing(id) {
+  if (id === currentId.value) return;
+  if (!confirmDiscardChanges()) return;
   currentId.value = id;
 }
 
 async function confirmDelete(d) {
+  if (d.id === currentId.value && !confirmDiscardChanges()) return;
   if (!confirm(`確定刪除「${typeLabel(d.type)} #${d.seq}」？`)) return;
   await deleteOrderDrawing(orderId.value, d.id);
   if (currentId.value === d.id) currentId.value = null;
@@ -184,6 +205,11 @@ async function confirmDelete(d) {
 }
 
 onMounted(loadAll);
+
+onBeforeRouteLeave(() => {
+  if (!confirmDiscardChanges()) return false;
+  return true;
+});
 </script>
 
 <style scoped>

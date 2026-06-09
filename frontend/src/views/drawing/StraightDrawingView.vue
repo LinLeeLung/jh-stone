@@ -716,6 +716,7 @@ const props = defineProps({
 
 const saving = ref(false);
 const saveMsg = ref("");
+const savedSignature = ref("");
 
 // ─── SVG 繪圖用模組級變數（非響應式，每次 redraw 前更新）───
 let draw = null;
@@ -885,6 +886,20 @@ function getSnapshot() {
   };
 }
 
+function getStateSignature() {
+  const snap = getSnapshot();
+  const { svgContent, ...stateOnly } = snap;
+  return JSON.stringify(stateOnly);
+}
+
+function hasUnsavedChanges() {
+  if (!props.orderId || !props.drawingId) return false;
+  if (!savedSignature.value) return false;
+  return getStateSignature() !== savedSignature.value;
+}
+
+defineExpose({ hasUnsavedChanges });
+
 function restoreSnapshot(snap) {
   if (!snap) return;
   if (Array.isArray(snap.cabins)) cabins.value = [...snap.cabins];
@@ -972,6 +987,7 @@ async function saveDrawing() {
   saving.value = true;
   try {
     await updateOrderDrawing(props.orderId, props.drawingId, getSnapshot());
+    savedSignature.value = getStateSignature();
     saveMsg.value = "✓ 已儲存";
     setTimeout(() => {
       saveMsg.value = "";
@@ -993,6 +1009,7 @@ onMounted(() => {
     preFillFromOrder(props.order);
   }
   redraw();
+  savedSignature.value = getStateSignature();
 });
 
 // ─── 事件處理 ──────────────────────────────────────────────────

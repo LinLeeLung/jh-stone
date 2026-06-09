@@ -50,6 +50,13 @@ export default defineConfig({
             2,
           ),
         });
+        this.emitFile({
+          type: "asset",
+          fileName: "pdfjs/jbig2.wasm",
+          source: readFileSync(
+            resolve(process.cwd(), "node_modules/pdfjs-dist/wasm/jbig2.wasm"),
+          ),
+        });
       },
     },
   ],

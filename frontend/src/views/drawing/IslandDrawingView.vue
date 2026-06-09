@@ -695,6 +695,7 @@ const sinks = reactive(createDefaultSinks());
 const stoves = reactive(createDefaultStoves());
 const saving = ref(false);
 const saveMsg = ref("");
+const savedSignature = ref("");
 const svgContainerRef = ref(null);
 let draw = null;
 let draftPersistTimer = null;
@@ -714,6 +715,7 @@ onMounted(() => {
   }
   refreshPresetStatus();
   redraw();
+  savedSignature.value = getStateSignature();
 });
 
 onBeforeUnmount(() => {
@@ -750,6 +752,20 @@ function getSnapshot() {
     svgContent: draw ? getTightSvg(draw) : "",
   };
 }
+
+function getStateSignature() {
+  const snap = getSnapshot();
+  const { svgContent, ...stateOnly } = snap;
+  return JSON.stringify(stateOnly);
+}
+
+function hasUnsavedChanges() {
+  if (!props.orderId || !props.drawingId) return false;
+  if (!savedSignature.value) return false;
+  return getStateSignature() !== savedSignature.value;
+}
+
+defineExpose({ hasUnsavedChanges });
 
 function restoreSnapshot(snapshot) {
   if (!snapshot) return;
@@ -831,6 +847,7 @@ async function saveDrawing() {
   saving.value = true;
   try {
     await updateOrderDrawing(props.orderId, props.drawingId, getSnapshot());
+    savedSignature.value = getStateSignature();
     saveMsg.value = "✓ 已儲存";
     setTimeout(() => {
       saveMsg.value = "";
