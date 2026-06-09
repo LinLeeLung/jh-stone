@@ -320,13 +320,7 @@
                     </tr>
                     <tr>
                       <td class="lbl">圖面傳真</td>
-                      <td colspan="3">
-                        <input
-                          v-model="cf.faxNo"
-                          class="ii full"
-                          @change="markDirty"
-                        />
-                      </td>
+                      <td class="val" colspan="3">{{ customerFaxDisplay }}</td>
                     </tr>
                     <tr>
                       <td class="lbl">備　　註</td>
@@ -347,21 +341,6 @@
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">實際交貨日</td>
-                      <td colspan="3">
-                        <span v-if="pdfGenerating" class="ii full">{{
-                          cf.actualDelivery || ""
-                        }}</span>
-                        <input
-                          v-else
-                          v-model="cf.actualDelivery"
-                          type="date"
-                          class="ii full"
-                          @change="markDirty"
-                        />
-                      </td>
-                    </tr>
-                    <tr>
                       <td class="lbl">{{ stoneTypeLbl }}</td>
                       <td class="val" colspan="3">
                         <div v-for="(c, i) in stoneColors" :key="i">
@@ -369,72 +348,44 @@
                         </div>
                       </td>
                     </tr>
-                    <tr>
+                    <tr class="edge-row">
                       <td class="lbl">前沿<br />造型</td>
                       <td colspan="3" class="edge-cell">
-                        <div class="edge-row">
-                          <div
-                            class="edge-opt"
-                            :class="{ checked: cf.edgeType === 'round' }"
-                            @click="
-                              cf.edgeType = 'round';
-                              markDirty();
-                            "
-                          >
-                            <svg width="44" height="26" viewBox="0 0 54 32">
-                              <path
-                                d="M4,2 L40,2 Q50,2 50,12 L50,30 L4,30 Z"
-                                fill="#e0e0e0"
-                                stroke="#444"
-                                stroke-width="1.5"
-                              />
-                            </svg>
-                            <div class="edge-lbl">3mm圓角</div>
-                          </div>
-                          <div
-                            class="edge-opt"
-                            :class="{ checked: cf.edgeType === 'bevel' }"
+                        <div class="edge-choice-list">
+                          <button
+                            type="button"
+                            class="edge-choice"
+                            :class="{ active: cf.edgeType === 'bevel' }"
                             @click="
                               cf.edgeType = 'bevel';
                               markDirty();
                             "
                           >
-                            <svg width="44" height="26" viewBox="0 0 54 32">
-                              <path
-                                d="M4,2 L40,2 L50,12 L50,30 L4,30 Z"
-                                fill="#e0e0e0"
-                                stroke="#444"
-                                stroke-width="1.5"
-                              />
-                            </svg>
-                            <div class="edge-lbl">3mm斜角</div>
-                          </div>
-                          <div
-                            class="edge-opt"
-                            :class="{ checked: cf.edgeType === 'dull' }"
+                            <span class="edge-choice-shape">△</span>
+                            <span class="edge-choice-mark">（{{ cf.edgeType === 'bevel' ? '✓' : '　' }}）</span>
+                            <span class="edge-choice-label">3mm斜角</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="edge-choice"
+                            :class="{ active: cf.edgeType === 'round' }"
                             @click="
-                              cf.edgeType = 'dull';
+                              cf.edgeType = 'round';
                               markDirty();
                             "
                           >
-                            <svg width="44" height="26" viewBox="0 0 54 32">
-                              <path
-                                d="M4,2 L48,2 L50,4 L50,30 L4,30 Z"
-                                fill="#e0e0e0"
-                                stroke="#444"
-                                stroke-width="1.5"
-                              />
-                            </svg>
-                            <div class="edge-lbl">1mm磨不利</div>
-                          </div>
+                            <span class="edge-choice-shape">○</span>
+                            <span class="edge-choice-mark">（{{ cf.edgeType === 'round' ? '✓' : '　' }}）</span>
+                            <span class="edge-choice-label">3mm圓角</span>
+                          </button>
                         </div>
                       </td>
                     </tr>
                   </table>
 
                   <!-- 套板截面 -->
-                  <div class="sub-section">
-                    <div class="section-head">套板截面</div>
+                  <div class="sub-section sub-section-panel">
+                    <div class="section-head section-head-panel">套板截面</div>
                     <div class="panel-row">
                       <div
                         class="panel-opt"
@@ -445,8 +396,8 @@
                         "
                       >
                         <svg
-                          width="56"
-                          height="42"
+                          width="92"
+                          height="62"
                           viewBox="0 0 60 44"
                           overflow="visible"
                         >
@@ -462,7 +413,7 @@
                                 y1="4"
                                 x2="4"
                                 y2="0"
-                                stroke="#b55"
+                                stroke="#000"
                                 stroke-width="0.8"
                               />
                             </pattern>
@@ -470,7 +421,7 @@
                           <polygon
                             points="5,16 57,16 53,22 5,22"
                             fill="#e0e0e0"
-                            stroke="#444"
+                            stroke="#000"
                             stroke-width="1"
                           />
                           <rect
@@ -479,7 +430,7 @@
                             width="8"
                             height="8"
                             fill="#d0d0d0"
-                            stroke="#444"
+                            stroke="#000"
                             stroke-width="1"
                           />
                           <!-- 桶身空間（倒包左側，全高） -->
@@ -489,7 +440,7 @@
                             width="40"
                             height="8"
                             fill="url(#diag)"
-                            stroke="#888"
+                            stroke="#000"
                             stroke-width="0.5"
                           />
                           <!-- 桶身空間（倒包上方） -->
@@ -499,7 +450,7 @@
                             width="8"
                             height="5"
                             fill="url(#diag)"
-                            stroke="#888"
+                            stroke="#000"
                             stroke-width="0.5"
                           />
                           <!-- 倒包石材（橫放 4cm=8px，在底部遮木板） -->
@@ -509,13 +460,13 @@
                             width="8"
                             height="3"
                             fill="#d0d0d0"
-                            stroke="#444"
+                            stroke="#000"
                             stroke-width="1"
                           />
                           <polygon
                             points="53,22 57,16 57,30 53,30"
                             fill="#d0d0d0"
-                            stroke="#444"
+                            stroke="#000"
                             stroke-width="1"
                           />
                         </svg>
@@ -530,30 +481,28 @@
                   <div class="section-head">水槽</div>
                   <table class="detail-tbl">
                     <colgroup>
-                      <col style="width: 40%" />
-                      <col style="width: 13%" />
-                      <col style="width: 13%" />
-                      <col style="width: 14%" />
                       <col style="width: 20%" />
+                      <col style="width: 28%" />
+                      <col style="width: 18%" />
+                      <col style="width: 18%" />
+                      <col style="width: 16%" />
                     </colgroup>
                     <thead>
                       <tr>
+                        <th>工法</th>
                         <th>品名</th>
                         <th>長</th>
                         <th>寬</th>
                         <th>配件</th>
-                        <th>工法</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr v-for="s in paddedSinks" :key="s._i">
+                        <td>{{ s.method || "" }}</td>
                         <td>{{ s.model || "" }}</td>
                         <td>{{ s.holeWidthMm || "" }}</td>
                         <td>{{ s.holeDepthMm || "" }}</td>
-                        <td>
-                          {{ s.model ? (s.hasAccessory ? "有" : "無") : "" }}
-                        </td>
-                        <td>{{ s.method || "" }}</td>
+                        <td>{{ sinkAccessoryLabel(s) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -563,28 +512,28 @@
                   <div class="section-head">爐子</div>
                   <table class="detail-tbl">
                     <colgroup>
-                      <col style="width: 40%" />
-                      <col style="width: 13%" />
-                      <col style="width: 13%" />
-                      <col style="width: 14%" />
                       <col style="width: 20%" />
+                      <col style="width: 28%" />
+                      <col style="width: 18%" />
+                      <col style="width: 18%" />
+                      <col style="width: 16%" />
                     </colgroup>
                     <thead>
                       <tr>
+                        <th>工法</th>
                         <th>品名</th>
                         <th>長</th>
                         <th>寬</th>
                         <th>R角</th>
-                        <th>工法</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr v-for="s in paddedStoves" :key="s._i">
+                        <td>{{ s.method || "" }}</td>
                         <td>{{ s.model || "" }}</td>
                         <td>{{ s.holeWidthMm || "" }}</td>
                         <td>{{ s.holeDepthMm || "" }}</td>
                         <td>{{ s.holeRadiusMm || "" }}</td>
-                        <td>{{ s.method || "" }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -616,8 +565,10 @@
 
             <!-- 交期說明 -->
             <div class="notice-row">
-              📢
-              交期為回簽後7個工作天，圖面未簽回無法生產，為避免延誤貴公司交期，麻煩請盡速回簽。如造成急單須收急單費5～7%
+              <span class="notice-icon">📢</span>
+              <span class="notice-text"
+                >交期為回簽後7個工作天，圖面未簽回無法生產，為避免延誤貴公司交期，麻煩請盡速回簽。如造成急單須收急單費5～7%</span
+              >
             </div>
 
             <!-- 底部：注意 + 計價區 + 未稅價 + 計價區 + 客戶簽名 -->
@@ -1049,6 +1000,7 @@ import {
   getCustomerById,
   getCustomerPricing,
   getUserByUid,
+  listStamps,
   listOrderDrawings,
   getOrderConfirmation,
   saveOrderConfirmation,
@@ -1071,6 +1023,20 @@ const orderRemarkDisplay = computed(() => {
     .map((value) => String(value || "").trim())
     .filter(Boolean);
   return [...new Set(lines)].join("\n");
+});
+
+const customerFaxDisplay = computed(() => {
+  const candidates = [
+    order.value?.customerFax,
+    customer.value?.fax,
+    customer.value?.contactFax,
+    order.value?.customerContact?.fax,
+  ];
+  for (const value of candidates) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
 });
 
 // 未稅價顯示：優先取 subtotal（lineItems 小計）→ total（手動輸入）→ lineItems 加總 → grandTotal
@@ -1208,6 +1174,14 @@ function pad(arr, n) {
   while (r.length < n) r.push({ _i: r.length });
   return r;
 }
+
+function sinkAccessoryLabel(sink = {}) {
+  if (!sink?.model) return "";
+  if (sink.hasAccessory === true) return "有";
+  if (sink.hasAccessory === false) return "無";
+  return "";
+}
+
 const paddedSinks = computed(() => pad(order.value?.sinks, 3));
 const paddedStoves = computed(() => pad(order.value?.stoves, 2));
 
@@ -1234,6 +1208,12 @@ const A4_WIDTH_MM = 297;
 const A4_HEIGHT_MM = 210;
 const A4_WIDTH_PX = 1123;
 const A4_HEIGHT_PX = 794;
+const SNAPSHOT_RENDER_SCALE = 5;
+const CONFIRMED_PDF_MAX_BYTES = 3 * 1024 * 1024;
+const PDF_RENDER_SCALE_CANDIDATES = [3, 2, 1];
+const PDF_JPEG_QUALITY_CANDIDATES = [0.82, 0.74, 0.66, 0.58, 0.5, 0.42];
+const ENABLE_EXPORT_READABLE_STYLE = false;
+const DEFAULT_SINK_METHOD_STAMP_NAME = "選水槽下嵌做法";
 const measurementScale = ref(1);
 const measurementScaleText = computed(() => `x${measurementScale.value.toFixed(3)}`);
 function getMeasurementMm(start, end) {
@@ -1257,6 +1237,64 @@ function formatMeasurementLabel(shape) {
   );
   const cm = mmToCm(mm);
   return cm === "" ? "" : `${cm} CM`;
+}
+
+async function renderConfirmedCanvas(el, w, h, baseScale) {
+  // Ensure webfonts are fully ready; otherwise html2canvas may rasterize fallback fonts.
+  if (typeof document !== "undefined" && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  const dpr = Math.max(1, Math.ceil(Number(window?.devicePixelRatio || 1)));
+  const renderScale = Math.max(1, Math.ceil(Math.max(baseScale, dpr)));
+
+  const commonOptions = {
+    scale: renderScale,
+    useCORS: true,
+    allowTaint: true,
+    logging: false,
+    backgroundColor: "#fff",
+    width: w,
+    height: h,
+    windowWidth: w,
+    windowHeight: h,
+    removeContainer: true,
+  };
+
+  if (ENABLE_EXPORT_READABLE_STYLE) {
+    el.classList.add("export-readable");
+  }
+  try {
+    // foreignObjectRendering can produce a blank canvas in some browser/GPU setups.
+    // Try high-fidelity mode first, then fall back to standard renderer.
+    try {
+      const canvas = await html2canvas(el, {
+        ...commonOptions,
+        foreignObjectRendering: true,
+      });
+      const ctx = canvas.getContext("2d");
+      const pixels = ctx?.getImageData(0, 0, 1, 1)?.data;
+      const isProbablyBlank =
+        !pixels ||
+        (pixels[0] >= 245 && pixels[1] >= 245 && pixels[2] >= 245 && pixels[3] >= 250);
+      if (!isProbablyBlank) return canvas;
+    } catch (_) {
+      // Ignore and retry with default renderer below.
+    }
+
+    return await html2canvas(el, {
+      ...commonOptions,
+      foreignObjectRendering: false,
+    });
+  } finally {
+    if (ENABLE_EXPORT_READABLE_STYLE) {
+      el.classList.remove("export-readable");
+    }
+  }
 }
 function drawMeasurementArrowheads(ctx, start, end, color, width) {
   const dx = end.x - start.x;
@@ -1585,6 +1623,60 @@ function downloadBlob(blob, fileName) {
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+function playSnapshotShutterSound() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = "highpass";
+    noiseFilter.frequency.setValueAtTime(1800, now);
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.9, now + 0.004);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+
+    const toneOsc = ctx.createOscillator();
+    toneOsc.type = "triangle";
+    toneOsc.frequency.setValueAtTime(750, now);
+    toneOsc.frequency.exponentialRampToValueAtTime(520, now + 0.06);
+
+    const toneGain = ctx.createGain();
+    toneGain.gain.setValueAtTime(0.0001, now);
+    toneGain.gain.exponentialRampToValueAtTime(0.24, now + 0.006);
+    toneGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+
+    noiseSource.connect(noiseFilter).connect(noiseGain).connect(ctx.destination);
+    toneOsc.connect(toneGain).connect(ctx.destination);
+
+    noiseSource.start(now);
+    noiseSource.stop(now + 0.09);
+    toneOsc.start(now);
+    toneOsc.stop(now + 0.09);
+
+    window.setTimeout(() => {
+      try {
+        ctx.close();
+      } catch (_) {
+        // ignore
+      }
+    }, 180);
+  } catch (_) {
+    // ignore audio errors so snapshot flow is never blocked
+  }
+}
 async function buildConfirmedSnapshotCanvas() {
   if (textBox.value.visible) {
     throw new Error("請先完成文字編輯再快照");
@@ -1604,17 +1696,7 @@ async function buildConfirmedSnapshotCanvas() {
     const rect = el.getBoundingClientRect();
     const w = Math.round(rect.width || el.offsetWidth || 1123);
     const h = Math.round(rect.height || el.offsetHeight || 794);
-    return await html2canvas(el, {
-      scale: 3,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      backgroundColor: "#fff",
-      width: w,
-      height: h,
-      windowWidth: w,
-      windowHeight: h,
-    });
+    return await renderConfirmedCanvas(el, w, h, SNAPSHOT_RENDER_SCALE);
   } finally {
     selectedBlkId.value = previousSelection.blk;
     selectedShapeId.value = previousSelection.shape;
@@ -1646,10 +1728,12 @@ async function copyConfirmedSnapshot() {
     const blob = await buildConfirmedSnapshotBlob();
     if (!window.ClipboardItem || !navigator.clipboard?.write) {
       downloadBlob(blob, getSnapshotFileName());
+      playSnapshotShutterSound();
       setTransientMsg("⚠ 目前瀏覽器不支援直接複製圖片，已改下載 PNG");
       return;
     }
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    playSnapshotShutterSound();
     setTransientMsg("✅ 已複製確定單快照，可直接到 LINE 貼上");
   } catch (e) {
     console.error("快照複製失敗", e);
@@ -1664,6 +1748,7 @@ async function downloadConfirmedSnapshot() {
   try {
     const blob = await buildConfirmedSnapshotBlob();
     downloadBlob(blob, getSnapshotFileName());
+    playSnapshotShutterSound();
     setTransientMsg("✅ 已下載確定單快照 PNG");
   } catch (e) {
     console.error("快照下載失敗", e);
@@ -2089,6 +2174,28 @@ function onStampInsert(stamp) {
   markAnnotationDirty();
   recordAnnotationHistory();
 }
+
+async function buildDefaultSinkMethodStampOverlays() {
+  const stamps = await listStamps().catch(() => []);
+  if (!Array.isArray(stamps) || !stamps.length) return [];
+
+  const matched = stamps.find(
+    (stamp) => String(stamp?.name || "").trim() === DEFAULT_SINK_METHOD_STAMP_NAME,
+  );
+  if (!matched?.id || !matched?.imageUrl) return [];
+
+  return [
+    {
+      id: `default-stamp-${matched.id}`,
+      stampId: matched.id,
+      url: matched.imageUrl,
+      x: 36,
+      y: 660,
+      w: 300,
+    },
+  ];
+}
+
 function removeStampOvl(id) {
   stampOverlays.value = stampOverlays.value.filter((o) => o.id !== id);
   if (selectedStampId.value === id) selectedStampId.value = null;
@@ -2527,6 +2634,9 @@ async function loadAll() {
       shapeOverlays.value = conf.shapeOverlays.map((o) => ({ ...o }));
     if (Array.isArray(conf?.stampOverlays))
       stampOverlays.value = conf.stampOverlays.map((o) => ({ ...o }));
+    else {
+      stampOverlays.value = await buildDefaultSinkMethodStampOverlays();
+    }
     // 手繪 canvas 等 nextTick 後再還原
     if (conf?.annotCanvas) {
       await nextTick();
@@ -2619,6 +2729,14 @@ async function onUploadPdfFile(e) {
     }, 3000);
     return;
   }
+  if (Number(file.size || 0) > CONFIRMED_PDF_MAX_BYTES) {
+    const mb = (Number(file.size || 0) / (1024 * 1024)).toFixed(2);
+    saveMsg.value = `❗ PDF 過大（${mb}MB），請控制在 3MB 內`;
+    setTimeout(() => {
+      saveMsg.value = "";
+    }, 4000);
+    return;
+  }
   pdfUploading.value = true;
   try {
     const url = await uploadConfirmedPdf(orderId.value, file);
@@ -2652,27 +2770,35 @@ async function buildConfirmedPdfBlob() {
   const rect = el.getBoundingClientRect();
   const w = Math.round(rect.width || el.offsetWidth || 1123);
   const h = Math.round(rect.height || el.offsetHeight || 794);
-  const canvas = await html2canvas(el, {
-    scale: 3,
-    useCORS: true,
-    allowTaint: true,
-    logging: false,
-    backgroundColor: "#fff",
-    width: w,
-    height: h,
-    windowWidth: w,
-    windowHeight: h,
-  });
 
-  const imgData = canvas.toDataURL("image/jpeg", 0.96);
-  const pdf = new jsPDF({
-    orientation: "landscape",
-    unit: "mm",
-    format: "a4",
-    compress: true,
-  });
-  pdf.addImage(imgData, "JPEG", 0, 0, 297, 210, undefined, "FAST");
-  return pdf.output("blob");
+  let bestBlob = null;
+  let bestSize = Number.POSITIVE_INFINITY;
+
+  for (const renderScale of PDF_RENDER_SCALE_CANDIDATES) {
+    const canvas = await renderConfirmedCanvas(el, w, h, renderScale);
+    for (const jpegQuality of PDF_JPEG_QUALITY_CANDIDATES) {
+      const imgData = canvas.toDataURL("image/jpeg", jpegQuality);
+      const pdf = new jsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+      pdf.addImage(imgData, "JPEG", 0, 0, 297, 210, undefined, "FAST");
+      const blob = pdf.output("blob");
+      const size = Number(blob?.size || 0);
+      if (size > 0 && size < bestSize) {
+        bestSize = size;
+        bestBlob = blob;
+      }
+      if (size > 0 && size <= CONFIRMED_PDF_MAX_BYTES) {
+        return blob;
+      }
+    }
+  }
+
+  if (bestBlob) return bestBlob;
+  throw new Error("PDF 轉檔失敗");
 }
 
 async function generateConfirmedPdf() {
@@ -2682,10 +2808,21 @@ async function generateConfirmedPdf() {
     const blob = await buildConfirmedPdfBlob();
     const url = await uploadConfirmedPdf(orderId.value, blob);
     confirmedPdfUrl.value = url;
+    const actualSize = Number(blob.size || 0);
+    const mb = (actualSize / (1024 * 1024)).toFixed(2);
+    saveMsg.value = actualSize <= CONFIRMED_PDF_MAX_BYTES
+      ? `✅ 封存PDF完成（${mb}MB）`
+      : `⚠️ 封存PDF完成（${mb}MB，未壓到 3MB 內）`;
   } catch (e) {
     console.error("PDF封存失敗", e);
+    saveMsg.value = `❌ 封存PDF失敗：${e?.message || e}`;
   } finally {
     pdfGenerating.value = false;
+    if (saveMsg.value) {
+      setTimeout(() => {
+        if (!pdfGenerating.value) saveMsg.value = "";
+      }, 5000);
+    }
   }
 }
 
@@ -3120,10 +3257,11 @@ onBeforeRouteLeave(async () => {
   background: #fff;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
   box-sizing: border-box;
-  font-family: "微軟正黑體", "Microsoft JhengHei", Arial, sans-serif;
-  font-size: 11px;
+  font-family: "DFKai-SB", "BiauKai", "標楷體", "KaiTi", serif;
+  font-size: 15px;
   overflow: hidden;
   flex-shrink: 0;
+  --sheet-grid-border: #000;
 }
 
 /* ══ 頂部標題 ══ */
@@ -3133,30 +3271,30 @@ onBeforeRouteLeave(async () => {
   gap: 10px;
   padding: 0 6px 4px;
   border-bottom: 2px solid #000;
-  height: 24px;
+  height: 28px;
   background: #fff;
 }
 .doc-star {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 900;
   line-height: 1.1;
   white-space: nowrap;
 }
 .co-info {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 /* ══ 主體 ══ */
 .body-row {
   display: flex;
-  height: calc(794px - 24px - 16px);
+  height: calc(794px - 28px - 16px);
 }
 
 /* ══ 左右直條 ══ */
 .vert-strip {
   width: 22px;
   overflow: hidden;
-  border: 1px solid #000;
+  border: 1px solid var(--sheet-grid-border);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3173,7 +3311,7 @@ onBeforeRouteLeave(async () => {
 .vert-txt2 {
   display: block;
   width: 100%;
-  font-size: 13px;
+  font-size: 15px;
   word-break: break-all;
   line-break: anywhere;
   text-align: center;
@@ -3181,7 +3319,7 @@ onBeforeRouteLeave(async () => {
   line-height: 1.4;
 }
 .vert-txt2 {
-  font-size: 12px;
+  font-size: 14px;
 }
 .vc {
   display: block;
@@ -3206,7 +3344,7 @@ onBeforeRouteLeave(async () => {
   gap: 2px;
 }
 .vf-lbl {
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 600;
   word-break: break-all;
   text-align: center;
@@ -3214,12 +3352,12 @@ onBeforeRouteLeave(async () => {
   color: #444;
 }
 .vf-val {
-  font-size: 8px;
+  font-size: 10px;
   word-break: break-all;
   text-align: center;
   line-height: 1.2;
   min-height: 28px;
-  border-bottom: 1px solid #666;
+  border-bottom: 1px solid var(--sheet-grid-border);
   color: #000;
 }
 
@@ -3228,7 +3366,7 @@ onBeforeRouteLeave(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  border: 1px solid #000;
+  border: 1px solid var(--sheet-grid-border);
   overflow: hidden;
   min-width: 0;
 }
@@ -3243,9 +3381,9 @@ onBeforeRouteLeave(async () => {
 
 /* ══ 左欄位 ══ */
 .left-col {
-  width: 280px;
+  width: 224px;
   flex-shrink: 0;
-  border-right: 1px solid #000;
+  border-right: 1px solid var(--sheet-grid-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3259,9 +3397,9 @@ onBeforeRouteLeave(async () => {
 }
 .sub-section {
   display: flex;
-  border-top: 1px solid #000;
+  border-top: none;
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 /* 右側大繪圖區 */
 .drawing-area {
@@ -3277,10 +3415,19 @@ onBeforeRouteLeave(async () => {
   flex-shrink: 0;
 }
 .fields-tbl td {
-  border: 1px solid #aaa;
-  padding: 0 4px 2px;
-  height: 22px;
-  vertical-align: top;
+  border: 1px solid var(--sheet-grid-border);
+  padding: 0 4px 3px;
+  height: 26px;
+  vertical-align: middle;
+  line-height: 1.1;
+}
+.fields-tbl .lbl,
+.fields-tbl .val {
+  position: relative;
+  top: -3px;
+}
+.fields-tbl tr.edge-row td {
+  height: 84px;
 }
 .lbl {
   background: #fff;
@@ -3288,7 +3435,8 @@ onBeforeRouteLeave(async () => {
   width: 62px;
   white-space: nowrap;
   text-align: center;
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1.3;
 }
 .lbl-s {
   background: #fff;
@@ -3296,25 +3444,30 @@ onBeforeRouteLeave(async () => {
   width: 24px;
   white-space: nowrap;
   text-align: center;
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.3;
 }
 .val {
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: center;
+  vertical-align: middle;
 }
 .note-val {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: break-word;
+  text-align: left;
 }
 .val-s {
   width: 58px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .ii {
   border: none;
   outline: none;
   width: 56px;
-  font-size: 11px;
+  font-size: 13px;
   background: transparent;
 }
 .ii.full {
@@ -3324,72 +3477,89 @@ onBeforeRouteLeave(async () => {
   border: none;
   outline: none;
   width: 28px;
-  font-size: 11px;
+  font-size: 13px;
   background: transparent;
   writing-mode: horizontal-tb;
 }
 .edge-cell {
-  padding: 4px 6px;
-  height: 72px;
-  vertical-align: middle;
+  padding: 0 6px 4px;
+  height: 84px;
+  vertical-align: top;
 }
-.edge-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.edge-opt {
+.edge-choice-list {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  cursor: pointer;
-  padding: 3px 6px;
-  border-radius: 3px;
-  user-select: none;
-  border: 1.5px solid transparent;
-}
-.edge-opt.checked {
-  border-color: #333;
-  background: #fff;
-}
-.edge-check {
-  display: flex;
-  align-items: center;
   gap: 1px;
+  align-items: flex-start;
+  transform: translateY(-6px);
+}
+.edge-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  color: #111;
+}
+.edge-choice-shape {
+  width: 16px;
+  text-align: center;
+  font-size: 15px;
   line-height: 1;
-  margin-bottom: 1px;
 }
-.edge-sym {
-  font-size: 9px;
+.edge-choice-mark {
+  font-size: 13px;
+  line-height: 1;
 }
-.edge-chk {
-  font-size: 8px;
-  color: #333;
+.edge-choice-label {
+  font-size: 14px;
+  line-height: 1.1;
 }
-.edge-lbl {
-  font-size: 7px;
-  margin-top: 2px;
+.edge-choice.active .edge-choice-label {
+  font-weight: 700;
 }
 .panel-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 56px;
+  justify-content: flex-start;
+  min-height: 72px;
   width: 100%;
+  padding-left: 18px;
+}
+.sub-section-panel {
+  min-height: 72px;
+  align-items: center;
+}
+.sub-section-panel .panel-row {
+  min-height: 72px;
+}
+.section-head-panel {
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  min-height: 76px;
+  width: 22px;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: 1px;
+  overflow: visible;
 }
 .panel-opt {
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 2px 4px;
   border-radius: 3px;
-  border: 1.5px solid transparent;
+  border: 1px solid transparent;
   user-select: none;
 }
 .panel-opt.checked {
-  border-color: #333;
-  background: #fff;
+  border-color: #777;
+  background: #fafafa;
 }
 
 .section-head {
@@ -3397,34 +3567,33 @@ onBeforeRouteLeave(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   width: 18px;
   flex-shrink: 0;
-  border-right: 1px solid #000;
+  border-right: 1px solid var(--sheet-grid-border);
   background: #fff;
   line-height: 1.3;
   text-align: center;
   word-break: break-all;
   padding: 2px 0;
-  transform: translateY(-2px);
 }
 
 .detail-tbl {
   flex: 1;
   border-collapse: collapse;
-  font-size: 10px;
+  font-size: 12px;
   width: 100%;
   table-layout: fixed;
 }
 .detail-tbl th,
 .detail-tbl td {
-  border: 1px solid #bbb;
-  padding: 1px 3px 3px;
+  border: 1px solid var(--sheet-grid-border);
+  padding: 0 3px 1px;
   height: 20px;
   text-align: center;
   vertical-align: top;
-  line-height: 1.25;
+  line-height: 1;
   overflow: visible;
   white-space: nowrap;
 }
@@ -3432,11 +3601,11 @@ onBeforeRouteLeave(async () => {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: normal;
-  text-align: left;
+  text-align: center;
 }
 .detail-tbl th {
   background: #fff;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.2;
 }
 
@@ -3445,12 +3614,12 @@ onBeforeRouteLeave(async () => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid #888;
+  border-top: 1px solid var(--sheet-grid-border);
+  border-bottom: 1px solid var(--sheet-grid-border);
   padding: 1px 4px 2px;
   gap: 2px;
   min-height: 40px;
-  font-size: 11px;
+  font-size: 15px;
   flex-shrink: 0;
 }
 .install-main-row,
@@ -3470,7 +3639,11 @@ onBeforeRouteLeave(async () => {
 .install-meta-row {
   width: 100%;
   justify-content: flex-end;
-  font-size: 9px;
+  align-items: center;
+  font-size: 10px;
+  line-height: 1.25;
+  padding-top: 0;
+  transform: translateY(-2px);
 }
 .site-val {
   display: block;
@@ -3480,41 +3653,63 @@ onBeforeRouteLeave(async () => {
   line-height: 1.15;
   overflow-wrap: break-word;
   word-break: break-word;
-  font-size: 14px;
+  font-size: 16px;
   padding-left: 3px;
 }
 .owner-val {
   min-width: 48px;
+  display: inline-block;
+  line-height: 1.25;
 }
 .phone-val {
   min-width: 52px;
+  display: inline-block;
+  line-height: 1.25;
 }
 
 /* ══ 交期說明 ══ */
 .notice-row {
-  padding: 1px 6px 3px;
-  font-size: 10px;
+  padding: 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0b2bd6;
   border-bottom: 1px solid #000;
   background: #fff;
-  height: 18px;
-  display: flex;
-  align-items: flex-start;
-  line-height: 1.1;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.25;
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: visible;
+  transform: none;
+}
+.notice-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1.2;
+}
+.notice-text {
+  display: block;
+  white-space: nowrap;
+  line-height: 1.25;
+  text-align: left;
+  padding-top: 0;
+  transform: none;
 }
 
 /* ══ 底部 ══ */
 .bottom-row {
   display: flex;
-  height: 96px;
+  height: 108px;
   flex-shrink: 0;
 }
 .notes-col {
   width: 132px;
   padding: 3px 5px;
   font-size: 9px;
-  border-right: 1px solid #aaa;
+  border-right: 1px solid var(--sheet-grid-border);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -3525,7 +3720,7 @@ onBeforeRouteLeave(async () => {
 
 .calc-col {
   flex: 1;
-  border-right: 1px solid #aaa;
+  border-right: 1px solid var(--sheet-grid-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3564,8 +3759,8 @@ onBeforeRouteLeave(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-right: 1px solid #aaa;
-  font-size: 11px;
+  border-right: 1px solid var(--sheet-grid-border);
+  font-size: 14px;
 }
 .price-lbl {
   font-weight: 600;
@@ -3577,13 +3772,14 @@ onBeforeRouteLeave(async () => {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  border-right: 1px solid #aaa;
-  padding: 2px 4px;
-  overflow: hidden;
+  border-right: 1px solid var(--sheet-grid-border);
+  padding: 2px 4px 10px;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 .price-val {
   white-space: nowrap;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
   color: #c0392b;
   letter-spacing: 1px;
@@ -3594,7 +3790,7 @@ onBeforeRouteLeave(async () => {
   column-gap: 10px;
   row-gap: 0;
   align-items: start;
-  padding: 1px 2px;
+  padding: 1px 2px 2px;
 }
 .price-grid--cols-2 {
   grid-template-columns: 1fr 1fr;
@@ -3608,12 +3804,12 @@ onBeforeRouteLeave(async () => {
 .price-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.2;
   table-layout: fixed;
 }
 .price-table td {
-  padding: 1px 2px;
+  padding: 1px 2px 2px;
   vertical-align: top;
   border-bottom: 1px dotted #ddd;
 }
@@ -3644,16 +3840,20 @@ onBeforeRouteLeave(async () => {
 .price-sum {
   grid-column: 1 / -1;
   border-top: 2px solid #c0392b;
-  margin-top: 2px;
-  padding: 2px 4px 0 0;
+  margin-top: 6px;
+  padding: 2px 4px 5px 0;
   text-align: right;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 15px;
+  line-height: 1.15;
   color: #c0392b;
+  position: relative;
+  top: -2px;
 }
 .price-sum span {
   margin-left: 6px;
-  font-size: 14px;
+  font-size: 18px;
+  line-height: 1;
   letter-spacing: 1px;
 }
 
@@ -3672,7 +3872,7 @@ onBeforeRouteLeave(async () => {
 .sig-box {
   flex: 1;
   width: 112px;
-  border: 1px solid #bbb;
+  border: 1px solid var(--sheet-grid-border);
   margin-top: 4px;
 }
 
@@ -3685,6 +3885,35 @@ onBeforeRouteLeave(async () => {
   color: #555;
   height: 18px;
   line-height: 18px;
+}
+
+/* Export-only readability boost: applied only during snapshot/PDF rendering */
+.a4-page.export-readable .fields-tbl td {
+  height: 24px;
+}
+.a4-page.export-readable .lbl,
+.a4-page.export-readable .val {
+  font-size: 14px;
+}
+.a4-page.export-readable .detail-tbl,
+.a4-page.export-readable .detail-tbl th {
+  font-size: 13px;
+}
+.a4-page.export-readable .price-table {
+  font-size: 13px;
+  line-height: 1.25;
+}
+.a4-page.export-readable .price-col {
+  font-size: 15px;
+}
+.a4-page.export-readable .price-sum {
+  font-size: 16px;
+}
+.a4-page.export-readable .price-sum span {
+  font-size: 19px;
+}
+.a4-page.export-readable .notice-row {
+  font-size: 13px;
 }
 
 /* ══ 繪圖區塊 ══ */
