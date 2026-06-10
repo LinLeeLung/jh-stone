@@ -1129,6 +1129,7 @@ export async function uploadOrderCompletionPhotos(
   };
 
   const failedFiles = [];
+  const uploadedFiles = [];
 
   for (const [index, file] of files.entries()) {
     const fileSize = Number(file.size || 0);
@@ -1137,7 +1138,7 @@ export async function uploadOrderCompletionPhotos(
     while (true) {
       uploadAttempt++;
       try {
-        await postMultipart(
+        const uploadResp = await postMultipart(
           "uploadCompletionPhotoToNasHttp",
           {
             orderDocId,
@@ -1178,6 +1179,11 @@ export async function uploadOrderCompletionPhotos(
             });
           },
         );
+        uploadedFiles.push({
+          id: String(uploadResp?.id || "").trim(),
+          fileName: String(uploadResp?.fileName || file?.name || "").trim(),
+          nasPath: String(uploadResp?.nasPath || "").trim(),
+        });
         fileSucceeded = true;
         break;
       } catch (e) {
@@ -1291,7 +1297,7 @@ export async function uploadOrderCompletionPhotos(
       });
     }
   }
-  return { failedFiles };
+  return { failedFiles, uploadedFiles };
 }
 
 // 派車任務完工照片：直接掛到 installTasks/{taskId}/completionPhotos 子集合
@@ -1933,6 +1939,72 @@ export async function listProductModels(type) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+export async function listStoveModels() {
+  const ref = collection(db, "productModels");
+  const snap = await getDocs(query(ref, where("type", "==", "stove")));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) =>
+      String(a.model || "").localeCompare(String(b.model || ""), "zh-Hant"),
+    );
+}
+
+function normalizeModelDocId(value = "") {
+  return String(value || "").trim().replace(/\//g, "-");
+}
+
+export async function createStoveModel(payload = {}) {
+  const model = String(payload.model || "").trim();
+  if (!model) throw new Error("請輸入型號");
+
+  const uid = auth.currentUser?.uid || "system";
+  const docId = normalizeModelDocId(model);
+  const ref = doc(db, "productModels", docId);
+
+  const data = {
+    type: "stove",
+    model,
+    brand: String(payload.brand || "").trim(),
+    sizeText: String(payload.sizeText || "").trim(),
+    active: payload.active !== false,
+    notes: String(payload.notes || "").trim(),
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  };
+
+  const exists = await getDoc(ref);
+  if (exists.exists()) throw new Error("此型號已存在");
+
+  await setDoc(ref, {
+    ...data,
+    createdAt: serverTimestamp(),
+    createdByUid: uid,
+  });
+  return docId;
+}
+
+export async function updateStoveModel(docId, payload = {}) {
+  if (!docId) throw new Error("缺少文件 ID");
+  const uid = auth.currentUser?.uid || "system";
+  const ref = doc(db, "productModels", docId);
+
+  await updateDoc(ref, {
+    type: "stove",
+    model: String(payload.model || "").trim(),
+    brand: String(payload.brand || "").trim(),
+    sizeText: String(payload.sizeText || "").trim(),
+    active: payload.active !== false,
+    notes: String(payload.notes || "").trim(),
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  });
+}
+
+export async function deleteStoveModel(docId) {
+  if (!docId) throw new Error("缺少文件 ID");
+  await deleteDoc(doc(db, "productModels", docId));
+}
+
 // 取單一銷售訂單
 export async function getSalesOrder(id) {
   const snap = await getDoc(doc(db, "salesOrders", id));
@@ -2047,6 +2119,52 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
     ? await getDocs(query(ref, ...constraints))
     : await getDocs(ref);
 
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const ta =
+        _coerceJsDate(a.updatedAt || a.createdAt || a.orderedAt)?.getTime() ||
+        0;
+      const tb =
+        _coerceJsDate(b.updatedAt || b.createdAt || b.orderedAt)?.getTime() ||
+        0;
+      return tb - ta;
+    });
+}
+
+// 依客戶 ID 精準查詢全部訂單（不限制筆數）
+export async function listSalesOrdersByCustomerId(customerId, { status } = {}) {
+  const id = String(customerId || "").trim();
+  if (!id) return [];
+
+  const ref = collection(db, "salesOrders");
+  const constraints = [where("customerId", "==", id)];
+  if (status) constraints.push(where("status", "==", status));
+
+  const snap = await getDocs(query(ref, ...constraints));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const ta =
+        _coerceJsDate(a.updatedAt || a.createdAt || a.orderedAt)?.getTime() ||
+        0;
+      const tb =
+        _coerceJsDate(b.updatedAt || b.createdAt || b.orderedAt)?.getTime() ||
+        0;
+      return tb - ta;
+    });
+}
+
+// 依客戶名稱精準查詢全部訂單（不限制筆數）
+export async function listSalesOrdersByCustomerName(customerName, { status } = {}) {
+  const name = String(customerName || "").trim();
+  if (!name) return [];
+
+  const ref = collection(db, "salesOrders");
+  const constraints = [where("customerName", "==", name)];
+  if (status) constraints.push(where("status", "==", status));
+
+  const snap = await getDocs(query(ref, ...constraints));
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => {

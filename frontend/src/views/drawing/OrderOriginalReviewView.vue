@@ -2,6 +2,7 @@
   <div class="review-page">
     <header class="review-header">
       <RouterLink class="back-btn" to="/orders">← 返回訂單</RouterLink>
+      <RouterLink class="back-btn" :to="`/orders/${orderId}/confirmation`">📋 確定單</RouterLink>
       <div class="title-wrap">
         <h1>原圖對圖註記</h1>
         <p v-if="order" class="meta">

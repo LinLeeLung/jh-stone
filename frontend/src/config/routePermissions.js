@@ -54,6 +54,7 @@ export const DEFAULT_ROUTE_PERMISSIONS = [
 
   // ── 客戶 ──────────────────────────────────────────────────────────────
   { path: '/customers',         title: '客戶管理',       group: '客戶',     roles: ['admin', '管理者'], depts: ['1'] },
+  { path: '/stove-models',      title: '爐子型號管理',   group: '訂單',     roles: ['員工', 'admin', '管理者'], depts: ['1'] },
   { path: '/quote',             title: '估價單',         group: '客戶',     roles: ['admin', '管理者'], depts: ['1'] },
 
   // ── 庫存 ──────────────────────────────────────────────────────────────

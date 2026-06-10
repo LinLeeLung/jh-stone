@@ -1,0 +1,517 @@
+[
+  {
+    "model": "272*492*R5",
+    "rawText": "272*492*R5",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "型號與尺寸欄位相同,可能匯入錯位"
+    ],
+    "holeWidthMm": 272,
+    "holeDepthMm": 492,
+    "holeRadiusMm": 5
+  },
+  {
+    "model": "插座",
+    "rawText": "9.5*5*R1(CM)(面版12*7)",
+    "type": "accessory",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認",
+      "找不到尺寸"
+    ],
+    "holeRadiusMm": 10
+  },
+  {
+    "model": "插座孔",
+    "rawText": "9.5*5*R1(CM)(面版12*7)",
+    "type": "accessory",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認",
+      "找不到尺寸"
+    ],
+    "holeRadiusMm": 10
+  },
+  {
+    "model": "ACX610FS",
+    "rawText": "外徑: 86 x 51 x 23 cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "holeWidthMm": 860,
+    "holeDepthMm": 510,
+    "outerWidthMm": 860,
+    "outerDepthMm": 510,
+    "outerHeightMm": 230
+  },
+  {
+    "model": "DS-840右大",
+    "rawText": "尺寸：84(寬) x 51(深) x 18.5(高)\n內徑尺寸：81.1(寬) x 48.2深",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "E-730",
+    "rawText": "70.4*41.2 cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "holeWidthMm": 704,
+    "holeDepthMm": 412
+  },
+  {
+    "model": "PC73GNOTW",
+    "rawText": "(560~564)*(482~486)*R5",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ],
+    "holeRadiusMm": 5
+  },
+  {
+    "model": "JT-1669L",
+    "rawText": "外:690*500\n內:600*410\n前沿70開挖650X462",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "偵測到 3 組尺寸,可能有外/內徑未抓對"
+    ],
+    "holeWidthMm": 690,
+    "holeDepthMm": 500,
+    "frontEdgeMm": 70,
+    "outerWidthMm": 690,
+    "outerDepthMm": 500,
+    "methods": [
+      "前沿開挖"
+    ]
+  },
+  {
+    "model": "JT-1669B",
+    "rawText": "外:690*500\n內:600*410\n前沿70開挖650X462",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "偵測到 3 組尺寸,可能有外/內徑未抓對"
+    ],
+    "holeWidthMm": 690,
+    "holeDepthMm": 500,
+    "frontEdgeMm": 70,
+    "outerWidthMm": 690,
+    "outerDepthMm": 500,
+    "methods": [
+      "前沿開挖"
+    ]
+  },
+  {
+    "model": "KBG110-50",
+    "rawText": "外      徑   54 x 44 x 20 cm\n槽      身   50 x 40 x 20 cm",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "outerWidthMm": 540,
+    "outerDepthMm": 440,
+    "outerHeightMm": 200,
+    "innerWidthMm": 500,
+    "innerDepthMm": 400,
+    "innerHeightMm": 200
+  },
+  {
+    "model": "PUE611BB5E",
+    "rawText": "560 x (490 - 500)",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "KSSX 8100",
+    "rawText": "尺 寸：W 80 X D 45 X H 22.5 cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "holeWidthMm": 800,
+    "holeDepthMm": 450
+  },
+  {
+    "model": "KSSX-8100",
+    "rawText": "尺 寸：W 80 X D 45 X H 22.5 cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "holeWidthMm": 800,
+    "holeDepthMm": 450
+  },
+  {
+    "model": "KSSX8100",
+    "rawText": "尺 寸：W 80 X D 45 X H 22.5 cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "holeWidthMm": 800,
+    "holeDepthMm": 450
+  },
+  {
+    "model": "710x368",
+    "rawText": "710x368",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "型號與尺寸欄位相同,可能匯入錯位"
+    ],
+    "holeWidthMm": 710,
+    "holeDepthMm": 368
+  },
+  {
+    "model": "RB-2GMB",
+    "rawText": "外觀尺寸:750×132.6×450\n挖孔尺寸:670×350(R0)",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "偵測到 3 組尺寸,可能有外/內徑未抓對"
+    ],
+    "holeWidthMm": 750,
+    "holeDepthMm": 133,
+    "holeRadiusMm": 0
+  },
+  {
+    "model": "SV",
+    "rawText": "外:732*585\n內:670*520(枱面須65深)\n前沿50開挖708X560",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "偵測到 3 組尺寸,可能有外/內徑未抓對"
+    ],
+    "holeWidthMm": 732,
+    "holeDepthMm": 585,
+    "frontEdgeMm": 50,
+    "outerWidthMm": 732,
+    "outerDepthMm": 585,
+    "methods": [
+      "前沿開挖"
+    ]
+  },
+  {
+    "model": "RB-L301S",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "U2-962",
+    "rawText": "外:960*500\n大內:630*430小內:225*370",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "偵測到 3 組尺寸,可能有外/內徑未抓對"
+    ],
+    "holeWidthMm": 960,
+    "holeDepthMm": 500,
+    "outerWidthMm": 960,
+    "outerDepthMm": 500
+  },
+  {
+    "model": "SAS-R",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "SE-780",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "KL-8745",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "AVEO7148",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "SUS-340",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "YW7849",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "MJGL-4040",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "542AB",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "FK-75",
+    "rawText": "外徑:810 內徑75",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "SD-740",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "K-2660T*4",
+    "rawText": "L58.5xW46xH17.3cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "SKL-104",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "CHOCK-R79-99",
+    "rawText": "79 x 50 x 19.5 cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "holeWidthMm": 790,
+    "holeDepthMm": 500
+  },
+  {
+    "model": "SW-730P-W",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "CS-750P",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "ACX610FS延用舊水槽",
+    "rawText": "外徑:86 x 51 x 23 cm\n內徑:75 x 41.5 x 23 cm",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "outerWidthMm": 860,
+    "outerDepthMm": 510,
+    "outerHeightMm": 230,
+    "innerWidthMm": 750,
+    "innerDepthMm": 415,
+    "innerHeightMm": 230
+  },
+  {
+    "model": "SKL-104F",
+    "rawText": "",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "CS-001",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "PPX110-76 R10",
+    "rawText": "外徑   80 x 45 x 20 cm\n槽身   76 x 41 x 20 cm",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "outerWidthMm": 800,
+    "outerDepthMm": 450,
+    "outerHeightMm": 200,
+    "innerWidthMm": 760,
+    "innerDepthMm": 410,
+    "innerHeightMm": 200
+  },
+  {
+    "model": "QUADRA130",
+    "rawText": "產品尺寸 w790×h200×d500 mm\r\n開孔尺寸 w760×d480mm",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "SG-903A",
+    "rawText": "728/*468*R113",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ],
+    "holeRadiusMm": 113
+  },
+  {
+    "model": "KBG110-50",
+    "rawText": "外      徑   54 x 44 x 20 cm\r\n槽      身   50 x 40 x 20 cm",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "outerWidthMm": 540,
+    "outerDepthMm": 440,
+    "outerHeightMm": 200,
+    "innerWidthMm": 500,
+    "innerDepthMm": 400,
+    "innerHeightMm": 200
+  },
+  {
+    "model": "MJGL-7040",
+    "rawText": "(不適合作凸)",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "RB-312NG",
+    "rawText": "",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "無尺寸資料"
+    ]
+  },
+  {
+    "model": "RM66RTCBI",
+    "rawText": "(W) 27 X(D) 38 cm",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "單位 cm,已自動 ×10,請人工確認"
+    ],
+    "holeWidthMm": 270,
+    "holeDepthMm": 380
+  },
+  {
+    "model": "YW-7545",
+    "rawText": "外75  內68",
+    "type": "sink",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "IH-188",
+    "rawText": "隱藏爐",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "A9N",
+    "rawText": "檯面深度60",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  },
+  {
+    "model": "A9U",
+    "rawText": "檯面深度65",
+    "type": "stove",
+    "needsReview": true,
+    "reviewReasons": [
+      "找不到尺寸"
+    ]
+  }
+]

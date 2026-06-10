@@ -13,6 +13,9 @@
         <RouterLink class="btn-aux" to="/dispatch-sheet"
           >🚚 派車表單</RouterLink
         >
+        <RouterLink v-if="canDispatch" class="btn-aux" to="/stove-models"
+          >🔥 爐子型號</RouterLink
+        >
         <button class="btn-aux" type="button" @click="openSitePriceModal">
           工地價格
         </button>
@@ -24,12 +27,37 @@
 
     <!-- 篩選列 -->
     <div class="filter-bar">
-      <input
-        v-model="keyword"
-        class="search-input"
-        placeholder="搜尋客戶名稱 / 訂單號碼 / 地址 / 石材"
-        @input="applyFilter"
-      />
+      <div class="keyword-picker">
+        <input
+          v-model="keyword"
+          class="search-input"
+          placeholder="搜尋客戶名稱 / 訂單號碼 / 地址 / 石材"
+          @focus="onKeywordFocus"
+          @blur="onKeywordBlur"
+          @input="onKeywordInput"
+        />
+        <div v-if="showCustomerMatchList && customerMatches.length" class="customer-match-list">
+          <button
+            v-for="customer in customerMatches"
+            :key="customer.id"
+            type="button"
+            class="customer-match-item"
+            @mousedown.prevent
+            @click="selectCustomerForSearch(customer)"
+          >
+            <span class="customer-match-code">{{ customer.code || customer.id }}</span>
+            <span class="customer-match-name">{{ customer.name }}</span>
+          </button>
+        </div>
+      </div>
+      <button
+        v-if="selectedCustomerForKeyword"
+        type="button"
+        class="btn-clear-customer"
+        @click="clearSelectedCustomerSearch"
+      >
+        清除已選客戶
+      </button>
       <select v-model="statusFilter" @change="applyFilter">
         <option value="">全部狀態</option>
         <option value="draft">草稿</option>
@@ -46,9 +74,13 @@
           {{ s.label }}
         </option>
       </select>
+      <span v-if="!loading && !searchingSelectedCustomer" class="result-count">
+        查到 {{ filtered.length }} 筆
+      </span>
     </div>
 
     <p v-if="loading" class="hint">載入中…</p>
+    <p v-else-if="searchingSelectedCustomer" class="hint">客戶精準查詢中…</p>
     <p v-else-if="!filtered.length" class="hint">找不到符合的訂單。</p>
 
     <div v-else class="table-wrap">
@@ -339,6 +371,8 @@ import {
   listCustomerSitePrices,
   listCustomers,
   listSalesOrders,
+  listSalesOrdersByCustomerId,
+  listSalesOrdersByCustomerName,
   listOrderDrawings,
   searchSalesOrdersByKeyword,
   updateSalesOrder,
@@ -364,6 +398,7 @@ const loadLimit = 1000; // 首頁僅預載最近 salesOrders，搜尋再補查�
 const loading = ref(true);
 const rows = ref([]);
 const filtered = ref([]);
+const searchingSelectedCustomer = ref(false);
 const isAdmin = ref(false);
 const canDispatch = ref(false);
 const router = useRouter();
@@ -371,6 +406,9 @@ const router = useRouter();
 const keyword = ref("");
 const statusFilter = ref("");
 const sinkStatusFilter = ref("");
+const customerDirectory = ref([]);
+const selectedCustomerForKeyword = ref(null);
+const showCustomerMatchList = ref(false);
 const sortCol = ref("updatedAt");
 const sortDir = ref(-1); // 1=asc, -1=desc
 const showSitePriceModal = ref(false);
@@ -389,6 +427,14 @@ const sitePriceForm = ref({
 });
 let latestSitePriceLoad = 0;
 const allCustomerNames = ref([]);
+const customerMatches = computed(() => {
+  if (selectedCustomerForKeyword.value) return [];
+  const kw = String(keyword.value || "").trim().toLowerCase();
+  if (kw.length < 2) return [];
+  return customerDirectory.value
+    .filter((customer) => customer.searchText.includes(kw))
+    .slice(0, 30);
+});
 const customerKeywordOptions = computed(() => {
   const source = Array.isArray(allCustomerNames.value) ? allCustomerNames.value : [];
   const kw = String(sitePriceForm.value.customerName || "").trim().toLowerCase();
@@ -492,6 +538,25 @@ onMounted(async () => {
       const name = String(customer?.name || "").trim();
       if (name) nameSet.add(name);
     }
+    customerDirectory.value = customerMaster
+      .map((customer) => {
+        const code = String(customer?.code || "").trim();
+        const docId = String(customer?.id || "").trim();
+        const id = String(code || docId).trim();
+        const name = String(customer?.name || "").trim();
+        if (!id || !name) return null;
+        const searchText = [id, name, customer?.phone || ""]
+          .join(" ")
+          .toLowerCase();
+        return {
+          id,
+          code,
+          docId,
+          name,
+          searchText,
+        };
+      })
+      .filter(Boolean);
     allCustomerNames.value = Array.from(nameSet).sort((a, b) =>
       a.localeCompare(b, "zh-Hant"),
     );
@@ -575,6 +640,33 @@ function shouldRemoteKeywordLookup(rawKeyword) {
   return true;
 }
 
+function normalizeCustomerKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[-_]/g, "");
+}
+
+function orderMatchesSelectedCustomer(order, selectedCustomer = {}) {
+  const idSet = new Set(
+    (selectedCustomer.ids || [])
+      .map((id) => normalizeCustomerKey(id))
+      .filter(Boolean),
+  );
+  const orderCustomerId = normalizeCustomerKey(order?.customerId);
+  if (orderCustomerId && idSet.has(orderCustomerId)) return true;
+
+  const targetName = normalizeCustomerKey(selectedCustomer.name);
+  const targetCode = normalizeCustomerKey(selectedCustomer.code || selectedCustomer.id);
+  const orderCustomerName = normalizeCustomerKey(order?.customerName);
+  if (!orderCustomerName) return false;
+
+  if (targetName && orderCustomerName.includes(targetName)) return true;
+  if (targetCode && orderCustomerName.includes(targetCode)) return true;
+  return false;
+}
+
 function mergeUniqueOrders(...groups) {
   const merged = [];
   const seen = new Set();
@@ -609,6 +701,58 @@ async function applyFilter() {
   const st = statusFilter.value;
   const sk = sinkStatusFilter.value;
 
+  searchingSelectedCustomer.value = false;
+
+  if (selectedCustomerForKeyword.value?.ids?.length || selectedCustomerForKeyword.value?.name) {
+    searchingSelectedCustomer.value = true;
+    filtered.value = [];
+
+    const ids = Array.isArray(selectedCustomerForKeyword.value?.ids)
+      ? Array.from(
+          new Set(
+            selectedCustomerForKeyword.value.ids
+              .map((id) => String(id || "").trim())
+              .filter(Boolean),
+          ),
+        )
+      : [];
+
+    const tasks = [
+      ...ids.map((id) => listSalesOrdersByCustomerId(id).catch(() => [])),
+    ];
+    if (selectedCustomerForKeyword.value?.name) {
+      tasks.push(
+        listSalesOrdersByCustomerName(selectedCustomerForKeyword.value.name).catch(
+          () => [],
+        ),
+      );
+    }
+
+    const scopedGroups = await Promise.all(tasks).catch((error) => {
+      console.warn("OrdersView: customer scoped lookup failed", error);
+      return [];
+    });
+    let scoped = mergeUniqueOrders(...scopedGroups);
+
+    // 舊資料常有 customerId 與 customerName 混用，回補全量掃描避免漏單。
+    const allOrders = await listSalesOrders({ limit: 0 }).catch(() => []);
+    const fallbackMatches = allOrders.filter((order) =>
+      orderMatchesSelectedCustomer(order, selectedCustomerForKeyword.value),
+    );
+    scoped = mergeUniqueOrders(scoped, fallbackMatches);
+
+    if (filterRunId !== latestFilterRun) return;
+    filtered.value = sortOrders(
+      scoped.filter((order) => {
+        if (st && order.status !== st) return false;
+        if (sk && !hasSinkStatus(order, sk)) return false;
+        return true;
+      }),
+    );
+    searchingSelectedCustomer.value = false;
+    return;
+  }
+
   let result = rows.value.filter((order) => matchesFilters(order, kw, st, sk));
 
   if (shouldRemoteKeywordLookup(rawKeyword)) {
@@ -627,6 +771,55 @@ async function applyFilter() {
 
   if (filterRunId !== latestFilterRun) return;
   filtered.value = sortOrders(result);
+}
+
+function onKeywordFocus() {
+  showCustomerMatchList.value = true;
+}
+
+function onKeywordBlur() {
+  window.setTimeout(() => {
+    showCustomerMatchList.value = false;
+  }, 120);
+}
+
+function onKeywordInput() {
+  if (
+    selectedCustomerForKeyword.value &&
+    String(keyword.value || "").trim() !== selectedCustomerForKeyword.value.label
+  ) {
+    selectedCustomerForKeyword.value = null;
+  }
+  showCustomerMatchList.value = true;
+  void applyFilter();
+}
+
+function selectCustomerForSearch(customer) {
+  const label = `${customer.code || customer.id} ${customer.name}`.trim();
+  const ids = Array.from(
+    new Set(
+      [customer.id, customer.code, customer.docId]
+        .map((id) => String(id || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  selectedCustomerForKeyword.value = {
+    id: customer.id,
+    ids,
+    name: customer.name,
+    code: customer.code,
+    label,
+  };
+  keyword.value = label;
+  showCustomerMatchList.value = false;
+  void applyFilter();
+}
+
+function clearSelectedCustomerSearch() {
+  selectedCustomerForKeyword.value = null;
+  keyword.value = "";
+  showCustomerMatchList.value = false;
+  void applyFilter();
 }
 
 async function onStatusChange(order, newStatus) {
@@ -856,13 +1049,78 @@ watch(
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 14px;
+  align-items: center;
+}
+.result-count {
+  margin-left: auto;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.keyword-picker {
+  position: relative;
+  flex: 1 1 200px;
 }
 .search-input {
-  flex: 1 1 200px;
+  width: 100%;
   padding: 7px 10px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 14px;
+}
+.customer-match-list {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+.customer-match-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+.customer-match-item:last-child {
+  border-bottom: 0;
+}
+.customer-match-item:hover {
+  background: #f8fafc;
+}
+.customer-match-code {
+  color: #64748b;
+  font-size: 12px;
+  min-width: 70px;
+}
+.customer-match-name {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+}
+.btn-clear-customer {
+  padding: 7px 12px;
+  border: 1px solid #f5c2c7;
+  border-radius: 6px;
+  background: #fff5f5;
+  color: #b42318;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-clear-customer:hover {
+  background: #ffe3e3;
 }
 .filter-bar select {
   padding: 7px 10px;

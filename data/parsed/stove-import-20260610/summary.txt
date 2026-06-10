@@ -1,0 +1,11 @@
+輸入檔: D:\Data\Desktop\jh-stone\data\raw\stove-models-20260610.tsv
+總列數(扣除 header): 1801
+  乾淨可匯入: 1746
+  待人工確認: 48
+  垃圾資料: 7
+
+OK 分類:
+  stove: 1448
+  sink: 292
+  hood: 3
+  accessory: 3

@@ -1351,6 +1351,7 @@ async function probeFinderApiName(baseUrl, sid) {
 // 用唯一檔名在整個 NAS 搜尋，直接取得檔案現在的完整路徑
 async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
   const apiUrl = new URL("/webapi/entry.cgi", baseUrl).toString();
+  const normalizedRootPath = normalizeSynologyDirPath(String(rootPath || ""));
 
   // Strip extension for Finder keyword (full-text search matches better without .ext)
   const stemName = fileName.replace(/\.[^.]+$/, "");
@@ -1442,13 +1443,25 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
     const fileNameLower = fileName.toLowerCase();
     const stemLower = stemName.toLowerCase();
 
+    function isPathAllowed(candidatePath) {
+      const normalizedCandidate = normalizeSynologyDirPath(
+        String(candidatePath || ""),
+      );
+      if (!normalizedCandidate) return false;
+      if (!normalizedRootPath) return true;
+      return (
+        normalizedCandidate === normalizedRootPath ||
+        normalizedCandidate.startsWith(`${normalizedRootPath}/`)
+      );
+    }
+
     // Pass 1: exact filename match (e.g. "27243ASW.pdf")
     for (const item of items) {
       const name = pickItemName(item);
       if (!name) continue;
       if (name.toLowerCase() === fileNameLower) {
         const fullPath = pickItemFullPath(item, name);
-        if (fullPath) {
+        if (fullPath && isPathAllowed(fullPath)) {
           logger.info("synologySearchFileByName: found via Finder (exact)", {
             keyword,
             fileName,
@@ -1469,7 +1482,7 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
         nameLower.endsWith(`.${ext}`)
       ) {
         const fullPath = pickItemFullPath(item, name);
-        if (fullPath) {
+        if (fullPath && isPathAllowed(fullPath)) {
           logger.info("synologySearchFileByName: found via Finder (stem)", {
             keyword,
             fileName,
@@ -1488,7 +1501,7 @@ async function synologySearchFileByName({ baseUrl, sid, rootPath, fileName }) {
         const nameLower = name.toLowerCase();
         if (nameLower.includes(stemLower) && nameLower.endsWith(`.${ext}`)) {
           const fullPath = pickItemFullPath(item, name);
-          if (fullPath) {
+          if (fullPath && isPathAllowed(fullPath)) {
             logger.info(
               "synologySearchFileByName: found via Finder (contains)",
               { keyword, fileName, matchedName: name, fullPath },
@@ -4469,6 +4482,40 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     const orderNumber = String(
       form?.fields?.orderNumber || folderParts.orderNumber || "",
     ).trim();
+    const orderToken = normalizeOrderToken(folderParts.orderNumber || orderNumber);
+
+    function canUseCachedNasFolder(pathValue) {
+      const candidate = normalizeSynologyDirPath(String(pathValue || "").trim());
+      if (!candidate) return false;
+
+      // Cached folder must stay under configured order root.
+      const orderRoot = normalizeSynologyDirPath(pathCheck.normalized);
+      const inOrderRoot =
+        candidate === orderRoot || candidate.startsWith(`${orderRoot}/`);
+      if (!inOrderRoot) return false;
+
+      // Guard against stale migration paths.
+      if (/\/outbox\//i.test(candidate)) return false;
+
+      // Cached folder should still look like this order's folder.
+      if (orderToken && !normalizeOrderToken(candidate).includes(orderToken)) {
+        return false;
+      }
+
+      return true;
+    }
+    const useCachedNasFolder = canUseCachedNasFolder(cachedNasFolder);
+    if (cachedNasFolder && !useCachedNasFolder) {
+      logger.warn(
+        "uploadCompletionPhotoToNasHttp: ignore stale cached NAS folder",
+        {
+          orderDocId,
+          cachedNasFolder,
+          orderRoot: pathCheck.normalized,
+          orderToken,
+        },
+      );
+    }
 
     let sid = "";
     let uploadFolder = `${pathCheck.normalized}/${folderParts.customerFolder}/${folderParts.detailFolder}`;
@@ -4528,20 +4575,35 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
         if (pdfPath) {
           const pdfLastSlash = pdfPath.lastIndexOf("/");
           if (pdfLastSlash > 0) {
-            uploadFolder = pdfPath.slice(0, pdfLastSlash);
-            matchMeta = {
-              matched: true,
-              matchedFolderName: uploadFolder.split("/").pop() || "",
-              matchScore: 99999,
-            };
-            searchDiag.pdfSearchSucceeded = true;
-            logger.info(
-              "uploadCompletionPhotoToNasHttp: found order folder via PDF search",
-              { orderDocId, pdfPath, uploadFolder },
+            const candidateFolder = normalizeSynologyDirPath(
+              pdfPath.slice(0, pdfLastSlash),
             );
-            orderDocRef
-              .update({ nasOrderFolderPath: uploadFolder })
-              .catch(() => {});
+            const isOutbox = /\/outbox\//i.test(candidateFolder);
+            if (candidateFolder && !isOutbox) {
+              uploadFolder = candidateFolder;
+              matchMeta = {
+                matched: true,
+                matchedFolderName: uploadFolder.split("/").pop() || "",
+                matchScore: 99999,
+              };
+              searchDiag.pdfSearchSucceeded = true;
+              logger.info(
+                "uploadCompletionPhotoToNasHttp: found order folder via PDF search",
+                { orderDocId, pdfPath, uploadFolder },
+              );
+              orderDocRef
+                .update({ nasOrderFolderPath: uploadFolder })
+                .catch(() => {});
+            } else {
+              logger.warn(
+                "uploadCompletionPhotoToNasHttp: ignore PDF match in outbox",
+                {
+                  orderDocId,
+                  pdfPath,
+                  candidateFolder,
+                },
+              );
+            }
           }
         }
       }
@@ -4734,7 +4796,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     try {
       sid = await getOrCreateSid(baseUrl, username, password);
       try {
-        await resolveAndUpload(!!cachedNasFolder);
+        await resolveAndUpload(useCachedNasFolder);
       } catch (uploadErr) {
         // SID 過期 (code 119)：重新登入後再試一次
         if (isSidExpiredError(uploadErr)) {
@@ -4743,9 +4805,9 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
             { orderDocId, error: uploadErr?.message },
           );
           sid = await refreshSid(baseUrl, username, password);
-          await resolveAndUpload(!!cachedNasFolder);
+          await resolveAndUpload(useCachedNasFolder);
           // 若用快取路徑上傳失敗，重新搜尋資料夾後重試一次
-        } else if (cachedNasFolder) {
+        } else if (useCachedNasFolder) {
           logger.warn(
             "uploadCompletionPhotoToNasHttp: cached folder failed, retrying with fresh resolve",
             {

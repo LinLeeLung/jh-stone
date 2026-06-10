@@ -15,6 +15,9 @@
       <RouterLink :to="`/orders/${orderId}/drawing`" class="back-btn"
         >← 繪圖</RouterLink
       >
+      <RouterLink :to="`/orders/${orderId}/original-review`" class="back-btn"
+        >🖼️ 原圖</RouterLink
+      >
       <span class="toolbar-title">📋 生產確定單</span>
       <div class="toolbar-right">
         <span class="hint">{{ toolbarHint }}</span>
@@ -378,101 +381,24 @@
                             <span class="edge-choice-mark">（{{ cf.edgeType === 'round' ? '✓' : '　' }}）</span>
                             <span class="edge-choice-label">3mm圓角</span>
                           </button>
+                          <button
+                            type="button"
+                            class="edge-choice"
+                            :class="{ active: cf.edgeType === 'dull' }"
+                            @click="
+                              cf.edgeType = 'dull';
+                              markDirty();
+                            "
+                          >
+                            <span class="edge-choice-shape">□</span>
+                            <span class="edge-choice-mark">（{{ cf.edgeType === 'dull' ? '✓' : '　' }}）</span>
+                            <span class="edge-choice-label">1mm磨不利</span>
+                          </button>
                         </div>
                       </td>
                     </tr>
                   </table>
 
-                  <!-- 套板截面 -->
-                  <div class="sub-section sub-section-panel">
-                    <div class="section-head section-head-panel">套板截面</div>
-                    <div class="panel-row">
-                      <div
-                        class="panel-opt"
-                        :class="{ checked: cf.panelType === 'e' }"
-                        @click="
-                          cf.panelType = cf.panelType === 'e' ? '' : 'e';
-                          markDirty();
-                        "
-                      >
-                        <svg
-                          width="92"
-                          height="62"
-                          viewBox="0 0 60 44"
-                          overflow="visible"
-                        >
-                          <defs>
-                            <pattern
-                              id="diag"
-                              patternUnits="userSpaceOnUse"
-                              width="4"
-                              height="4"
-                            >
-                              <line
-                                x1="0"
-                                y1="4"
-                                x2="4"
-                                y2="0"
-                                stroke="#000"
-                                stroke-width="0.8"
-                              />
-                            </pattern>
-                          </defs>
-                          <polygon
-                            points="5,16 57,16 53,22 5,22"
-                            fill="#e0e0e0"
-                            stroke="#000"
-                            stroke-width="1"
-                          />
-                          <rect
-                            x="5"
-                            y="8"
-                            width="8"
-                            height="8"
-                            fill="#d0d0d0"
-                            stroke="#000"
-                            stroke-width="1"
-                          />
-                          <!-- 桶身空間（倒包左側，全高） -->
-                          <rect
-                            x="5"
-                            y="22"
-                            width="40"
-                            height="8"
-                            fill="url(#diag)"
-                            stroke="#000"
-                            stroke-width="0.5"
-                          />
-                          <!-- 桶身空間（倒包上方） -->
-                          <rect
-                            x="45"
-                            y="22"
-                            width="8"
-                            height="5"
-                            fill="url(#diag)"
-                            stroke="#000"
-                            stroke-width="0.5"
-                          />
-                          <!-- 倒包石材（橫放 4cm=8px，在底部遮木板） -->
-                          <rect
-                            x="45"
-                            y="27"
-                            width="8"
-                            height="3"
-                            fill="#d0d0d0"
-                            stroke="#000"
-                            stroke-width="1"
-                          />
-                          <polygon
-                            points="53,22 57,16 57,30 53,30"
-                            fill="#d0d0d0"
-                            stroke="#000"
-                            stroke-width="1"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
                 </div>
                 <!-- fields-top -->
 
@@ -481,62 +407,43 @@
                   <div class="section-head">水槽</div>
                   <table class="detail-tbl">
                     <colgroup>
-                      <col style="width: 20%" />
-                      <col style="width: 28%" />
-                      <col style="width: 18%" />
-                      <col style="width: 18%" />
-                      <col style="width: 16%" />
+                      <col style="width: 14%" />
+                      <col style="width: 32%" />
+                      <col style="width: 54%" />
                     </colgroup>
-                    <thead>
-                      <tr>
-                        <th>工法</th>
-                        <th>品名</th>
-                        <th>長</th>
-                        <th>寬</th>
-                        <th>配件</th>
-                      </tr>
-                    </thead>
                     <tbody>
                       <tr v-for="s in paddedSinks" :key="s._i">
-                        <td>{{ s.method || "" }}</td>
-                        <td>{{ s.model || "" }}</td>
-                        <td>{{ s.holeWidthMm || "" }}</td>
-                        <td>{{ s.holeDepthMm || "" }}</td>
-                        <td>{{ sinkAccessoryLabel(s) }}</td>
+                        <td><span class="detail-cell-text">{{ s.method || "" }}</span></td>
+                        <td><span class="detail-cell-text">{{ s.model || "" }}</span></td>
+                        <td><span class="detail-cell-text">{{ sinkSizeText(s) }}</span></td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
                 <!-- 爐子 -->
-                <div class="sub-section">
+                <div class="sub-section stove-section">
                   <div class="section-head">爐子</div>
                   <table class="detail-tbl">
                     <colgroup>
-                      <col style="width: 20%" />
-                      <col style="width: 28%" />
-                      <col style="width: 18%" />
-                      <col style="width: 18%" />
-                      <col style="width: 16%" />
+                      <col style="width: 14%" />
+                      <col style="width: 32%" />
+                      <col style="width: 54%" />
                     </colgroup>
-                    <thead>
-                      <tr>
-                        <th>工法</th>
-                        <th>品名</th>
-                        <th>長</th>
-                        <th>寬</th>
-                        <th>R角</th>
-                      </tr>
-                    </thead>
                     <tbody>
                       <tr v-for="s in paddedStoves" :key="s._i">
-                        <td>{{ s.method || "" }}</td>
-                        <td>{{ s.model || "" }}</td>
-                        <td>{{ s.holeWidthMm || "" }}</td>
-                        <td>{{ s.holeDepthMm || "" }}</td>
-                        <td>{{ s.holeRadiusMm || "" }}</td>
+                        <td><span class="detail-cell-text">{{ s.method || "" }}</span></td>
+                        <td><span class="detail-cell-text">{{ s.model || "" }}</span></td>
+                        <td><span class="detail-cell-text">{{ stoveSizeText(s) }}</span></td>
                       </tr>
                     </tbody>
                   </table>
+                </div>
+                <div class="sub-section faucet-section">
+                  <div class="faucet-cell">
+                    <div v-for="(line, i) in faucetDisplayLines" :key="`faucet-${i}`" class="faucet-line">
+                      {{ line }}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1000,6 +907,7 @@ import {
   getCustomerById,
   getCustomerPricing,
   getUserByUid,
+  listProductModels,
   listStamps,
   listOrderDrawings,
   getOrderConfirmation,
@@ -1017,6 +925,10 @@ const orderId = computed(() => route.params.id);
 const order = ref(null);
 const customer = ref(null);
 const printedByName = ref("");
+const sinkModelSizeById = ref(new Map());
+const sinkModelSizeByName = ref(new Map());
+const stoveModelSizeById = ref(new Map());
+const stoveModelSizeByName = ref(new Map());
 
 const orderRemarkDisplay = computed(() => {
   const lines = [customer.value?.notes, order.value?.specialNotes]
@@ -1177,13 +1089,104 @@ function pad(arr, n) {
 
 function sinkAccessoryLabel(sink = {}) {
   if (!sink?.model) return "";
-  if (sink.hasAccessory === true) return "有";
-  if (sink.hasAccessory === false) return "無";
+  const labels = [];
+  if (sink.hasAccessory === true) labels.push("有");
+  else if (sink.hasAccessory === false) labels.push("無");
+  if (sink.hasFaucet === true) labels.push("有龍頭");
+  return labels.join("/");
+}
+
+function normalizeModelKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function buildModelSizeLookup(models = []) {
+  const byId = new Map();
+  const byName = new Map();
+  for (const item of models || []) {
+    const size = String(item?.sizeText || item?.rawText || "").trim();
+    if (!size) continue;
+    const id = String(item?.id || "").trim();
+    if (id) byId.set(id, size);
+
+    const model = String(item?.model || "").trim();
+    const brand = String(item?.brand || "").trim();
+    const modelKey = normalizeModelKey(model);
+    if (modelKey) byName.set(modelKey, size);
+    const brandModelKey = normalizeModelKey([brand, model].filter(Boolean).join(" "));
+    if (brandModelKey) byName.set(brandModelKey, size);
+  }
+  return { byId, byName };
+}
+
+function fallbackSizeText(item = {}, withRadius = false) {
+  const width = String(item?.holeWidthMm ?? "").trim();
+  const depth = String(item?.holeDepthMm ?? "").trim();
+  const radius = String(item?.holeRadiusMm ?? "").trim();
+  if (width && depth) {
+    return withRadius && radius ? `${width}*${depth}*R${radius}` : `${width}*${depth}`;
+  }
+  if (width || depth) return [width, depth].filter(Boolean).join("*");
+  if (withRadius && radius) return `R${radius}`;
   return "";
 }
 
-const paddedSinks = computed(() => pad(order.value?.sinks, 3));
-const paddedStoves = computed(() => pad(order.value?.stoves, 2));
+function resolveModelSize(item = {}, kind = "sink") {
+  const byId = kind === "stove" ? stoveModelSizeById.value : sinkModelSizeById.value;
+  const byName = kind === "stove" ? stoveModelSizeByName.value : sinkModelSizeByName.value;
+  const modelId = String(item?.modelId || item?.modelCode || "").trim();
+  if (modelId && byId.has(modelId)) return byId.get(modelId) || "";
+
+  const model = String(item?.model || "").trim();
+  const brand = String(item?.brand || "").trim();
+  const brandModel = [brand, model].filter(Boolean).join(" ");
+  const match = byName.get(normalizeModelKey(model)) || byName.get(normalizeModelKey(brandModel));
+  if (match) return match;
+
+  const direct = String(item?.sizeText || item?.rawText || "").trim();
+  if (direct) return direct;
+  return fallbackSizeText(item, kind === "stove");
+}
+
+function sinkSizeText(item = {}) {
+  return resolveModelSize(item, "sink");
+}
+
+function stoveSizeText(item = {}) {
+  return resolveModelSize(item, "stove");
+}
+
+function isHeaderPlaceholderRow(item = {}, kind = "sink") {
+  const method = String(item?.method || "").trim();
+  const model = String(item?.model || "").trim();
+  const size = String(resolveModelSize(item, kind) || "").trim();
+  const isMethodHeader = method === "工法";
+  const isModelHeader = model === "型號" || model === "品名";
+  const isSizeHeader = size === "呎寸" || size === "呎吋" || size === "尺寸";
+  return isMethodHeader && (isModelHeader || isSizeHeader);
+}
+
+const paddedSinks = computed(() => {
+  const list = Array.isArray(order.value?.sinks) ? order.value.sinks : [];
+  return pad(list.filter((item) => !isHeaderPlaceholderRow(item, "sink")), 3);
+});
+const paddedStoves = computed(() => {
+  const list = Array.isArray(order.value?.stoves) ? order.value.stoves : [];
+  return pad(list.filter((item) => !isHeaderPlaceholderRow(item, "stove")), 2);
+});
+const faucetDisplayLines = computed(() => {
+  const sinks = Array.isArray(order.value?.sinks) ? order.value.sinks : [];
+  const labels = sinks
+    .filter((sink) => sink?.hasFaucet === true)
+    .map((sink, index) => {
+      const model = String(sink?.model || "").trim();
+      return model ? `${model} 有龍頭` : `水槽${index + 1} 有龍頭`;
+    });
+  return labels;
+});
 
 function fmtDate(val) {
   if (!val) return "";
@@ -1210,8 +1213,10 @@ const A4_WIDTH_PX = 1123;
 const A4_HEIGHT_PX = 794;
 const SNAPSHOT_RENDER_SCALE = 5;
 const CONFIRMED_PDF_MAX_BYTES = 3 * 1024 * 1024;
-const PDF_RENDER_SCALE_CANDIDATES = [3, 2, 1];
-const PDF_JPEG_QUALITY_CANDIDATES = [0.82, 0.74, 0.66, 0.58, 0.5, 0.42];
+const PDF_FAST_RENDER_SCALE = 2;
+const PDF_FAST_JPEG_QUALITY = 0.72;
+const PDF_RENDER_SCALE_CANDIDATES = [2, 1];
+const PDF_JPEG_QUALITY_CANDIDATES = [0.66, 0.58, 0.5, 0.42];
 const ENABLE_EXPORT_READABLE_STYLE = false;
 const DEFAULT_SINK_METHOD_STAMP_NAME = "選水槽下嵌做法";
 const measurementScale = ref(1);
@@ -1239,7 +1244,7 @@ function formatMeasurementLabel(shape) {
   return cm === "" ? "" : `${cm} CM`;
 }
 
-async function renderConfirmedCanvas(el, w, h, baseScale) {
+async function renderConfirmedCanvas(el, w, h, baseScale, { tryForeignObject = true } = {}) {
   // Ensure webfonts are fully ready; otherwise html2canvas may rasterize fallback fonts.
   if (typeof document !== "undefined" && document.fonts?.ready) {
     try {
@@ -1265,25 +1270,31 @@ async function renderConfirmedCanvas(el, w, h, baseScale) {
     removeContainer: true,
   };
 
+  el.classList.add("export-rendering");
   if (ENABLE_EXPORT_READABLE_STYLE) {
     el.classList.add("export-readable");
   }
+  // Let browser apply export-only styles before rasterizing.
+  await nextTick();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    // foreignObjectRendering can produce a blank canvas in some browser/GPU setups.
-    // Try high-fidelity mode first, then fall back to standard renderer.
-    try {
-      const canvas = await html2canvas(el, {
-        ...commonOptions,
-        foreignObjectRendering: true,
-      });
-      const ctx = canvas.getContext("2d");
-      const pixels = ctx?.getImageData(0, 0, 1, 1)?.data;
-      const isProbablyBlank =
-        !pixels ||
-        (pixels[0] >= 245 && pixels[1] >= 245 && pixels[2] >= 245 && pixels[3] >= 250);
-      if (!isProbablyBlank) return canvas;
-    } catch (_) {
-      // Ignore and retry with default renderer below.
+    // foreignObjectRendering can be slower and may produce blank canvas in some setups.
+    // Keep it optional so PDF flow can use the faster non-foreignObject path.
+    if (tryForeignObject) {
+      try {
+        const canvas = await html2canvas(el, {
+          ...commonOptions,
+          foreignObjectRendering: true,
+        });
+        const ctx = canvas.getContext("2d");
+        const pixels = ctx?.getImageData(0, 0, 1, 1)?.data;
+        const isProbablyBlank =
+          !pixels ||
+          (pixels[0] >= 245 && pixels[1] >= 245 && pixels[2] >= 245 && pixels[3] >= 250);
+        if (!isProbablyBlank) return canvas;
+      } catch (_) {
+        // Ignore and retry with default renderer below.
+      }
     }
 
     return await html2canvas(el, {
@@ -1291,6 +1302,7 @@ async function renderConfirmedCanvas(el, w, h, baseScale) {
       foreignObjectRendering: false,
     });
   } finally {
+    el.classList.remove("export-rendering");
     if (ENABLE_EXPORT_READABLE_STYLE) {
       el.classList.remove("export-readable");
     }
@@ -2584,11 +2596,21 @@ function parseSvgForDisplay(svgStr) {
 
 async function loadAll() {
   try {
-    const [ord, drws, conf] = await Promise.all([
+    const [ord, drws, conf, sinkModels, stoveModels] = await Promise.all([
       getSalesOrder(orderId.value),
       listOrderDrawings(orderId.value),
       getOrderConfirmation(orderId.value),
+      listProductModels("sink").catch(() => []),
+      listProductModels("stove").catch(() => []),
     ]);
+    {
+      const sinkLookup = buildModelSizeLookup(sinkModels);
+      sinkModelSizeById.value = sinkLookup.byId;
+      sinkModelSizeByName.value = sinkLookup.byName;
+      const stoveLookup = buildModelSizeLookup(stoveModels);
+      stoveModelSizeById.value = stoveLookup.byId;
+      stoveModelSizeByName.value = stoveLookup.byName;
+    }
     order.value = ord;
     customer.value = null;
     let customerPricing = null;
@@ -2759,7 +2781,19 @@ async function regeneratePdf() {
   await generateConfirmedPdf();
 }
 
-async function buildConfirmedPdfBlob() {
+function buildPdfBlobFromCanvas(canvas, jpegQuality) {
+  const imgData = canvas.toDataURL("image/jpeg", jpegQuality);
+  const pdf = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+  pdf.addImage(imgData, "JPEG", 0, 0, 297, 210, undefined, "FAST");
+  return pdf.output("blob");
+}
+
+async function buildConfirmedPdfBlob({ enforceSizeLimit = true } = {}) {
   selectedBlkId.value = null;
   await nextTick();
   const el = pageRef.value;
@@ -2771,21 +2805,25 @@ async function buildConfirmedPdfBlob() {
   const w = Math.round(rect.width || el.offsetWidth || 1123);
   const h = Math.round(rect.height || el.offsetHeight || 794);
 
-  let bestBlob = null;
-  let bestSize = Number.POSITIVE_INFINITY;
+  // Fast path: single render + single encode. For print flow we return immediately.
+  const quickCanvas = await renderConfirmedCanvas(el, w, h, PDF_FAST_RENDER_SCALE, {
+    tryForeignObject: false,
+  });
+  const quickBlob = buildPdfBlobFromCanvas(quickCanvas, PDF_FAST_JPEG_QUALITY);
+  const quickSize = Number(quickBlob?.size || 0);
+  if (!enforceSizeLimit || (quickSize > 0 && quickSize <= CONFIRMED_PDF_MAX_BYTES)) {
+    return quickBlob;
+  }
+
+  let bestBlob = quickBlob;
+  let bestSize = quickSize > 0 ? quickSize : Number.POSITIVE_INFINITY;
 
   for (const renderScale of PDF_RENDER_SCALE_CANDIDATES) {
-    const canvas = await renderConfirmedCanvas(el, w, h, renderScale);
+    const canvas = await renderConfirmedCanvas(el, w, h, renderScale, {
+      tryForeignObject: false,
+    });
     for (const jpegQuality of PDF_JPEG_QUALITY_CANDIDATES) {
-      const imgData = canvas.toDataURL("image/jpeg", jpegQuality);
-      const pdf = new jsPDF({
-        orientation: "landscape",
-        unit: "mm",
-        format: "a4",
-        compress: true,
-      });
-      pdf.addImage(imgData, "JPEG", 0, 0, 297, 210, undefined, "FAST");
-      const blob = pdf.output("blob");
+      const blob = buildPdfBlobFromCanvas(canvas, jpegQuality);
       const size = Number(blob?.size || 0);
       if (size > 0 && size < bestSize) {
         bestSize = size;
@@ -2805,7 +2843,7 @@ async function generateConfirmedPdf() {
   if (pdfGenerating.value || confirmedPdfUrl.value) return;
   pdfGenerating.value = true;
   try {
-    const blob = await buildConfirmedPdfBlob();
+    const blob = await buildConfirmedPdfBlob({ enforceSizeLimit: true });
     const url = await uploadConfirmedPdf(orderId.value, blob);
     confirmedPdfUrl.value = url;
     const actualSize = Number(blob.size || 0);
@@ -2910,7 +2948,7 @@ async function doPrint() {
       '<title>生產確定單 PDF</title><p style="font-family:sans-serif;padding:16px">PDF 產生中…</p>',
     );
     win.document.close();
-    const blob = await buildConfirmedPdfBlob();
+    const blob = await buildConfirmedPdfBlob({ enforceSizeLimit: false });
     const url = URL.createObjectURL(blob);
     win.location.replace(url);
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -3262,6 +3300,38 @@ onBeforeRouteLeave(async () => {
   overflow: hidden;
   flex-shrink: 0;
   --sheet-grid-border: #000;
+  --sheet-grid-width: 0.8px;
+}
+
+/* Unified thinner sheet lines (preview + print) */
+.a4-page :where(
+  .vert-strip,
+  .main-area,
+  .left-col,
+  .fields-tbl td,
+  .section-head,
+  .detail-tbl th,
+  .detail-tbl td,
+  .install-row,
+  .notice-row,
+  .notes-col,
+  .price-col,
+  .price-val-col,
+  .sig-col,
+  .sig-box,
+  .vf-val,
+  .sub-section,
+  .fields-top > .sub-section:last-child,
+  .fields-top > .sub-section:last-child .section-head,
+  .stove-section,
+  .stove-section .section-head,
+  .stove-section .detail-tbl,
+  .stove-section .detail-tbl tbody tr:last-child td
+) {
+  border-width: var(--sheet-grid-width) !important;
+}
+.a4-page .fields-top > .sub-section:last-child::after {
+  border-bottom-width: var(--sheet-grid-width) !important;
 }
 
 /* ══ 頂部標題 ══ */
@@ -3270,7 +3340,7 @@ onBeforeRouteLeave(async () => {
   align-items: flex-start;
   gap: 10px;
   padding: 0 6px 4px;
-  border-bottom: 2px solid #000;
+  border-bottom: 1px solid #000;
   height: 28px;
   background: #fff;
 }
@@ -3397,9 +3467,59 @@ onBeforeRouteLeave(async () => {
 }
 .sub-section {
   display: flex;
-  border-top: none;
+  border-top: 1px solid var(--sheet-grid-border);
   flex-shrink: 0;
   overflow: visible;
+}
+.fields-top > .sub-section:last-child {
+  position: relative;
+  border-bottom: 1px solid var(--sheet-grid-border);
+}
+.fields-top > .sub-section:last-child .section-head {
+  border-bottom: 1px solid var(--sheet-grid-border);
+}
+.fields-top > .sub-section:last-child::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-bottom: 1px solid var(--sheet-grid-border);
+  pointer-events: none;
+}
+.stove-section {
+  border-bottom: 1px solid var(--sheet-grid-border);
+}
+.stove-section .section-head {
+  border-bottom: 1px solid var(--sheet-grid-border);
+}
+.stove-section .detail-tbl {
+  border-bottom: 1px solid var(--sheet-grid-border);
+}
+.stove-section .detail-tbl tbody tr:last-child td {
+  border-bottom: 1px solid var(--sheet-grid-border);
+}
+.faucet-section {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.faucet-cell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 3px 10px;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.2;
+  overflow: hidden;
+}
+.faucet-line {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 /* 右側大繪圖區 */
 .drawing-area {
@@ -3426,8 +3546,22 @@ onBeforeRouteLeave(async () => {
   position: relative;
   top: -3px;
 }
+.a4-page:not(.export-rendering) .fields-tbl .lbl,
+.a4-page:not(.export-rendering) .fields-tbl .val {
+  top: -1px;
+}
+.fields-tbl td.val {
+  text-align: left;
+  padding-left: 8px;
+}
 .fields-tbl tr.edge-row td {
   height: 84px;
+  padding-top: 0;
+  padding-bottom: 0;
+  vertical-align: middle;
+}
+.fields-tbl tr.edge-row .lbl {
+  top: 0;
 }
 .lbl {
   background: #fff;
@@ -3482,27 +3616,33 @@ onBeforeRouteLeave(async () => {
   writing-mode: horizontal-tb;
 }
 .edge-cell {
-  padding: 0 6px 4px;
+  padding: 0 8px;
   height: 84px;
-  vertical-align: top;
+  display: flex;
+  align-items: center;
+  vertical-align: middle;
 }
 .edge-choice-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  align-items: flex-start;
-  transform: translateY(-6px);
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  transform: translateY(-4px);
 }
 .edge-choice {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 16px auto 1fr;
   align-items: center;
   gap: 4px;
   border: none;
   background: transparent;
   padding: 0;
+  min-height: 24px;
   font: inherit;
   cursor: pointer;
   color: #111;
+  justify-items: start;
 }
 .edge-choice-shape {
   width: 16px;
@@ -3525,22 +3665,22 @@ onBeforeRouteLeave(async () => {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  min-height: 72px;
+  min-height: 56px;
   width: 100%;
-  padding-left: 18px;
+  padding-left: 12px;
 }
 .sub-section-panel {
-  min-height: 72px;
+  min-height: 56px;
   align-items: center;
 }
 .sub-section-panel .panel-row {
-  min-height: 72px;
+  min-height: 56px;
 }
 .section-head-panel {
   font-size: 12px;
   line-height: 1;
   padding: 0;
-  min-height: 76px;
+  min-height: 60px;
   width: 22px;
   writing-mode: vertical-rl;
   text-orientation: upright;
@@ -3653,8 +3793,9 @@ onBeforeRouteLeave(async () => {
   line-height: 1.15;
   overflow-wrap: break-word;
   word-break: break-word;
-  font-size: 16px;
-  padding-left: 3px;
+  font-size: 19px;
+  text-align: left;
+  padding-left: 6px;
 }
 .owner-val {
   min-width: 48px;
@@ -3675,7 +3816,7 @@ onBeforeRouteLeave(async () => {
   color: #0b2bd6;
   border-bottom: 1px solid #000;
   background: #fff;
-  min-height: 30px;
+  min-height: 36px;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
@@ -3692,11 +3833,12 @@ onBeforeRouteLeave(async () => {
 }
 .notice-text {
   display: block;
+  font-size: 19px;
   white-space: nowrap;
   line-height: 1.25;
   text-align: left;
   padding-top: 0;
-  transform: none;
+  transform: translateY(-3px);
 }
 
 /* ══ 底部 ══ */
@@ -3708,13 +3850,14 @@ onBeforeRouteLeave(async () => {
 .notes-col {
   width: 132px;
   padding: 3px 5px;
-  font-size: 9px;
+  font-size: 11px;
+  line-height: 1.25;
   border-right: 1px solid var(--sheet-grid-border);
   overflow: hidden;
   flex-shrink: 0;
 }
 .notes-col ol {
-  margin: 2px 0 0 12px;
+  margin: 3px 0 0 14px;
   padding: 0;
 }
 
@@ -3914,6 +4057,51 @@ onBeforeRouteLeave(async () => {
 }
 .a4-page.export-readable .notice-row {
   font-size: 13px;
+}
+
+/* Export-only fine-tune for print/PDF alignment */
+.detail-cell-text {
+  display: inline-block;
+}
+.a4-page.export-rendering .detail-cell-text {
+  transform: translateY(-7px);
+}
+.a4-page.export-rendering .lbl,
+.a4-page.export-rendering .val {
+  font-size: 15px;
+}
+.a4-page.export-rendering .fields-tbl td {
+  height: 28px;
+  line-height: 1.1;
+  vertical-align: top;
+  padding-top: 0;
+  padding-bottom: 2px;
+}
+.a4-page.export-rendering .fields-tbl .lbl,
+.a4-page.export-rendering .fields-tbl .val {
+  top: -3px;
+}
+.a4-page.export-rendering .fields-tbl tr.edge-row td {
+  height: 88px;
+  vertical-align: middle;
+}
+.a4-page.export-rendering .fields-tbl td.val {
+  padding-top: 0;
+  padding-bottom: 4px;
+}
+.a4-page.export-rendering .detail-tbl,
+.a4-page.export-rendering .detail-tbl th {
+  font-size: 13px;
+}
+.a4-page.export-rendering .edge-choice-shape {
+  font-size: 15px;
+}
+.a4-page.export-rendering .edge-choice-mark,
+.a4-page.export-rendering .edge-choice-label {
+  font-size: 13px;
+}
+.a4-page.export-rendering .edge-choice-list {
+  transform: translateY(-11px);
 }
 
 /* ══ 繪圖區塊 ══ */

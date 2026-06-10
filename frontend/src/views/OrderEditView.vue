@@ -65,6 +65,7 @@
           <label>客戶</label>
           <div class="customer-picker">
             <input
+              ref="customerKeywordInputRef"
               v-model="customerKeyword"
               type="text"
               placeholder="輸入代號或名稱搜尋"
@@ -636,6 +637,12 @@
               class="sink-recipient-input"
             />
             <input
+              v-model.trim="s.note"
+              type="text"
+              placeholder="備註"
+              class="sink-note-input"
+            />
+            <input
               v-model.number="s.holeWidthMm"
               type="number"
               placeholder="開孔長 mm"
@@ -658,8 +665,24 @@
               </option>
             </select>
             <label class="chk">
-              <input type="checkbox" v-model="s.hasAccessory" />
-              有配件
+              <input
+                type="checkbox"
+                :checked="s.hasAccessory === true"
+                @change="setSinkAccessory(i, true, $event.target.checked)"
+              />
+              有
+            </label>
+            <label class="chk">
+              <input
+                type="checkbox"
+                :checked="s.hasAccessory === false"
+                @change="setSinkAccessory(i, false, $event.target.checked)"
+              />
+              無
+            </label>
+            <label class="chk">
+              <input type="checkbox" v-model="s.hasFaucet" />
+              有龍頭
             </label>
             <button class="btn-del" @click="form.sinks.splice(i, 1)">×</button>
           </div>
@@ -1245,6 +1268,18 @@ function colorsForBrand(brand) {
 
 const customerKeyword = ref("");
 const showCustomerList = ref(false);
+const customerKeywordInputRef = ref(null);
+
+function focusFirstField() {
+  const candidate =
+    customerKeywordInputRef.value ||
+    orderEditRef.value?.querySelector?.(".customer-picker input");
+  if (!candidate || typeof candidate.focus !== "function") return;
+  candidate.focus();
+  if (typeof candidate.select === "function") {
+    candidate.select();
+  }
+}
 
 function normalizeSiteAddress(value) {
   return String(value || "").trim();
@@ -1315,20 +1350,28 @@ function newSink() {
     model: "",
     bowlCount: 1,
     recipient: "",
+    note: "",
     holeWidthMm: null,
     holeDepthMm: null,
     holeRadiusMm: null,
     method: "",
     arrival: "notArrived",
-    hasAccessory: false,
+    hasAccessory: null,
+    hasFaucet: false,
   };
 }
 
 function normalizeSink(sink = {}) {
+  const accessoryRaw = sink?.hasAccessory;
+  const normalizedAccessory =
+    accessoryRaw === true ? true : accessoryRaw === false ? false : null;
   return {
     ...newSink(),
     ...(sink || {}),
     recipient: String(sink?.recipient || "").trim(),
+    note: String(sink?.note || "").trim(),
+    hasAccessory: normalizedAccessory,
+    hasFaucet: sink?.hasFaucet === true,
   };
 }
 
@@ -2062,6 +2105,16 @@ function onSinkModelChange(i) {
   // kept for compatibility (unused now)
 }
 
+function setSinkAccessory(index, value, checked) {
+  const sink = form.value.sinks[index];
+  if (!sink) return;
+  if (!checked) {
+    if (sink.hasAccessory === value) sink.hasAccessory = null;
+    return;
+  }
+  sink.hasAccessory = value;
+}
+
 function onStoveTextChange(i, text) {
   const s = form.value.stoves[i];
   const t = text.trim();
@@ -2708,6 +2761,10 @@ onBeforeRouteLeave(async () => {
 .sink-recipient-input {
   min-width: 120px;
   flex: 0 1 140px;
+}
+.sink-note-input {
+  min-width: 140px;
+  flex: 1 1 160px;
 }
 .sink-row-status {
   display: flex;

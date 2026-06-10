@@ -90,6 +90,9 @@ const OrderSinkPrintView = lazyRoute(
 const CustomerMgmtView = lazyRoute(
   () => import("../views/CustomerMgmtView.vue"),
 );
+const StoveModelsView = lazyRoute(
+  () => import("../views/StoveModelsView.vue"),
+);
 const QuotePageView = lazyRoute(() => import("../views/QuotePageView.vue"));
 const InstallTasksView = lazyRoute(
   () => import("../views/InstallTasksView.vue"),
@@ -353,6 +356,16 @@ const router = createRouter({
         roles: ["員工", "admin", "管理者"],
         depts: ["1"],
         title: "客戶管理",
+      },
+    },
+    {
+      path: "/stove-models",
+      name: "stove-models",
+      component: StoveModelsView,
+      meta: {
+        roles: ["員工", "admin", "管理者"],
+        depts: ["1"],
+        title: "爐子型號管理",
       },
     },
     {

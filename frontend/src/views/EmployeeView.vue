@@ -343,6 +343,9 @@
       class="photo-modal-mask"
       @click.self="closePhotoManager"
     >
+      <button class="photo-modal-close-floating" @click="closePhotoManager">
+        ✕ 關閉
+      </button>
       <div class="photo-modal-card">
         <div class="photo-modal-head">
           <h3>完工照片管理 - 訂單 {{ activePhotoOrder?.orderNumber || "" }}</h3>
@@ -361,8 +364,18 @@
             type="file"
             multiple
             accept="image/*,video/*"
+            class="photo-upload-input"
+            @click="resetFileInputValue"
             @change="onNewPhotoFilesSelected"
           />
+          <button
+            class="btn-aux"
+            :disabled="photoSaving"
+            @click="triggerPhotoUploadPicker"
+          >
+            選擇檔案
+          </button>
+          <span class="muted-text">{{ newPhotoFilesLabel }}</span>
           <button
             class="btn-query"
             :disabled="photoSaving || newPhotoFiles.length === 0"
@@ -503,6 +516,7 @@
                     :src="photo.downloadURL"
                     :alt="photo.fileName || '完工檔案'"
                     loading="lazy"
+                    @error="onPhotoPreviewError(photo, $event)"
                   />
                   <video
                     v-else
@@ -538,6 +552,7 @@
                     class="replace-file-input"
                     type="file"
                     accept="image/*,video/*"
+                    @click="resetFileInputValue"
                     @change="onReplacePhotoSelected(photo.id, $event)"
                   />
                   <button
@@ -558,6 +573,28 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <button class="photo-modal-close-fab" @click="closePhotoManager">
+          關閉
+        </button>
+
+        <div class="photo-upload-dock">
+          <button
+            class="btn-aux"
+            :disabled="photoSaving"
+            @click="triggerPhotoUploadPicker"
+          >
+            選擇檔案
+          </button>
+          <span class="muted-text photo-upload-dock-label">{{ newPhotoFilesLabel }}</span>
+          <button
+            class="btn-query"
+            :disabled="photoSaving || newPhotoFiles.length === 0"
+            @click="uploadPhotosForActiveOrder"
+          >
+            上傳照片
+          </button>
         </div>
       </div>
     </div>
@@ -1475,6 +1512,7 @@ const photoUploadProgress = ref(0);
 const photoUploadProgressText = ref("");
 const activePhotoOrder = ref(null);
 const activeOrderPhotos = ref([]);
+const refreshingPhotoUrlIds = ref(new Set());
 const newPhotoFiles = ref([]);
 const replacePhotoFiles = ref({});
 const selectedPhotoIds = ref([]);
@@ -1942,6 +1980,12 @@ function buildUploadDebugContext(action, extra = {}) {
 }
 
 const selectedPhotoCount = computed(() => selectedPhotoIds.value.length);
+const newPhotoFilesLabel = computed(() => {
+  const count = newPhotoFiles.value.length;
+  if (!count) return "未選擇任何檔案";
+  if (count === 1) return `已選擇：${newPhotoFiles.value[0]?.name || "1 個檔案"}`;
+  return `已選擇 ${count} 個檔案`;
+});
 const allPhotoIds = computed(() =>
   activeOrderPhotos.value
     .map((photo) => String(photo?.id || "").trim())
@@ -1968,6 +2012,11 @@ function togglePhotoSelected(photoId, checked) {
 
 function clearSelectedPhotos() {
   selectedPhotoIds.value = [];
+}
+
+function triggerPhotoUploadPicker() {
+  if (photoSaving.value) return;
+  photoUploadInputRef.value?.click();
 }
 
 function toggleSelectAllPhotos() {
@@ -2276,6 +2325,51 @@ async function loadActiveOrderPhotos() {
   photoLoading.value = false;
 }
 
+function appendCacheBuster(url) {
+  const text = String(url || "").trim();
+  if (!text) return "";
+  const sep = text.includes("?") ? "&" : "?";
+  return `${text}${sep}_ts=${Date.now()}`;
+}
+
+async function refreshSinglePhotoAccessUrl(photoId) {
+  if (!activePhotoOrder.value?.id || !photoId) return "";
+  const callable = httpsCallable(functionsInstance, "getCompletionPhotoAccessUrls");
+  const resp = await callable({
+    orderDocId: activePhotoOrder.value.id,
+    photoIds: [photoId],
+  });
+  const map = resp?.data || {};
+  const nextUrl = String(map[photoId] || "").trim();
+  return nextUrl;
+}
+
+async function onPhotoPreviewError(photo, event) {
+  const photoId = String(photo?.id || "").trim();
+  if (!photoId || !photo?.nasPath) return;
+
+  if (refreshingPhotoUrlIds.value.has(photoId)) return;
+  const retryCount = Number(photo?._previewRetryCount || 0);
+  if (retryCount >= 2) return;
+
+  refreshingPhotoUrlIds.value.add(photoId);
+  try {
+    const refreshedUrl = await refreshSinglePhotoAccessUrl(photoId);
+    if (!refreshedUrl) return;
+
+    const nextUrl = appendCacheBuster(refreshedUrl);
+    photo.downloadURL = nextUrl;
+    photo._previewRetryCount = retryCount + 1;
+    if (event?.target) {
+      event.target.src = nextUrl;
+    }
+  } catch (e) {
+    console.warn("更新完工照片預覽連結失敗", { photoId, error: e?.message || e });
+  } finally {
+    refreshingPhotoUrlIds.value.delete(photoId);
+  }
+}
+
 async function openPhotoManager(orderDoc) {
   const orderId = getOrderDocId(orderDoc);
   if (!orderId) {
@@ -2324,6 +2418,9 @@ function closePhotoManager() {
   nasLegacyPhotos.value = [];
   nasLegacyLoading.value = false;
   nasLegacyError.value = "";
+  if (photoUploadInputRef.value) {
+    photoUploadInputRef.value.value = "";
+  }
 }
 
 async function loadNasLegacyPhotos() {
@@ -2379,6 +2476,17 @@ function onNewPhotoFilesSelected(event) {
       `以下影片較大（>20 MB），上傳期間請保持頁面在前景、不要切換 App 或鎖屏，否則上傳會中斷：\n${videoLarge.join("\n")}`,
     );
   if (msgs.length) alert(msgs.join("\n\n"));
+
+  if (event?.target) {
+    // Allow selecting the same file again on mobile browsers.
+    event.target.value = "";
+  }
+}
+
+function resetFileInputValue(event) {
+  if (event?.target) {
+    event.target.value = "";
+  }
 }
 
 async function uploadPhotosForActiveOrder() {
@@ -2427,7 +2535,7 @@ async function uploadPhotosForActiveOrder() {
     }
     await loadActiveOrderPhotos();
 
-    const { failedFiles = [] } = result || {};
+    const { failedFiles = [], uploadedFiles = [] } = result || {};
     if (failedFiles.length > 0) {
       const names = failedFiles.map((f) => f.name).join("\n");
       photoUploadProgressText.value = `完成（${failedFiles.length} 個失敗）`;
@@ -2454,6 +2562,21 @@ async function uploadPhotosForActiveOrder() {
     } else {
       photoUploadProgress.value = 1;
       photoUploadProgressText.value = "上傳完成";
+      const folderPaths = Array.from(
+        new Set(
+          uploadedFiles
+            .map((item) => String(item?.nasPath || "").trim())
+            .filter(Boolean)
+            .map((path) =>
+              path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : path,
+            ),
+        ),
+      );
+      if (folderPaths.length === 1) {
+        alert(`上傳完成\n\nNAS 資料夾：\n${folderPaths[0]}`);
+      } else if (folderPaths.length > 1) {
+        alert(`上傳完成\n\nNAS 資料夾（${folderPaths.length} 個）：\n${folderPaths.join("\n")}`);
+      }
     }
   } catch (e) {
     console.error("上傳完工照片失敗：", e);
@@ -3338,20 +3461,35 @@ watch(results, () => {
   inset: 0;
   background: rgba(17, 24, 39, 0.45);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 25;
-  padding: 1rem;
+  padding: 0.75rem;
+}
+
+.photo-modal-close-floating {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  z-index: 999;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
 }
 
 .photo-modal-card {
-  width: min(1080px, 96vw);
-  max-height: 88vh;
+  width: min(1080px, calc(100vw - 1.5rem));
+  max-height: calc(100dvh - 1.5rem);
   overflow: auto;
   background: #fff;
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   padding: 0.9rem;
+  padding-bottom: 8.5rem;
 }
 
 .photo-modal-head {
@@ -3360,6 +3498,12 @@ watch(results, () => {
   justify-content: space-between;
   gap: 0.8rem;
   margin-bottom: 0.75rem;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 2;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .photo-modal-head h3 {
@@ -3384,6 +3528,57 @@ watch(results, () => {
   gap: 0.6rem;
   align-items: center;
   margin-bottom: 0.85rem;
+}
+
+.photo-upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.photo-modal-close-fab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: sticky;
+  left: 100%;
+  bottom: 0.65rem;
+  margin-top: 0.8rem;
+  margin-left: auto;
+  padding: 0.45rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+  z-index: 4;
+}
+
+.photo-modal-close-mobile {
+  display: none;
+}
+
+.photo-upload-dock {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+  padding: 0.6rem 0.2rem 0.2rem;
+  background: linear-gradient(to top, #ffffff 78%, rgba(255, 255, 255, 0.92));
+  border-top: 1px solid #e5e7eb;
+  z-index: 5;
+}
+
+.photo-upload-dock-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .upload-progress-wrap {
@@ -3467,5 +3662,56 @@ watch(results, () => {
 .replace-file-input {
   height: auto;
   padding: 0;
+}
+
+@media (max-width: 768px) {
+  .photo-modal-mask {
+    align-items: flex-start;
+    padding: 0.5rem;
+  }
+
+  .photo-modal-card {
+    width: 100%;
+    max-height: calc(100dvh - 1rem);
+    border-radius: 10px;
+    padding: 0.75rem;
+    padding-bottom: calc(8.6rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .photo-modal-head h3 {
+    font-size: 0.96rem;
+    line-height: 1.35;
+  }
+
+  .photo-modal-close-floating {
+    right: calc(0.55rem + env(safe-area-inset-right, 0px));
+    bottom: calc(0.55rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .photo-modal-close-fab {
+    bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .photo-upload-dock {
+    padding-bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .photo-modal-close-mobile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: calc(0.55rem + env(safe-area-inset-top, 0px));
+    right: calc(0.55rem + env(safe-area-inset-right, 0px));
+    height: 36px;
+    padding: 0 0.7rem;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #111827;
+    font-size: 0.86rem;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
+    z-index: 30;
+  }
 }
 </style>
