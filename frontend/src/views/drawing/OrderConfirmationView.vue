@@ -79,7 +79,10 @@
           ◯ 圓
         </button>
         <div
-          v-show="['rect', 'ellipse'].includes(drawTool) || ['rect', 'ellipse'].includes(selectedShapeOverlay?.type)"
+          v-show="
+            ['rect', 'ellipse'].includes(drawTool) ||
+            ['rect', 'ellipse'].includes(selectedShapeOverlay?.type)
+          "
           class="rect-mode-btns"
         >
           <button
@@ -116,7 +119,11 @@
           placeholder="先輸入文字，再點位置可連續貼上"
         />
         <div
-          v-show="(drawTool && drawTool !== 'erase') || selectedShapeOverlay || selectedTextOverlay"
+          v-show="
+            (drawTool && drawTool !== 'erase') ||
+            selectedShapeOverlay ||
+            selectedTextOverlay
+          "
           class="common-color-palette"
           title="常用顏色"
         >
@@ -130,7 +137,12 @@
             @click="setDrawColor(color)"
           />
         </div>
-        <div v-show="drawTool !== null || selectedShapeOverlay || selectedTextOverlay" class="sz-btns">
+        <div
+          v-show="
+            drawTool !== null || selectedShapeOverlay || selectedTextOverlay
+          "
+          class="sz-btns"
+        >
           <button
             v-for="w in strokeWidths"
             :key="w"
@@ -178,7 +190,10 @@
             <button class="snapshot-menu-item" @click="copyConfirmedSnapshot">
               📋 複製確定單快照
             </button>
-            <button class="snapshot-menu-item" @click="downloadConfirmedSnapshot">
+            <button
+              class="snapshot-menu-item"
+              @click="downloadConfirmedSnapshot"
+            >
               💾 下載 PNG
             </button>
             <button class="snapshot-menu-item" @click="openImagePicker">
@@ -220,8 +235,15 @@
         >
           ↺ 重設基準
         </button>
-        <button class="btn-print" @click="doPrint" title="列印或輸出 PDF">🖨️ 列印 / PDF</button>
-        <button class="btn-save" :disabled="saving" @click="doSave" title="儲存目前標註與設定">
+        <button class="btn-print" @click="doPrint" title="列印或輸出 PDF">
+          🖨️ 列印 / PDF
+        </button>
+        <button
+          class="btn-save"
+          :disabled="saving"
+          @click="doSave"
+          title="儲存目前標註與設定"
+        >
           {{ saving ? "儲存中…" : "💾 儲存" }}
         </button>
         <!-- 手動上傳確定單 PDF（手繪版） -->
@@ -365,7 +387,11 @@
                             "
                           >
                             <span class="edge-choice-shape">△</span>
-                            <span class="edge-choice-mark">（{{ cf.edgeType === 'bevel' ? '✓' : '　' }}）</span>
+                            <span class="edge-choice-mark"
+                              >（{{
+                                cf.edgeType === "bevel" ? "✓" : "　"
+                              }}）</span
+                            >
                             <span class="edge-choice-label">3mm斜角</span>
                           </button>
                           <button
@@ -378,7 +404,11 @@
                             "
                           >
                             <span class="edge-choice-shape">○</span>
-                            <span class="edge-choice-mark">（{{ cf.edgeType === 'round' ? '✓' : '　' }}）</span>
+                            <span class="edge-choice-mark"
+                              >（{{
+                                cf.edgeType === "round" ? "✓" : "　"
+                              }}）</span
+                            >
                             <span class="edge-choice-label">3mm圓角</span>
                           </button>
                           <button
@@ -391,14 +421,17 @@
                             "
                           >
                             <span class="edge-choice-shape">□</span>
-                            <span class="edge-choice-mark">（{{ cf.edgeType === 'dull' ? '✓' : '　' }}）</span>
+                            <span class="edge-choice-mark"
+                              >（{{
+                                cf.edgeType === "dull" ? "✓" : "　"
+                              }}）</span
+                            >
                             <span class="edge-choice-label">1mm磨不利</span>
                           </button>
                         </div>
                       </td>
                     </tr>
                   </table>
-
                 </div>
                 <!-- fields-top -->
 
@@ -413,9 +446,21 @@
                     </colgroup>
                     <tbody>
                       <tr v-for="s in paddedSinks" :key="s._i">
-                        <td><span class="detail-cell-text">{{ s.method || "" }}</span></td>
-                        <td><span class="detail-cell-text">{{ s.model || "" }}</span></td>
-                        <td><span class="detail-cell-text">{{ sinkSizeText(s) }}</span></td>
+                        <td>
+                          <span class="detail-cell-text">{{
+                            s.method || ""
+                          }}</span>
+                        </td>
+                        <td>
+                          <span class="detail-cell-text">{{
+                            s.model || ""
+                          }}</span>
+                        </td>
+                        <td>
+                          <span class="detail-cell-text">{{
+                            sinkSizeText(s)
+                          }}</span>
+                        </td>
                       </tr>
                     </tbody>
                   </table>
@@ -431,16 +476,32 @@
                     </colgroup>
                     <tbody>
                       <tr v-for="s in paddedStoves" :key="s._i">
-                        <td><span class="detail-cell-text">{{ s.method || "" }}</span></td>
-                        <td><span class="detail-cell-text">{{ s.model || "" }}</span></td>
-                        <td><span class="detail-cell-text">{{ stoveSizeText(s) }}</span></td>
+                        <td>
+                          <span class="detail-cell-text">{{
+                            s.method || ""
+                          }}</span>
+                        </td>
+                        <td>
+                          <span class="detail-cell-text">{{
+                            s.model || ""
+                          }}</span>
+                        </td>
+                        <td>
+                          <span class="detail-cell-text">{{
+                            stoveSizeText(s)
+                          }}</span>
+                        </td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
                 <div class="sub-section faucet-section">
                   <div class="faucet-cell">
-                    <div v-for="(line, i) in faucetDisplayLines" :key="`faucet-${i}`" class="faucet-line">
+                    <div
+                      v-for="(line, i) in faucetDisplayLines"
+                      :key="`faucet-${i}`"
+                      class="faucet-line"
+                    >
                       {{ line }}
                     </div>
                   </div>
@@ -457,8 +518,6 @@
               <div class="install-main-row">
                 <span class="lbl">安裝地點</span>
                 <span class="val site-val">{{ order?.siteAddress || "" }}</span>
-              </div>
-              <div class="install-meta-row">
                 <span class="lbl-s">業主</span
                 ><span class="val-s owner-val">{{
                   order?.owner?.name || ""
@@ -467,6 +526,31 @@
                 ><span class="val-s phone-val">{{
                   order?.owner?.phone || ""
                 }}</span>
+              </div>
+              <div class="install-sticker-lines">
+                <div class="sticker-line">
+                  <span class="sticker-lbl">下單:</span
+                  ><span class="sticker-val">{{ issueOperatorDisplay }}</span>
+                </div>
+                <div class="sticker-line">
+                  <span class="sticker-lbl">打板:</span
+                  ><span class="sticker-val">{{
+                    fmtStaffWithMonthDay(
+                      order?.templatingStaff,
+                      order?.templatingDate,
+                    )
+                  }}</span>
+                </div>
+                <div class="sticker-line">
+                  <span class="sticker-lbl">對圖:</span
+                  ><span class="sticker-val">{{
+                    order?.drawingStaff || ""
+                  }}</span>
+                </div>
+                <div class="sticker-line">
+                  <span class="sticker-lbl">傳真:</span
+                  ><span class="sticker-val"></span>
+                </div>
               </div>
             </div>
 
@@ -524,7 +608,10 @@
               </div>
               <div class="sig-col">
                 <div class="sig-lbl">客戶回簽</div>
-                <div class="sig-box"></div>
+                <div class="sig-box">
+                  <div class="sig-hand">👉</div>
+                  <div class="sig-pencil">✍️</div>
+                </div>
               </div>
             </div>
           </div>
@@ -533,7 +620,33 @@
           <!-- 右側直條 -->
           <div class="vert-strip vert-r">
             <span class="vert-txt">零樹脂成分之瓷板，無板材保固。★</span>
-            <span class="vert-txt2" v-html="splitVert('桶身□是□否裝')"></span>
+            <div class="cabinet-ready-wrap">
+              <span class="vert-txt2" v-html="cabinetReadyVertText"></span>
+              <div class="cabinet-ready-actions">
+                <button
+                  type="button"
+                  class="cabinet-choice"
+                  :class="{ active: cf.cabinetReady === 'yes' }"
+                  @click="
+                    cf.cabinetReady = 'yes';
+                    markDirty();
+                  "
+                >
+                  是
+                </button>
+                <button
+                  type="button"
+                  class="cabinet-choice"
+                  :class="{ active: cf.cabinetReady === 'no' }"
+                  @click="
+                    cf.cabinetReady = 'no';
+                    markDirty();
+                  "
+                >
+                  否
+                </button>
+              </div>
+            </div>
             <span class="vert-txt2"
               >電梯<input
                 v-model="cf.elevator"
@@ -541,20 +654,6 @@
                 @change="markDirty"
             /></span>
             <div class="vert-fields">
-              <div class="vf-row">
-                <span class="vf-lbl">下單</span><span class="vf-val"></span>
-              </div>
-              <div class="vf-row">
-                <span class="vf-lbl">打板</span
-                ><span class="vf-val">{{ fmtStaffWithMonthDay(order?.templatingStaff, order?.templatingDate) }}</span>
-              </div>
-              <div class="vf-row">
-                <span class="vf-lbl">對圖</span
-                ><span class="vf-val">{{ order?.drawingStaff || "" }}</span>
-              </div>
-              <div class="vf-row">
-                <span class="vf-lbl">傳真</span><span class="vf-val"></span>
-              </div>
               <div class="vf-row">
                 <span class="vf-lbl">列印</span
                 ><span class="vf-val">{{ printedByName || "" }}</span>
@@ -625,7 +724,10 @@
         <div
           v-for="ovl in textOverlays"
           :key="ovl.id"
-          :class="['txt-ovl', { 'txt-ovl-selected': selectedTextId === ovl.id }]"
+          :class="[
+            'txt-ovl',
+            { 'txt-ovl-selected': selectedTextId === ovl.id },
+          ]"
           :style="{
             left: ovl.x + 'px',
             top: ovl.y + 'px',
@@ -654,7 +756,10 @@
         <div
           v-for="ovl in shapeOverlays"
           :key="ovl.id"
-          :class="['shape-ovl', { 'shape-ovl-selected': selectedShapeId === ovl.id }]"
+          :class="[
+            'shape-ovl',
+            { 'shape-ovl-selected': selectedShapeId === ovl.id },
+          ]"
           :style="{
             left: Math.min(ovl.x1, ovl.x2) - ovl.width - 4 + 'px',
             top: Math.min(ovl.y1, ovl.y2) - ovl.width - 4 + 'px',
@@ -712,14 +817,38 @@
               :y2="ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4"
               :stroke="ovl.color"
               :stroke-width="ovl.width"
-              :marker-start="ovl.type === 'measure' ? `url(#measure-arrow-start-${ovl.id})` : null"
-              :marker-end="ovl.type === 'measure' ? `url(#measure-arrow-end-${ovl.id})` : null"
+              :marker-start="
+                ovl.type === 'measure'
+                  ? `url(#measure-arrow-start-${ovl.id})`
+                  : null
+              "
+              :marker-end="
+                ovl.type === 'measure'
+                  ? `url(#measure-arrow-end-${ovl.id})`
+                  : null
+              "
               stroke-linecap="round"
             />
             <g v-if="ovl.type === 'measure'">
               <rect
-                :x="((ovl.x1 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4) + (ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4)) / 2 - 30"
-                :y="((ovl.y1 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4) + (ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4)) / 2 - 24"
+                :x="
+                  (ovl.x1 -
+                    Math.min(ovl.x1, ovl.x2) +
+                    ovl.width +
+                    4 +
+                    (ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4)) /
+                    2 -
+                  30
+                "
+                :y="
+                  (ovl.y1 -
+                    Math.min(ovl.y1, ovl.y2) +
+                    ovl.width +
+                    4 +
+                    (ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4)) /
+                    2 -
+                  24
+                "
                 width="60"
                 height="18"
                 rx="3"
@@ -728,13 +857,30 @@
                 stroke-width="1"
               />
               <text
-                :x="((ovl.x1 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4) + (ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4)) / 2"
-                :y="((ovl.y1 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4) + (ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4)) / 2 - 11"
+                :x="
+                  (ovl.x1 -
+                    Math.min(ovl.x1, ovl.x2) +
+                    ovl.width +
+                    4 +
+                    (ovl.x2 - Math.min(ovl.x1, ovl.x2) + ovl.width + 4)) /
+                  2
+                "
+                :y="
+                  (ovl.y1 -
+                    Math.min(ovl.y1, ovl.y2) +
+                    ovl.width +
+                    4 +
+                    (ovl.y2 - Math.min(ovl.y1, ovl.y2) + ovl.width + 4)) /
+                    2 -
+                  11
+                "
                 :fill="ovl.color"
                 font-size="11"
                 font-weight="700"
                 text-anchor="middle"
-              >{{ formatMeasurementLabel(ovl) }}</text>
+              >
+                {{ formatMeasurementLabel(ovl) }}
+              </text>
             </g>
             <rect
               v-else-if="ovl.type === 'rect'"
@@ -925,6 +1071,7 @@ const orderId = computed(() => route.params.id);
 const order = ref(null);
 const customer = ref(null);
 const printedByName = ref("");
+const issuedByDisplayName = ref("");
 const sinkModelSizeById = ref(new Map());
 const sinkModelSizeByName = ref(new Map());
 const stoveModelSizeById = ref(new Map());
@@ -949,6 +1096,13 @@ const customerFaxDisplay = computed(() => {
     if (text) return text;
   }
   return "";
+});
+
+const issueOperatorDisplay = computed(() => {
+  const status = String(order.value?.status || "").trim();
+  const showStatuses = new Set(["confirmed", "inProduction", "delivered"]);
+  if (!showStatuses.has(status)) return "";
+  return issuedByDisplayName.value;
 });
 
 // 未稅價顯示：優先取 subtotal（lineItems 小計）→ total（手動輸入）→ lineItems 加總 → grandTotal
@@ -1057,9 +1211,16 @@ const cf = reactive({
   elevator: "",
   faxNo: "",
   edgeType: "sharp",
+  cabinetReady: "", // '' | 'yes' | 'no'
   actualDelivery: "",
   price: "",
   panelType: "", // '' | 'a' | 'b' | 'c' | 'd' | 'e'
+});
+
+const cabinetReadyVertText = computed(() => {
+  const yesMark = cf.cabinetReady === "yes" ? "☑" : "□";
+  const noMark = cf.cabinetReady === "no" ? "☑" : "□";
+  return splitVert(`桶身${yesMark}是${noMark}否裝`);
 });
 
 function normalizePreferredEdgeType(value) {
@@ -1116,7 +1277,9 @@ function buildModelSizeLookup(models = []) {
     const brand = String(item?.brand || "").trim();
     const modelKey = normalizeModelKey(model);
     if (modelKey) byName.set(modelKey, size);
-    const brandModelKey = normalizeModelKey([brand, model].filter(Boolean).join(" "));
+    const brandModelKey = normalizeModelKey(
+      [brand, model].filter(Boolean).join(" "),
+    );
     if (brandModelKey) byName.set(brandModelKey, size);
   }
   return { byId, byName };
@@ -1127,7 +1290,9 @@ function fallbackSizeText(item = {}, withRadius = false) {
   const depth = String(item?.holeDepthMm ?? "").trim();
   const radius = String(item?.holeRadiusMm ?? "").trim();
   if (width && depth) {
-    return withRadius && radius ? `${width}*${depth}*R${radius}` : `${width}*${depth}`;
+    return withRadius && radius
+      ? `${width}*${depth}*R${radius}`
+      : `${width}*${depth}`;
   }
   if (width || depth) return [width, depth].filter(Boolean).join("*");
   if (withRadius && radius) return `R${radius}`;
@@ -1135,15 +1300,19 @@ function fallbackSizeText(item = {}, withRadius = false) {
 }
 
 function resolveModelSize(item = {}, kind = "sink") {
-  const byId = kind === "stove" ? stoveModelSizeById.value : sinkModelSizeById.value;
-  const byName = kind === "stove" ? stoveModelSizeByName.value : sinkModelSizeByName.value;
+  const byId =
+    kind === "stove" ? stoveModelSizeById.value : sinkModelSizeById.value;
+  const byName =
+    kind === "stove" ? stoveModelSizeByName.value : sinkModelSizeByName.value;
   const modelId = String(item?.modelId || item?.modelCode || "").trim();
   if (modelId && byId.has(modelId)) return byId.get(modelId) || "";
 
   const model = String(item?.model || "").trim();
   const brand = String(item?.brand || "").trim();
   const brandModel = [brand, model].filter(Boolean).join(" ");
-  const match = byName.get(normalizeModelKey(model)) || byName.get(normalizeModelKey(brandModel));
+  const match =
+    byName.get(normalizeModelKey(model)) ||
+    byName.get(normalizeModelKey(brandModel));
   if (match) return match;
 
   const direct = String(item?.sizeText || item?.rawText || "").trim();
@@ -1171,11 +1340,17 @@ function isHeaderPlaceholderRow(item = {}, kind = "sink") {
 
 const paddedSinks = computed(() => {
   const list = Array.isArray(order.value?.sinks) ? order.value.sinks : [];
-  return pad(list.filter((item) => !isHeaderPlaceholderRow(item, "sink")), 3);
+  return pad(
+    list.filter((item) => !isHeaderPlaceholderRow(item, "sink")),
+    3,
+  );
 });
 const paddedStoves = computed(() => {
   const list = Array.isArray(order.value?.stoves) ? order.value.stoves : [];
-  return pad(list.filter((item) => !isHeaderPlaceholderRow(item, "stove")), 2);
+  return pad(
+    list.filter((item) => !isHeaderPlaceholderRow(item, "stove")),
+    2,
+  );
 });
 const faucetDisplayLines = computed(() => {
   const sinks = Array.isArray(order.value?.sinks) ? order.value.sinks : [];
@@ -1220,20 +1395,27 @@ const PDF_JPEG_QUALITY_CANDIDATES = [0.66, 0.58, 0.5, 0.42];
 const ENABLE_EXPORT_READABLE_STYLE = false;
 const DEFAULT_SINK_METHOD_STAMP_NAME = "選水槽下嵌做法";
 const measurementScale = ref(1);
-const measurementScaleText = computed(() => `x${measurementScale.value.toFixed(3)}`);
+const measurementScaleText = computed(
+  () => `x${measurementScale.value.toFixed(3)}`,
+);
 function getMeasurementMm(start, end) {
   const dxMm = (end.x - start.x) * (A4_WIDTH_MM / A4_WIDTH_PX);
   const dyMm = (end.y - start.y) * (A4_HEIGHT_MM / A4_HEIGHT_PX);
   return Math.sqrt(dxMm * dxMm + dyMm * dyMm) * measurementScale.value;
 }
 function parseMeasurementInput(input) {
-  const raw = String(input || "").trim().toLowerCase();
+  const raw = String(input || "")
+    .trim()
+    .toLowerCase();
   if (!raw) return null;
   const numeric = Number.parseFloat(raw.replace(/[^\d.\-]/g, ""));
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   if (raw.includes("mm") || raw.includes("毫米")) return numeric;
-  if (raw.includes("m") || raw.includes("公尺") || raw.includes("米")) return numeric * 1000;
-  return raw.includes("cm") || raw.includes("公分") ? numeric * 10 : numeric * 10;
+  if (raw.includes("m") || raw.includes("公尺") || raw.includes("米"))
+    return numeric * 1000;
+  return raw.includes("cm") || raw.includes("公分")
+    ? numeric * 10
+    : numeric * 10;
 }
 function formatMeasurementLabel(shape) {
   const mm = getMeasurementMm(
@@ -1244,7 +1426,13 @@ function formatMeasurementLabel(shape) {
   return cm === "" ? "" : `${cm} CM`;
 }
 
-async function renderConfirmedCanvas(el, w, h, baseScale, { tryForeignObject = true } = {}) {
+async function renderConfirmedCanvas(
+  el,
+  w,
+  h,
+  baseScale,
+  { tryForeignObject = true } = {},
+) {
   // Ensure webfonts are fully ready; otherwise html2canvas may rasterize fallback fonts.
   if (typeof document !== "undefined" && document.fonts?.ready) {
     try {
@@ -1290,7 +1478,10 @@ async function renderConfirmedCanvas(el, w, h, baseScale, { tryForeignObject = t
         const pixels = ctx?.getImageData(0, 0, 1, 1)?.data;
         const isProbablyBlank =
           !pixels ||
-          (pixels[0] >= 245 && pixels[1] >= 245 && pixels[2] >= 245 && pixels[3] >= 250);
+          (pixels[0] >= 245 &&
+            pixels[1] >= 245 &&
+            pixels[2] >= 245 &&
+            pixels[3] >= 250);
         if (!isProbablyBlank) return canvas;
       } catch (_) {
         // Ignore and retry with default renderer below.
@@ -1338,10 +1529,11 @@ function drawMeasurementArrowheads(ctx, start, end, color, width) {
 function setMeasurementReferenceFromSelected() {
   const shape = selectedShapeOverlay.value;
   if (!shape || shape.type !== "measure") return;
-  const baseRawMm = getMeasurementMm(
-    { x: Number(shape.x1 || 0), y: Number(shape.y1 || 0) },
-    { x: Number(shape.x2 || 0), y: Number(shape.y2 || 0) },
-  ) / measurementScale.value;
+  const baseRawMm =
+    getMeasurementMm(
+      { x: Number(shape.x1 || 0), y: Number(shape.y1 || 0) },
+      { x: Number(shape.x2 || 0), y: Number(shape.y2 || 0) },
+    ) / measurementScale.value;
   if (!baseRawMm) return;
   const input = window.prompt(
     "輸入這條基準線的實際距離，可用 cm / m / mm，例如 273cm 或 2.73m",
@@ -1367,7 +1559,12 @@ function getMeasurementLabelPos(start, end) {
   };
 }
 function drawMeasurementLabel(ctx, start, end, color) {
-  const label = formatMeasurementLabel({ x1: start.x, y1: start.y, x2: end.x, y2: end.y });
+  const label = formatMeasurementLabel({
+    x1: start.x,
+    y1: start.y,
+    x2: end.x,
+    y2: end.y,
+  });
   if (!label) return;
   const pos = getMeasurementLabelPos(start, end);
   ctx.save();
@@ -1375,7 +1572,7 @@ function drawMeasurementLabel(ctx, start, end, color) {
   const textWidth = ctx.measureText(label).width;
   const boxWidth = textWidth + 10;
   const boxHeight = 18;
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
   ctx.strokeStyle = color;
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -1383,8 +1580,8 @@ function drawMeasurementLabel(ctx, start, end, color) {
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = color;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
   ctx.fillText(label, pos.x, pos.y - 4);
   ctx.restore();
 }
@@ -1418,12 +1615,21 @@ function applyAnnotationSnapshot(snapshot) {
   _isRestoringAnnotationHistory = true;
   clearSelections();
   drawTool.value = null;
-  measurementScale.value = Number(snapshot.measurementScale) > 0 ? Number(snapshot.measurementScale) : 1;
+  measurementScale.value =
+    Number(snapshot.measurementScale) > 0
+      ? Number(snapshot.measurementScale)
+      : 1;
   overlayImgs.value = (snapshot.overlayImgs || []).map((img) => ({ ...img }));
   textOverlays.value = (snapshot.textOverlays || []).map((ovl) => ({ ...ovl }));
-  shapeOverlays.value = (snapshot.shapeOverlays || []).map((ovl) => ({ ...ovl }));
-  stampOverlays.value = (snapshot.stampOverlays || []).map((ovl) => ({ ...ovl }));
-  const blockMap = new Map((snapshot.drawingBlocks || []).map((blk) => [blk.drawingId, blk]));
+  shapeOverlays.value = (snapshot.shapeOverlays || []).map((ovl) => ({
+    ...ovl,
+  }));
+  stampOverlays.value = (snapshot.stampOverlays || []).map((ovl) => ({
+    ...ovl,
+  }));
+  const blockMap = new Map(
+    (snapshot.drawingBlocks || []).map((blk) => [blk.drawingId, blk]),
+  );
   drawingBlocks.value.forEach((blk) => {
     const saved = blockMap.get(blk.drawingId);
     if (!saved) return;
@@ -1457,7 +1663,10 @@ function recordAnnotationHistory() {
     _historyNeedsRecord = false;
     return;
   }
-  const nextHistory = annotationHistory.value.slice(0, annotationHistoryIndex.value + 1);
+  const nextHistory = annotationHistory.value.slice(
+    0,
+    annotationHistoryIndex.value + 1,
+  );
   nextHistory.push(snapshot);
   if (nextHistory.length > 50) nextHistory.shift();
   annotationHistory.value = nextHistory;
@@ -1468,7 +1677,9 @@ function undoAnnotationHistory() {
   if (annotationHistoryIndex.value <= 0) return;
   if (textBox.value.visible) cancelText();
   annotationHistoryIndex.value -= 1;
-  applyAnnotationSnapshot(annotationHistory.value[annotationHistoryIndex.value]);
+  applyAnnotationSnapshot(
+    annotationHistory.value[annotationHistoryIndex.value],
+  );
   dirty.value = true;
 }
 function splitVert(str) {
@@ -1523,11 +1734,13 @@ const selectedStampId = ref(null);
 let _cdrawing = false;
 let _shapeStart = null; // { x, y } canvas coords
 
-const selectedShapeOverlay = computed(() =>
-  shapeOverlays.value.find((ovl) => ovl.id === selectedShapeId.value) || null,
+const selectedShapeOverlay = computed(
+  () =>
+    shapeOverlays.value.find((ovl) => ovl.id === selectedShapeId.value) || null,
 );
-const selectedTextOverlay = computed(() =>
-  textOverlays.value.find((ovl) => ovl.id === selectedTextId.value) || null,
+const selectedTextOverlay = computed(
+  () =>
+    textOverlays.value.find((ovl) => ovl.id === selectedTextId.value) || null,
 );
 const toolbarHint = computed(() => {
   if (textBox.value.visible) {
@@ -1538,9 +1751,13 @@ const toolbarHint = computed(() => {
   }
   if (selectedShapeOverlay.value) {
     const shapeLabel =
-      selectedShapeOverlay.value.type === "ellipse" ? "圓 / 橢圓" :
-      selectedShapeOverlay.value.type === "rect" ? "矩形" :
-      selectedShapeOverlay.value.type === "measure" ? "測量線" : "線條";
+      selectedShapeOverlay.value.type === "ellipse"
+        ? "圓 / 橢圓"
+        : selectedShapeOverlay.value.type === "rect"
+          ? "矩形"
+          : selectedShapeOverlay.value.type === "measure"
+            ? "測量線"
+            : "線條";
     if (selectedShapeOverlay.value.type === "measure") {
       return `${shapeLabel}已選取：拖曳移動，Delete 刪除，可按「設基準」輸入實際距離，也可重設基準，Esc 或點空白取消選取`;
     }
@@ -1642,7 +1859,11 @@ function playSnapshotShutterSound() {
     const ctx = new AudioCtx();
     const now = ctx.currentTime;
 
-    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+    const noiseBuffer = ctx.createBuffer(
+      1,
+      ctx.sampleRate * 0.08,
+      ctx.sampleRate,
+    );
     const data = noiseBuffer.getChannelData(0);
     for (let i = 0; i < data.length; i += 1) {
       data[i] = Math.random() * 2 - 1;
@@ -1670,7 +1891,10 @@ function playSnapshotShutterSound() {
     toneGain.gain.exponentialRampToValueAtTime(0.24, now + 0.006);
     toneGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
 
-    noiseSource.connect(noiseFilter).connect(noiseGain).connect(ctx.destination);
+    noiseSource
+      .connect(noiseFilter)
+      .connect(noiseGain)
+      .connect(ctx.destination);
     toneOsc.connect(toneGain).connect(ctx.destination);
 
     noiseSource.start(now);
@@ -1730,7 +1954,9 @@ async function buildConfirmedSnapshotBlob() {
   });
 }
 function getSnapshotFileName() {
-  const orderNo = String(order.value?.orderNo || orderId.value || "confirmation").replace(/[\\/:*?"<>|]+/g, "-");
+  const orderNo = String(
+    order.value?.orderNo || orderId.value || "confirmation",
+  ).replace(/[\\/:*?"<>|]+/g, "-");
   return `${orderNo}-snapshot.png`;
 }
 async function copyConfirmedSnapshot() {
@@ -1779,9 +2005,11 @@ function syncToolbarFromShape(ovl) {
 }
 function textFontSizeToWidth(fontSize) {
   const approx = Math.max(1, Math.round((Number(fontSize || 16) - 10) / 3));
-  return strokeWidths.reduce((best, next) =>
-    Math.abs(next - approx) < Math.abs(best - approx) ? next : best,
-  strokeWidths[0]);
+  return strokeWidths.reduce(
+    (best, next) =>
+      Math.abs(next - approx) < Math.abs(best - approx) ? next : best,
+    strokeWidths[0],
+  );
 }
 function syncToolbarFromText(ovl) {
   if (!ovl) return;
@@ -1868,7 +2096,13 @@ function drawPreviewShape(ctx, type, start, end) {
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
     if (type === "measure") {
-      drawMeasurementArrowheads(ctx, start, end, drawColor.value, drawWidth.value);
+      drawMeasurementArrowheads(
+        ctx,
+        start,
+        end,
+        drawColor.value,
+        drawWidth.value,
+      );
       drawMeasurementLabel(ctx, start, end, drawColor.value);
     }
     return;
@@ -1892,7 +2126,15 @@ function drawPreviewShape(ctx, type, start, end) {
 
   if (type === "ellipse") {
     ctx.beginPath();
-    ctx.ellipse(left + width / 2, top + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(
+      left + width / 2,
+      top + height / 2,
+      width / 2,
+      height / 2,
+      0,
+      0,
+      Math.PI * 2,
+    );
     if (rectStyle.value === "fill") {
       ctx.fillStyle = drawColor.value;
       ctx.fill();
@@ -1988,12 +2230,10 @@ function onCanvasMove(e) {
     ctx.stroke();
     markAnnotationDirty();
   } else if (
-    (
-      drawTool.value === "line" ||
+    (drawTool.value === "line" ||
       drawTool.value === "measure" ||
       drawTool.value === "rect" ||
-      drawTool.value === "ellipse"
-    ) &&
+      drawTool.value === "ellipse") &&
     _shapeStart
   ) {
     const pc = previewCanvasRef.value;
@@ -2001,7 +2241,11 @@ function onCanvasMove(e) {
     const pctx = pc.getContext("2d");
     pctx.clearRect(0, 0, pc.width, pc.height);
     _applyStrokeStyle(pctx);
-    const end = getShapeEndPos(_shapeStart, { x, y }, drawTool.value === "ellipse" && e.shiftKey);
+    const end = getShapeEndPos(
+      _shapeStart,
+      { x, y },
+      drawTool.value === "ellipse" && e.shiftKey,
+    );
     drawPreviewShape(pctx, drawTool.value, _shapeStart, end);
   }
 }
@@ -2009,12 +2253,10 @@ function onCanvasUp(e) {
   if (
     _cdrawing &&
     _shapeStart &&
-    (
-      drawTool.value === "line" ||
+    (drawTool.value === "line" ||
       drawTool.value === "measure" ||
       drawTool.value === "rect" ||
-      drawTool.value === "ellipse"
-    )
+      drawTool.value === "ellipse")
   ) {
     let pos;
     try {
@@ -2084,7 +2326,9 @@ function commitText() {
         drawTool.value = null;
         selectTextOverlay(existing);
       } else {
-        textOverlays.value = textOverlays.value.filter((ovl) => ovl.id !== tb.editingId);
+        textOverlays.value = textOverlays.value.filter(
+          (ovl) => ovl.id !== tb.editingId,
+        );
         if (selectedTextId.value === tb.editingId) selectedTextId.value = null;
       }
       markAnnotationDirty();
@@ -2110,7 +2354,12 @@ function commitText() {
   cancelText();
 }
 function cancelText() {
-  textBox.value = { ...textBox.value, visible: false, value: "", editingId: null };
+  textBox.value = {
+    ...textBox.value,
+    visible: false,
+    value: "",
+    editingId: null,
+  };
 }
 function startTextDrag(e) {
   _textDragging = true;
@@ -2192,7 +2441,8 @@ async function buildDefaultSinkMethodStampOverlays() {
   if (!Array.isArray(stamps) || !stamps.length) return [];
 
   const matched = stamps.find(
-    (stamp) => String(stamp?.name || "").trim() === DEFAULT_SINK_METHOD_STAMP_NAME,
+    (stamp) =>
+      String(stamp?.name || "").trim() === DEFAULT_SINK_METHOD_STAMP_NAME,
   );
   if (!matched?.id || !matched?.imageUrl) return [];
 
@@ -2279,13 +2529,14 @@ function onAnnotPointerDown(e) {
 function onAnnotKeydown(e) {
   const target = e.target;
   const tagName = target?.tagName?.toLowerCase?.() || "";
-  if (
-    (e.ctrlKey || e.metaKey) &&
-    !e.shiftKey &&
-    e.key.toLowerCase() === "z"
-  ) {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
     if (textBox.value.visible) return;
-    if (tagName === "input" || tagName === "textarea" || target?.isContentEditable) return;
+    if (
+      tagName === "input" ||
+      tagName === "textarea" ||
+      target?.isContentEditable
+    )
+      return;
     undoAnnotationHistory();
     e.preventDefault();
     return;
@@ -2297,7 +2548,12 @@ function onAnnotKeydown(e) {
   }
   if (textBox.value.visible) return;
   if (e.key !== "Delete" && e.key !== "Backspace") return;
-  if (tagName === "input" || tagName === "textarea" || target?.isContentEditable) return;
+  if (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    target?.isContentEditable
+  )
+    return;
 
   if (selectedTextId.value != null) {
     removeTxtOvl(selectedTextId.value);
@@ -2533,12 +2789,10 @@ function onMouseUp() {
   if (
     _cdrawing &&
     _shapeStart &&
-    (
-      drawTool.value === "line" ||
+    (drawTool.value === "line" ||
       drawTool.value === "measure" ||
       drawTool.value === "rect" ||
-      drawTool.value === "ellipse"
-    )
+      drawTool.value === "ellipse")
   ) {
     const pc = previewCanvasRef.value;
     if (pc) pc.getContext("2d").clearRect(0, 0, pc.width, pc.height);
@@ -2612,6 +2866,7 @@ async function loadAll() {
       stoveModelSizeByName.value = stoveLookup.byName;
     }
     order.value = ord;
+    issuedByDisplayName.value = String(ord?.issuedByName || "").trim();
     customer.value = null;
     let customerPricing = null;
     if (ord?.customerId) {
@@ -2647,7 +2902,8 @@ async function loadAll() {
         cf.edgeType = preferredEdgeType;
       }
     }
-    measurementScale.value = Number(conf?.measurementScale) > 0 ? Number(conf.measurementScale) : 1;
+    measurementScale.value =
+      Number(conf?.measurementScale) > 0 ? Number(conf.measurementScale) : 1;
     if (Array.isArray(conf?.overlayImgs))
       overlayImgs.value = conf.overlayImgs.map((i) => ({ ...i }));
     if (Array.isArray(conf?.textOverlays))
@@ -2710,6 +2966,23 @@ async function loadAll() {
       }
     } else {
       printedByName.value = "";
+    }
+
+    if (!issuedByDisplayName.value) {
+      const issuerUid = String(
+        ord?.issuedByUid || ord?.updatedByUid || "",
+      ).trim();
+      if (issuerUid) {
+        try {
+          const issuerDoc = await getUserByUid(issuerUid);
+          issuedByDisplayName.value =
+            String(issuerDoc?.displayName || issuerDoc?.name || "").trim() ||
+            issuerUid;
+        } catch (e) {
+          console.warn("Could not load issued-by user", e);
+          issuedByDisplayName.value = issuerUid;
+        }
+      }
     }
 
     // 沒有儲存過位置的話，從佔位 ref 取得預設座標
@@ -2806,12 +3079,21 @@ async function buildConfirmedPdfBlob({ enforceSizeLimit = true } = {}) {
   const h = Math.round(rect.height || el.offsetHeight || 794);
 
   // Fast path: single render + single encode. For print flow we return immediately.
-  const quickCanvas = await renderConfirmedCanvas(el, w, h, PDF_FAST_RENDER_SCALE, {
-    tryForeignObject: false,
-  });
+  const quickCanvas = await renderConfirmedCanvas(
+    el,
+    w,
+    h,
+    PDF_FAST_RENDER_SCALE,
+    {
+      tryForeignObject: false,
+    },
+  );
   const quickBlob = buildPdfBlobFromCanvas(quickCanvas, PDF_FAST_JPEG_QUALITY);
   const quickSize = Number(quickBlob?.size || 0);
-  if (!enforceSizeLimit || (quickSize > 0 && quickSize <= CONFIRMED_PDF_MAX_BYTES)) {
+  if (
+    !enforceSizeLimit ||
+    (quickSize > 0 && quickSize <= CONFIRMED_PDF_MAX_BYTES)
+  ) {
     return quickBlob;
   }
 
@@ -2848,9 +3130,10 @@ async function generateConfirmedPdf() {
     confirmedPdfUrl.value = url;
     const actualSize = Number(blob.size || 0);
     const mb = (actualSize / (1024 * 1024)).toFixed(2);
-    saveMsg.value = actualSize <= CONFIRMED_PDF_MAX_BYTES
-      ? `✅ 封存PDF完成（${mb}MB）`
-      : `⚠️ 封存PDF完成（${mb}MB，未壓到 3MB 內）`;
+    saveMsg.value =
+      actualSize <= CONFIRMED_PDF_MAX_BYTES
+        ? `✅ 封存PDF完成（${mb}MB）`
+        : `⚠️ 封存PDF完成（${mb}MB，未壓到 3MB 內）`;
   } catch (e) {
     console.error("PDF封存失敗", e);
     saveMsg.value = `❌ 封存PDF失敗：${e?.message || e}`;
@@ -2865,7 +3148,10 @@ async function generateConfirmedPdf() {
 }
 
 // ── Save ────────────────────────────────────────────────────────────
-async function persistConfirmation({ showSuccess = true, showFailure = true } = {}) {
+async function persistConfirmation({
+  showSuccess = true,
+  showFailure = true,
+} = {}) {
   if (savePromise) return savePromise;
 
   savePromise = (async () => {
@@ -2926,7 +3212,9 @@ async function doSave() {
 
 function triggerBestEffortSave() {
   if (!dirty.value || saving.value || !orderId.value) return;
-  void persistConfirmation({ showSuccess: false, showFailure: false }).catch(() => {});
+  void persistConfirmation({ showSuccess: false, showFailure: false }).catch(
+    () => {},
+  );
 }
 
 function handleConfirmationPageHide() {
@@ -2963,7 +3251,10 @@ onMounted(() => {
   document.addEventListener("paste", onPaste);
   document.addEventListener("pointerdown", onAnnotPointerDown);
   document.addEventListener("keydown", onAnnotKeydown);
-  document.addEventListener("visibilitychange", handleConfirmationVisibilityChange);
+  document.addEventListener(
+    "visibilitychange",
+    handleConfirmationVisibilityChange,
+  );
   window.addEventListener("pagehide", handleConfirmationPageHide);
   window.addEventListener("beforeunload", handleConfirmationPageHide);
 });
@@ -2971,7 +3262,10 @@ onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
   document.removeEventListener("pointerdown", onAnnotPointerDown);
   document.removeEventListener("keydown", onAnnotKeydown);
-  document.removeEventListener("visibilitychange", handleConfirmationVisibilityChange);
+  document.removeEventListener(
+    "visibilitychange",
+    handleConfirmationVisibilityChange,
+  );
   window.removeEventListener("pagehide", handleConfirmationPageHide);
   window.removeEventListener("beforeunload", handleConfirmationPageHide);
 });
@@ -3304,30 +3598,31 @@ onBeforeRouteLeave(async () => {
 }
 
 /* Unified thinner sheet lines (preview + print) */
-.a4-page :where(
-  .vert-strip,
-  .main-area,
-  .left-col,
-  .fields-tbl td,
-  .section-head,
-  .detail-tbl th,
-  .detail-tbl td,
-  .install-row,
-  .notice-row,
-  .notes-col,
-  .price-col,
-  .price-val-col,
-  .sig-col,
-  .sig-box,
-  .vf-val,
-  .sub-section,
-  .fields-top > .sub-section:last-child,
-  .fields-top > .sub-section:last-child .section-head,
-  .stove-section,
-  .stove-section .section-head,
-  .stove-section .detail-tbl,
-  .stove-section .detail-tbl tbody tr:last-child td
-) {
+.a4-page
+  :where(
+    .vert-strip,
+    .main-area,
+    .left-col,
+    .fields-tbl td,
+    .section-head,
+    .detail-tbl th,
+    .detail-tbl td,
+    .install-row,
+    .notice-row,
+    .notes-col,
+    .price-col,
+    .price-val-col,
+    .sig-col,
+    .sig-box,
+    .vf-val,
+    .sub-section,
+    .fields-top > .sub-section:last-child,
+    .fields-top > .sub-section:last-child .section-head,
+    .stove-section,
+    .stove-section .section-head,
+    .stove-section .detail-tbl,
+    .stove-section .detail-tbl tbody tr:last-child td
+  ) {
   border-width: var(--sheet-grid-width) !important;
 }
 .a4-page .fields-top > .sub-section:last-child::after {
@@ -3391,6 +3686,37 @@ onBeforeRouteLeave(async () => {
 .vert-txt2 {
   font-size: 14px;
 }
+.cabinet-ready-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.cabinet-ready-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.cabinet-choice {
+  width: 18px;
+  min-height: 18px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+.cabinet-choice.active {
+  border-color: #1d4ed8;
+  color: #1d4ed8;
+  font-weight: 700;
+}
 .vc {
   display: block;
   width: 100%;
@@ -3402,7 +3728,8 @@ onBeforeRouteLeave(async () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: auto;
+  margin-bottom: 20px;
   width: 100%;
   align-items: center;
 }
@@ -3752,60 +4079,100 @@ onBeforeRouteLeave(async () => {
 /* ══ 安裝地點 ══ */
 .install-row {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: center;
+  justify-content: flex-start;
+  position: relative;
   border-top: 1px solid var(--sheet-grid-border);
-  border-bottom: 1px solid var(--sheet-grid-border);
-  padding: 1px 4px 2px;
-  gap: 2px;
-  min-height: 40px;
+  border-bottom: none;
+  padding: 1px 4px;
+  min-height: 34px;
   font-size: 15px;
   flex-shrink: 0;
 }
-.install-main-row,
-.install-meta-row {
+.install-main-row {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
-}
-.install-main-row {
+  width: 100%;
+  padding-right: 124px;
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  align-items: start;
-  width: 100%;
-  gap: 0;
-}
-.install-meta-row {
-  width: 100%;
-  justify-content: flex-end;
+  grid-template-columns:
+    62px minmax(0, 1fr) 28px minmax(80px, auto)
+    28px minmax(96px, auto);
   align-items: center;
-  font-size: 10px;
-  line-height: 1.25;
-  padding-top: 0;
-  transform: translateY(-2px);
+  line-height: 1.2;
+  position: relative;
+  top: 0;
 }
 .site-val {
   display: block;
   min-width: 0;
   overflow: visible;
+  text-overflow: clip;
   white-space: normal;
-  line-height: 1.15;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  font-size: 19px;
+  word-break: break-all;
+  line-height: 1.1;
+  font-size: 21px;
   text-align: left;
   padding-left: 6px;
+  position: relative;
+  top: -1px;
 }
 .owner-val {
-  min-width: 48px;
+  min-width: 80px;
   display: inline-block;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 .phone-val {
-  min-width: 52px;
+  min-width: 96px;
   display: inline-block;
-  line-height: 1.25;
+  line-height: 1.2;
+}
+.install-sticker-lines {
+  position: absolute;
+  top: -3pt;
+  right: 2px;
+  width: 140px;
+  height: calc(100% + 50px);
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  align-content: stretch;
+  font-size: 7pt !important;
+  line-height: 1.2;
+  justify-items: start;
+  padding-left: 2px;
+  padding-top: 1px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+  border: 1px solid var(--sheet-grid-border);
+  background: #fff;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.install-sticker-lines > div {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.sticker-line {
+  width: 100%;
+  gap: 2px;
+  align-items: center;
+}
+.sticker-lbl {
+  flex: 0 0 auto;
+  font-size: 7pt !important;
+}
+.sticker-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  font-size: 7pt !important;
+  line-height: 1.2;
 }
 
 /* ══ 交期說明 ══ */
@@ -3833,7 +4200,7 @@ onBeforeRouteLeave(async () => {
 }
 .notice-text {
   display: block;
-  font-size: 19px;
+  font-size: 17px;
   white-space: nowrap;
   line-height: 1.25;
   text-align: left;
@@ -4005,27 +4372,52 @@ onBeforeRouteLeave(async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 4px;
+  padding-top: 2px;
   margin-left: auto;
+  border-left: 1px solid var(--sheet-grid-border);
+  margin-top: -3pt;
 }
 .sig-lbl {
   font-size: 12px;
   font-weight: 700;
+  width: 100%;
+  text-align: center;
+  border-bottom: 1px solid var(--sheet-grid-border);
+  line-height: 1.3;
+  padding: 1px 0;
 }
 .sig-box {
+  position: relative;
   flex: 1;
-  width: 112px;
+  width: 100%;
   border: 1px solid var(--sheet-grid-border);
-  margin-top: 4px;
+  border-top: none;
+  margin-top: 0;
+  background: #fff;
+}
+.sig-hand {
+  position: absolute;
+  left: 8px;
+  bottom: 12px;
+  font-size: 24px;
+  line-height: 1;
+}
+.sig-pencil {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 20px;
+  line-height: 1;
 }
 
 /* ══ 底部傳真 ══ */
 .fax-strip {
   position: absolute;
   bottom: 2px;
-  right: 6px;
-  font-size: 10px;
-  color: #555;
+  right: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #111;
   height: 18px;
   line-height: 18px;
 }
@@ -4056,7 +4448,53 @@ onBeforeRouteLeave(async () => {
   font-size: 19px;
 }
 .a4-page.export-readable .notice-row {
-  font-size: 13px;
+  font-size: 11px;
+}
+.a4-page.export-readable .fax-strip {
+  font-size: 12px;
+  font-weight: 700;
+  color: #111;
+}
+/* PDF export path uses .export-rendering (ENABLE_EXPORT_READABLE_STYLE is false). */
+.a4-page.export-rendering .install-main-row {
+  top: 0 !important;
+}
+.a4-page.export-rendering .site-val {
+  font-size: 19px !important;
+  line-height: 1.2 !important;
+  top: -5pt !important;
+}
+.a4-page.export-rendering .install-main-row > .lbl {
+  position: relative;
+  top: -5pt !important;
+}
+.a4-page.export-rendering .install-row {
+  margin-top: 0 !important;
+}
+.a4-page.export-rendering .sig-col {
+  margin-top: -3pt !important;
+}
+.a4-page.export-rendering .install-sticker-lines {
+  font-size: 7pt !important;
+  top: -3pt !important;
+  transform: none !important;
+  right: 2px !important;
+  width: 140px !important;
+  height: calc(100% + 50px) !important;
+  line-height: 1.2 !important;
+  padding-top: 1px !important;
+  align-content: stretch !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+.a4-page.export-rendering .sticker-lbl,
+.a4-page.export-rendering .sticker-val {
+  font-size: 7pt !important;
+  line-height: 1.2 !important;
+}
+.a4-page.export-rendering .sticker-val {
+  overflow: visible !important;
+  text-overflow: clip !important;
 }
 
 /* Export-only fine-tune for print/PDF alignment */

@@ -33,11 +33,27 @@
           :disabled="loading || signedScanUploading"
           @click="openSignedScanPicker"
         >
-          {{ signedScanUploading ? '回簽上傳中…' : '📎 上傳回簽' }}
+          {{ signedScanUploading ? "回簽上傳中…" : "📎 上傳回簽" }}
         </button>
-        <button v-if="canSendConfirmation" class="btn-aux" @click="onSendConfirmation">📨 傳確定單</button>
-        <button v-if="canIssue" class="btn-primary btn-issue" @click="showIssuanceDialog = true">✅ 發單</button>
-        <button v-if="canRenameIssuedOrderNo" class="btn-aux" @click="onRenameOrderNo">
+        <button
+          v-if="canSendConfirmation"
+          class="btn-aux"
+          @click="onSendConfirmation"
+        >
+          📨 傳確定單
+        </button>
+        <button
+          v-if="canIssue"
+          class="btn-primary btn-issue"
+          @click="showIssuanceDialog = true"
+        >
+          ✅ 發單
+        </button>
+        <button
+          v-if="canRenameIssuedOrderNo"
+          class="btn-aux"
+          @click="onRenameOrderNo"
+        >
           ✏️ 改訂單號（{{ currentOrderNo }}）
         </button>
         <button
@@ -48,7 +64,11 @@
           {{ saving ? "儲存中..." : "儲存並新建" }}
         </button>
         <button class="btn-secondary" @click="$router.back()">取消</button>
-        <button class="btn-primary" :disabled="saving || hasReusableDraftDuplicate" @click="onSave">
+        <button
+          class="btn-primary"
+          :disabled="saving || hasReusableDraftDuplicate"
+          @click="onSave"
+        >
           {{ saving ? "儲存中..." : "儲存" }}
         </button>
       </div>
@@ -116,15 +136,29 @@
               @input="onSiteAddressInput"
               @blur="checkDuplicateSiteAddress"
             />
-            <div v-if="siteAddressChecking" class="muted small" style="margin-top: 6px">檢查現有地址中…</div>
-            <div v-else-if="siteAddressDuplicates.length" class="site-address-warning">
+            <div
+              v-if="siteAddressChecking"
+              class="muted small"
+              style="margin-top: 6px"
+            >
+              檢查現有地址中…
+            </div>
+            <div
+              v-else-if="siteAddressDuplicates.length"
+              class="site-address-warning"
+            >
               <div class="site-address-warning-title">
                 注意：此安裝地點已存在 {{ siteAddressDuplicates.length }} 筆訂單
               </div>
-              <div v-if="issuedSiteAddressDuplicates.length" class="site-address-warning-section">
+              <div
+                v-if="issuedSiteAddressDuplicates.length"
+                class="site-address-warning-section"
+              >
                 <div class="site-address-warning-subtitle">
                   已有正式訂單：若這次是追加，建議沿用下一個編號
-                  <strong v-if="suggestedExtensionOrderNo">{{ suggestedExtensionOrderNo }}</strong>
+                  <strong v-if="suggestedExtensionOrderNo">{{
+                    suggestedExtensionOrderNo
+                  }}</strong>
                 </div>
                 <ul class="site-address-warning-list">
                   <li v-for="dup in issuedSiteAddressDuplicates" :key="dup.id">
@@ -132,11 +166,16 @@
                       {{ dup.orderNo || dup.id }}
                     </RouterLink>
                     <span>{{ dup.customerName || "未填客戶" }}</span>
-                    <span>{{ dup.promisedAt || dup.orderedAt || "未填日期" }}</span>
+                    <span>{{
+                      dup.promisedAt || dup.orderedAt || "未填日期"
+                    }}</span>
                   </li>
                 </ul>
               </div>
-              <div v-if="draftSiteAddressDuplicates.length" class="site-address-warning-section site-address-warning-draft">
+              <div
+                v-if="draftSiteAddressDuplicates.length"
+                class="site-address-warning-section site-address-warning-draft"
+              >
                 <div class="site-address-warning-subtitle">
                   已有草稿：可直接使用現有草稿，不需再新建
                 </div>
@@ -145,7 +184,9 @@
                     <RouterLink :to="`/orders/${dup.id}/edit`">
                       {{ dup.customerName || dup.id }}
                     </RouterLink>
-                    <span>{{ dup.promisedAt || dup.orderedAt || "未填日期" }}</span>
+                    <span>{{
+                      dup.promisedAt || dup.orderedAt || "未填日期"
+                    }}</span>
                   </li>
                 </ul>
               </div>
@@ -255,7 +296,7 @@
         <p v-if="!form.stones.length" class="muted small">尚未加入石材</p>
       </section>
 
-        <!-- 計價 -->
+      <!-- 計價 -->
       <section class="card card-pricing full">
         <header class="card-head">
           <h3>計價</h3>
@@ -266,24 +307,54 @@
         <div v-if="customerPricing" class="pricing-history">
           <div class="pricing-history-head">
             <span>📝 歷史價格</span>
-            <span v-if="customerPricing.defaultPricePerCm" class="muted small">上次預設 {{ customerPricing.defaultPricePerCm.toLocaleString() }} 元/cm</span>
+            <span v-if="customerPricing.defaultPricePerCm" class="muted small"
+              >上次預設
+              {{
+                customerPricing.defaultPricePerCm.toLocaleString()
+              }}
+              元/cm</span
+            >
           </div>
           <div v-if="suggestedPrices.length" class="pricing-suggestions">
-            <div v-for="s in suggestedPrices" :key="s.key" class="pricing-sugg-item">
+            <div
+              v-for="s in suggestedPrices"
+              :key="s.key"
+              class="pricing-sugg-item"
+            >
               <span class="muted small">{{ s.label }}：</span>
               <strong>{{ s.price.toLocaleString() }} 元/cm</strong>
-              <button class="btn-mini" type="button" @click="form.pricePerCm = s.price">套用</button>
+              <button
+                class="btn-mini"
+                type="button"
+                @click="form.pricePerCm = s.price"
+              >
+                套用
+              </button>
             </div>
           </div>
-          <div v-else-if="customerPricing.defaultPricePerCm" class="pricing-sugg-item">
+          <div
+            v-else-if="customerPricing.defaultPricePerCm"
+            class="pricing-sugg-item"
+          >
             <span class="muted small">上次價格：</span>
-            <strong>{{ customerPricing.defaultPricePerCm.toLocaleString() }} 元/cm</strong>
-            <button class="btn-mini" type="button" @click="form.pricePerCm = customerPricing.defaultPricePerCm">套用</button>
+            <strong
+              >{{
+                customerPricing.defaultPricePerCm.toLocaleString()
+              }}
+              元/cm</strong
+            >
+            <button
+              class="btn-mini"
+              type="button"
+              @click="form.pricePerCm = customerPricing.defaultPricePerCm"
+            >
+              套用
+            </button>
           </div>
           <div v-else class="muted small">尚無此客戶計價記錄</div>
 
           <div v-if="isSiteCategory" class="site-price-list-block">
-            <div class="pricing-history-head" style="margin-top:6px">
+            <div class="pricing-history-head" style="margin-top: 6px">
               <span>🏗️ 工地案價格（同客戶・同顏色）</span>
             </div>
             <div v-if="sitePriceMatches.length" class="pricing-suggestions">
@@ -292,34 +363,73 @@
                 :key="`${entry.projectName}-${entry.color}-${entry.updatedAt || ''}`"
                 class="pricing-sugg-item"
               >
-                <span class="muted small">{{ entry.projectName }} / {{ entry.color }}</span>
-                <strong>{{ Number(entry.price || 0).toLocaleString() }} 元/cm</strong>
-                <span class="muted small">水槽 {{ Number(entry.sinkPrice || 0).toLocaleString() }}、火爐 {{ Number(entry.stovePrice || 0).toLocaleString() }}</span>
-                <button class="btn-mini" type="button" @click="applySiteProjectPrice(entry)">套用</button>
+                <span class="muted small"
+                  >{{ entry.projectName }} / {{ entry.color }}</span
+                >
+                <strong
+                  >{{ Number(entry.price || 0).toLocaleString() }} 元/cm</strong
+                >
+                <span class="muted small"
+                  >水槽
+                  {{ Number(entry.sinkPrice || 0).toLocaleString() }}、火爐
+                  {{ Number(entry.stovePrice || 0).toLocaleString() }}</span
+                >
+                <button
+                  class="btn-mini"
+                  type="button"
+                  @click="applySiteProjectPrice(entry)"
+                >
+                  套用
+                </button>
               </div>
             </div>
-            <div v-else class="muted small">尚無符合目前石材顏色的工地案價格</div>
+            <div v-else class="muted small">
+              尚無符合目前石材顏色的工地案價格
+            </div>
           </div>
 
-          <div class="pricing-sugg-item" style="margin-top:6px">
-            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+          <div class="pricing-sugg-item" style="margin-top: 6px">
+            <label
+              style="
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                cursor: pointer;
+              "
+            >
               <input
                 type="checkbox"
                 :checked="!!customerPricing.skipOversizeScaling"
                 @change="toggleSkipOversize($event.target.checked)"
               />
-              <span class="muted small">此客戶不做大尺寸比例換算（sum&gt;68 不放大）</span>
+              <span class="muted small"
+                >此客戶不做大尺寸比例換算（sum&gt;68 不放大）</span
+              >
             </label>
           </div>
         </div>
 
-        <div class="row" style="margin-top:12px">
+        <div class="row" style="margin-top: 12px">
           <label>每公分售價</label>
           <div class="inline">
-            <input v-model.number="form.pricePerCm" type="number" min="0" style="width:100px" placeholder="0" />
+            <input
+              v-model.number="form.pricePerCm"
+              type="number"
+              min="0"
+              style="width: 100px"
+              placeholder="0"
+              @input="syncSingleStoneCountertopUnitPrice"
+            />
             <span class="muted">元/cm</span>
-            <span v-if="form.pricePerCm && form.countertop.totalCm" class="muted small">
-              台面估算 {{ (form.pricePerCm * form.countertop.totalCm).toLocaleString() }} 元
+            <span
+              v-if="form.pricePerCm && form.countertop.totalCm"
+              class="muted small"
+            >
+              台面估算
+              {{
+                (form.pricePerCm * form.countertop.totalCm).toLocaleString()
+              }}
+              元
             </span>
           </div>
         </div>
@@ -328,26 +438,63 @@
           <div class="line-items-head">
             <strong>計價明細</strong>
             <div class="line-items-actions">
-              <button class="btn-mini" type="button" @click="syncLineItemsFromForm('all')">以表單資料產生明細</button>
-              <button v-if="isEdit" class="btn-mini" type="button" @click="syncLineItemsFromDrawings">以繪圖資料產生明細（檯面/水槽/爐子）</button>
-              <button class="btn-mini" type="button" @click="addLineItem('other')">+ 新增一行</button>
+              <button
+                class="btn-mini"
+                type="button"
+                @click="syncLineItemsFromForm('all')"
+              >
+                以表單資料產生明細
+              </button>
+              <button
+                v-if="isEdit"
+                class="btn-mini"
+                type="button"
+                @click="syncLineItemsFromDrawings"
+              >
+                以繪圖資料產生明細（檯面/水槽/爐子）
+              </button>
+              <button
+                class="btn-mini"
+                type="button"
+                @click="addLineItem('other')"
+              >
+                + 新增一行
+              </button>
             </div>
+          </div>
+          <div
+            v-if="
+              (form.stones || []).filter((s) => s.brand || s.color).length > 1
+            "
+            class="muted small"
+            style="margin: 6px 0 8px"
+          >
+            已選多種石材：系統會自動拆成多筆檯面明細，請分別填寫各石材數量（cm）與單價。
+          </div>
+          <div v-if="hasCountertopSplitMismatch" class="pricing-warning">
+            台面總長 {{ countertopSplitExpectedCm }} cm，明細檯面加總
+            {{ countertopSplitActualCm }} cm，差異
+            {{ countertopSplitDeltaCm }} cm。
           </div>
           <table class="line-items-table">
             <thead>
               <tr>
-                <th style="width:80px">類別</th>
+                <th style="width: 80px">類別</th>
                 <th>說明</th>
-                <th style="width:55px">單位</th>
-                <th style="width:75px">數量</th>
-                <th style="width:95px">單價</th>
-                <th style="width:110px">小計</th>
-                <th style="width:50px"></th>
+                <th style="width: 55px">單位</th>
+                <th style="width: 75px">數量</th>
+                <th style="width: 95px">單價</th>
+                <th style="width: 110px">小計</th>
+                <th style="width: 50px"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="!form.lineItems.length">
-                <td colspan="7" class="muted small" style="text-align:center;padding:10px">
+                <td
+                  colspan="7"
+                  class="muted small"
+                  style="text-align: center; padding: 10px"
+                >
                   尚無明細。可按「以表單資料產生明細」自動帶入檯面/水槽/爐子/特殊作法。
                 </td>
               </tr>
@@ -361,23 +508,66 @@
                     <option value="other">其他</option>
                   </select>
                 </td>
-                <td><input v-model="li.description" class="li-input" type="text" /></td>
-                <td><input v-model="li.unit" class="li-input" type="text" /></td>
-                <td><input v-model.number="li.qty" class="li-input" type="number" min="0" step="0.01" @input="recalcLineAmount(li)" /></td>
+                <td>
+                  <input
+                    v-model="li.description"
+                    class="li-input"
+                    type="text"
+                  />
+                </td>
+                <td>
+                  <input v-model="li.unit" class="li-input" type="text" />
+                </td>
+                <td>
+                  <input
+                    v-model.number="li.qty"
+                    class="li-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    @input="recalcLineAmount(li)"
+                  />
+                </td>
                 <td>
                   <div class="li-price-cell">
-                    <input v-model.number="li.unitPrice" class="li-input" type="number" min="0" @input="recalcLineAmount(li)" />
+                    <input
+                      v-model.number="li.unitPrice"
+                      class="li-input"
+                      type="number"
+                      min="0"
+                      @input="recalcLineAmount(li)"
+                    />
                     <button
-                      v-if="suggestionFor(li) != null && suggestionFor(li) !== li.unitPrice"
+                      v-if="
+                        suggestionFor(li) != null &&
+                        suggestionFor(li) !== li.unitPrice
+                      "
                       class="btn-suggest"
                       type="button"
                       :title="`上次 ${suggestionFor(li).toLocaleString()} 元，點擊套用`"
                       @click="applySuggestion(li)"
-                    >↑{{ suggestionFor(li).toLocaleString() }}</button>
+                    >
+                      ↑{{ suggestionFor(li).toLocaleString() }}
+                    </button>
                   </div>
                 </td>
-                <td><input v-model.number="li.amount" class="li-input" type="number" min="0" /></td>
-                <td><button class="btn-mini btn-del-line" type="button" @click="removeLineItem(i)">×</button></td>
+                <td>
+                  <input
+                    v-model.number="li.amount"
+                    class="li-input"
+                    type="number"
+                    min="0"
+                  />
+                </td>
+                <td>
+                  <button
+                    class="btn-mini btn-del-line"
+                    type="button"
+                    @click="removeLineItem(i)"
+                  >
+                    ×
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -386,21 +576,41 @@
         <div class="row" v-if="form.lineItems.length">
           <label>未稅小計</label>
           <div class="inline">
-            <span class="price-display">{{ subtotalComputed.toLocaleString() }} 元</span>
-            <button class="btn-mini" type="button" @click="form.total = subtotalComputed">同步到未稅金額</button>
+            <span class="price-display"
+              >{{ subtotalComputed.toLocaleString() }} 元</span
+            >
+            <button
+              class="btn-mini"
+              type="button"
+              @click="form.total = subtotalComputed"
+            >
+              同步到未稅金額
+            </button>
           </div>
         </div>
         <div class="row">
           <label>未稅金額</label>
           <div class="inline">
-            <input v-model.number="form.total" type="number" min="0" style="width:140px" placeholder="0" />
+            <input
+              v-model.number="form.total"
+              type="number"
+              min="0"
+              style="width: 140px"
+              placeholder="0"
+            />
             <span class="muted">元</span>
             <button
-              v-if="form.pricePerCm && form.countertop.totalCm && !form.lineItems.length"
+              v-if="
+                form.pricePerCm &&
+                form.countertop.totalCm &&
+                !form.lineItems.length
+              "
               class="btn-mini"
               type="button"
               @click="form.total = form.pricePerCm * form.countertop.totalCm"
-            >套用估算</button>
+            >
+              套用估算
+            </button>
           </div>
         </div>
         <div class="row">
@@ -413,24 +623,48 @@
           </div>
         </div>
         <div class="row">
-          <label>{{ form.invoiceRequired ? '含稅金額 (5%)' : '應收總額' }}</label>
+          <label>{{
+            form.invoiceRequired ? "含稅金額 (5%)" : "應收總額"
+          }}</label>
           <div class="inline">
-            <span class="price-display">{{ grandTotalComputed ? grandTotalComputed.toLocaleString() : '—' }} 元</span>
+            <span class="price-display"
+              >{{
+                grandTotalComputed ? grandTotalComputed.toLocaleString() : "—"
+              }}
+              元</span
+            >
           </div>
         </div>
         <div class="row">
           <label>已收訂金</label>
           <div class="inline">
-            <input v-model.number="form.depositPaid" type="number" min="0" style="width:140px" placeholder="0" />
+            <input
+              v-model.number="form.depositPaid"
+              type="number"
+              min="0"
+              style="width: 140px"
+              placeholder="0"
+            />
             <span class="muted">元</span>
-            <span v-if="grandTotalComputed && form.depositPaid != null" class="muted small">
-              餘款 {{ (grandTotalComputed - (form.depositPaid || 0)).toLocaleString() }} 元
+            <span
+              v-if="grandTotalComputed && form.depositPaid != null"
+              class="muted small"
+            >
+              餘款
+              {{
+                (grandTotalComputed - (form.depositPaid || 0)).toLocaleString()
+              }}
+              元
             </span>
           </div>
         </div>
         <div class="row">
           <label>收款備註</label>
-          <input v-model="form.paymentNotes" type="text" placeholder="例：現金、匯款、分期…" />
+          <input
+            v-model="form.paymentNotes"
+            type="text"
+            placeholder="例：現金、匯款、分期…"
+          />
         </div>
       </section>
 
@@ -438,9 +672,21 @@
         <header class="card-head">
           <h3>應收摘要</h3>
           <div class="inline-actions">
-            <RouterLink class="btn-aux" to="/receivable-items">應收明細</RouterLink>
-            <RouterLink v-if="latestArBillId" class="btn-aux" :to="`/receivable-bills/${latestArBillId}`">查看帳單</RouterLink>
-            <button class="btn-mini" type="button" :disabled="creatingReceivableItem" @click="onCreateReceivableItem">
+            <RouterLink class="btn-aux" to="/receivable-items"
+              >應收明細</RouterLink
+            >
+            <RouterLink
+              v-if="latestArBillId"
+              class="btn-aux"
+              :to="`/receivable-bills/${latestArBillId}`"
+              >查看帳單</RouterLink
+            >
+            <button
+              class="btn-mini"
+              type="button"
+              :disabled="creatingReceivableItem"
+              @click="onCreateReceivableItem"
+            >
               {{ creatingReceivableItem ? "建立中…" : "建立應收明細" }}
             </button>
           </div>
@@ -467,7 +713,9 @@
 
         <div class="row">
           <label>可請款原因</label>
-          <div class="muted">{{ form.billingEligibleReason || "尚未符合可請款條件" }}</div>
+          <div class="muted">
+            {{ form.billingEligibleReason || "尚未符合可請款條件" }}
+          </div>
         </div>
       </section>
 
@@ -478,25 +726,40 @@
         <div class="attach-section">
           <div class="attach-head">
             <span class="attach-label">回簽檔</span>
-            <button class="btn-mini" @click="signedScanInputRef.click()">+ 上傳</button>
+            <button class="btn-mini" @click="signedScanInputRef.click()">
+              + 上傳
+            </button>
             <input
               ref="signedScanInputRef"
               type="file"
               accept="image/*,.pdf"
               multiple
-              style="display:none"
+              style="display: none"
               @change="onSignedScans"
             />
             <span v-if="latestSignedScanEntry" class="muted small">
-              最新：{{ formatSignedScanTime(latestSignedScanEntry.uploadedAt || form.customerSignedAt) }}
+              最新：{{
+                formatSignedScanTime(
+                  latestSignedScanEntry.uploadedAt || form.customerSignedAt,
+                )
+              }}
             </span>
           </div>
           <p v-if="signedScanUploading" class="hint">上傳中…</p>
-          <p v-if="orderStatus === 'pendingSign'" class="muted small">上傳回簽後，若要正式發單，仍請按上方「✅ 發單」。</p>
+          <p v-if="orderStatus === 'pendingSign'" class="muted small">
+            上傳回簽後，若要正式發單，仍請按上方「✅ 發單」。
+          </p>
           <ul v-if="signedScans.length" class="file-list">
-            <li v-for="(scan, index) in signedScans" :key="scan.url || `${scan.name}-${index}`">
-              <a :href="scan.url" target="_blank" rel="noopener">{{ signedScanDisplayName(scan, index) }}</a>
-              <span class="muted small">{{ formatSignedScanTime(scan.uploadedAt) }}</span>
+            <li
+              v-for="(scan, index) in signedScans"
+              :key="scan.url || `${scan.name}-${index}`"
+            >
+              <a :href="scan.url" target="_blank" rel="noopener">{{
+                signedScanDisplayName(scan, index)
+              }}</a>
+              <span class="muted small">{{
+                formatSignedScanTime(scan.uploadedAt)
+              }}</span>
               <span v-if="index === 0" class="scan-latest-tag">最新</span>
             </li>
           </ul>
@@ -507,13 +770,15 @@
         <div class="attach-section">
           <div class="attach-head">
             <span class="attach-label">原始圖檔</span>
-            <button class="btn-mini" @click="designFileInputRef.click()">+ 上傳</button>
+            <button class="btn-mini" @click="designFileInputRef.click()">
+              + 上傳
+            </button>
             <input
               ref="designFileInputRef"
               type="file"
               accept="image/*,.pdf,.dwg,.dxf,.ai,.eps,.cdr"
               multiple
-              style="display:none"
+              style="display: none"
               @change="onDesignFiles"
             />
           </div>
@@ -521,7 +786,13 @@
           <ul v-if="designFiles.length" class="file-list">
             <li v-for="f in designFiles" :key="f.id">
               <a :href="f.url" target="_blank" rel="noopener">{{ f.name }}</a>
-              <button class="btn-del" title="刪除" @click="deleteAttachment('designFiles', f)">×</button>
+              <button
+                class="btn-del"
+                title="刪除"
+                @click="deleteAttachment('designFiles', f)"
+              >
+                ×
+              </button>
             </li>
           </ul>
           <p v-else-if="!designUploading" class="muted small">尚無原始圖檔</p>
@@ -531,13 +802,15 @@
         <div class="attach-section">
           <div class="attach-head">
             <span class="attach-label">打板照</span>
-            <button class="btn-mini" @click="samplePhotoInputRef.click()">+ 上傳</button>
+            <button class="btn-mini" @click="samplePhotoInputRef.click()">
+              + 上傳
+            </button>
             <input
               ref="samplePhotoInputRef"
               type="file"
               accept="image/*"
               multiple
-              style="display:none"
+              style="display: none"
               @change="onSamplePhotos"
             />
           </div>
@@ -545,7 +818,13 @@
           <div v-if="samplePhotos.length" class="photo-grid">
             <div v-for="f in samplePhotos" :key="f.id" class="photo-thumb">
               <img :src="f.url" :alt="f.name" @click="lightboxUrl = f.url" />
-              <button class="thumb-del" title="刪除" @click="deleteAttachment('samplePhotos', f)">×</button>
+              <button
+                class="thumb-del"
+                title="刪除"
+                @click="deleteAttachment('samplePhotos', f)"
+              >
+                ×
+              </button>
             </div>
           </div>
           <p v-else-if="!sampleUploading" class="muted small">尚無打板照</p>
@@ -609,8 +888,16 @@
             + 新增水槽
           </button>
         </header>
-        <datalist v-for="(_, di) in form.sinks" :key="'sdl-'+di" :id="'sink-dl-'+di">
-          <option v-for="m in sinkModels" :key="m.id" :value="(m.brand ? m.brand + ' ' : '') + m.model" />
+        <datalist
+          v-for="(_, di) in form.sinks"
+          :key="'sdl-' + di"
+          :id="'sink-dl-' + di"
+        >
+          <option
+            v-for="m in sinkModels"
+            :key="m.id"
+            :value="(m.brand ? m.brand + ' ' : '') + m.model"
+          />
         </datalist>
         <div v-for="(s, i) in form.sinks" :key="i" class="sink-row">
           <div class="sink-row-main">
@@ -733,8 +1020,16 @@
             + 新增爐子
           </button>
         </header>
-        <datalist v-for="(_, di) in form.stoves" :key="'stdl-'+di" :id="'stove-dl-'+di">
-          <option v-for="m in stoveModels" :key="m.id" :value="(m.brand ? m.brand + ' ' : '') + m.model" />
+        <datalist
+          v-for="(_, di) in form.stoves"
+          :key="'stdl-' + di"
+          :id="'stove-dl-' + di"
+        >
+          <option
+            v-for="m in stoveModels"
+            :key="m.id"
+            :value="(m.brand ? m.brand + ' ' : '') + m.model"
+          />
         </datalist>
         <div v-for="(s, i) in form.stoves" :key="i" class="sub-row">
           <input
@@ -783,14 +1078,18 @@
           <label>打板人員</label>
           <select v-model="form.templatingStaff">
             <option value="">-- 選擇 --</option>
-            <option v-for="s in staffDept1" :key="s.id" :value="s.name">{{ s.name }}</option>
+            <option v-for="s in staffDept1" :key="s.id" :value="s.name">
+              {{ s.name }}
+            </option>
           </select>
         </div>
         <div class="row">
           <label>對圖人員</label>
           <select v-model="form.drawingStaff">
             <option value="">-- 選擇 --</option>
-            <option v-for="s in staffDept1" :key="s.id" :value="s.name">{{ s.name }}</option>
+            <option v-for="s in staffDept1" :key="s.id" :value="s.name">
+              {{ s.name }}
+            </option>
           </select>
         </div>
         <div class="row">
@@ -799,13 +1098,26 @@
         </div>
         <div class="row" v-if="userRole === 'admin' || userRole === '管理者'">
           <label>測試標記</label>
-          <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" v-model="form.isTestData" style="width:auto;height:auto" />
-            <span style="color:#e55;">此為測試資料（上線前可於管理介面批次清除）</span>
+          <label
+            style="
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              font-weight: normal;
+              cursor: pointer;
+            "
+          >
+            <input
+              type="checkbox"
+              v-model="form.isTestData"
+              style="width: auto; height: auto"
+            />
+            <span style="color: #e55"
+              >此為測試資料（上線前可於管理介面批次清除）</span
+            >
           </label>
         </div>
       </section>
-
     </div>
 
     <!-- 燈箱 -->
@@ -829,7 +1141,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import {
   listCustomers,
@@ -881,7 +1193,7 @@ const suggestedPrices = computed(() => {
   const result = [];
   const prices = customerPricing.value.stonePrices || {};
   for (const s of form.value.stones || []) {
-    const key = [s.brand, s.color].filter(Boolean).join('/');
+    const key = [s.brand, s.color].filter(Boolean).join("/");
     if (!key) continue;
     const val = prices[key];
     if (val == null) continue;
@@ -904,13 +1216,23 @@ const sitePriceMatches = computed(() => {
 
   const colors = new Set(
     (form.value.stones || [])
-      .map((s) => String(s?.color || "").trim().toLowerCase())
+      .map((s) =>
+        String(s?.color || "")
+          .trim()
+          .toLowerCase(),
+      )
       .filter(Boolean),
   );
   if (!colors.size) return [];
 
   return entries
-    .filter((entry) => colors.has(String(entry?.color || "").trim().toLowerCase()))
+    .filter((entry) =>
+      colors.has(
+        String(entry?.color || "")
+          .trim()
+          .toLowerCase(),
+      ),
+    )
     .sort((a, b) =>
       String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || "")),
     );
@@ -921,22 +1243,34 @@ const orderStatus = ref("");
 const pendingSignSnapshot = ref(null);
 const pendingSignDrawingVersions = ref({});
 const showIssuanceDialog = ref(false);
-const canSendConfirmation = computed(() => isEdit.value && (!orderStatus.value || orderStatus.value === "draft"));
-const canIssue = computed(() => isEdit.value && orderStatus.value === "pendingSign");
-const currentOrderNo = computed(() => String(form.value.orderNo || "").trim());
-const canRenameIssuedOrderNo = computed(() =>
-  isEdit.value &&
-  !!currentOrderNo.value &&
-  ["confirmed", "inProduction", "delivered"].includes(orderStatus.value),
+const canSendConfirmation = computed(
+  () => isEdit.value && (!orderStatus.value || orderStatus.value === "draft"),
 );
-const latestArBillId = computed(() => String(form.value.latestArBillId || "").trim());
-const receivableStatusLabel = computed(() => ({
-  none: "未建立",
-  pending: "待併帳",
-  grouped: "已成帳單",
-  partial: "部分收款",
-  paid: "已收清",
-}[form.value.receivableStatus] || form.value.receivableStatus || "未建立"));
+const canIssue = computed(
+  () => isEdit.value && orderStatus.value === "pendingSign",
+);
+const currentOrderNo = computed(() => String(form.value.orderNo || "").trim());
+const canRenameIssuedOrderNo = computed(
+  () =>
+    isEdit.value &&
+    !!currentOrderNo.value &&
+    ["confirmed", "inProduction", "delivered"].includes(orderStatus.value),
+);
+const latestArBillId = computed(() =>
+  String(form.value.latestArBillId || "").trim(),
+);
+const receivableStatusLabel = computed(
+  () =>
+    ({
+      none: "未建立",
+      pending: "待併帳",
+      grouped: "已成帳單",
+      partial: "部分收款",
+      paid: "已收清",
+    })[form.value.receivableStatus] ||
+    form.value.receivableStatus ||
+    "未建立",
+);
 
 function formatCurrency(value) {
   const amount = Number(value) || 0;
@@ -965,13 +1299,18 @@ async function onCreateReceivableItem() {
 }
 
 async function onSendConfirmation() {
-  if (!confirm("確定要傳送確定單給客戶簽回嗎？\n（系統將記錄目前資料快照，狀態改為「待客戶簽回」）")) return;
+  if (
+    !confirm(
+      "確定要傳送確定單給客戶簽回嗎？\n（系統將記錄目前資料快照，狀態改為「待客戶簽回」）",
+    )
+  )
+    return;
   try {
     await updateSalesOrder(route.params.id, toPayload());
     const snapshot = toPayload();
     await sendConfirmation(route.params.id, snapshot);
     pendingSignSnapshot.value = snapshot;
-    pendingSignDrawingVersions.value = {};  // 傳確定單後 firebase 側已記錄最新版本，這裡清空讓 dialog 重新從 Firestore 載
+    pendingSignDrawingVersions.value = {}; // 傳確定單後 firebase 側已記錄最新版本，這裡清空讓 dialog 重新從 Firestore 載
     orderStatus.value = "pendingSign";
     alert("已傳送確定單！狀態更新為「待客戶簽回」");
   } catch (e) {
@@ -994,7 +1333,10 @@ async function onIssued(orderNo) {
     // 自動建立生產工單
     await createProductionJob(route.params.id, payload);
     alert(`發單成功！訂單號：${orderNo}\n即將跳轉確定單頁面封存PDF。`);
-    router.push({ name: "order-confirmation", params: { id: route.params.id } });
+    router.push({
+      name: "order-confirmation",
+      params: { id: route.params.id },
+    });
   } catch (e) {
     console.error(e);
     alert("發單失敗：" + (e?.message || e));
@@ -1011,7 +1353,11 @@ async function onRenameOrderNo() {
     .trim()
     .toUpperCase();
   if (!next || next === current) return;
-  if (!confirm(`確定將訂單號碼由 ${current} 改為 ${next}？\n系統會同步更新生產工單、派車與維修關聯資料。`)) {
+  if (
+    !confirm(
+      `確定將訂單號碼由 ${current} 改為 ${next}？\n系統會同步更新生產工單、派車與維修關聯資料。`,
+    )
+  ) {
     return;
   }
   try {
@@ -1054,14 +1400,18 @@ function normalizeSignedScans(order = {}) {
     ? order.signedScans.filter((item) => item?.url)
     : [];
   if (scans.length) {
-    return [...scans].sort((a, b) => signedScanTimeMs(b.uploadedAt) - signedScanTimeMs(a.uploadedAt));
+    return [...scans].sort(
+      (a, b) => signedScanTimeMs(b.uploadedAt) - signedScanTimeMs(a.uploadedAt),
+    );
   }
   return order?.signedScanUrl
-    ? [{
-        url: order.signedScanUrl,
-        uploadedAt: order.customerSignedAt || null,
-        name: "回簽檔",
-      }]
+    ? [
+        {
+          url: order.signedScanUrl,
+          uploadedAt: order.customerSignedAt || null,
+          name: "回簽檔",
+        },
+      ]
     : [];
 }
 
@@ -1074,7 +1424,10 @@ function formatSignedScanTime(value) {
 
 function signedScanDisplayName(scan = {}, index = 0) {
   if (scan.name) return scan.name;
-  const ext = String(scan.url || "").split("?")[0].split(".").pop();
+  const ext = String(scan.url || "")
+    .split("?")[0]
+    .split(".")
+    .pop();
   return `回簽檔 ${index + 1}${ext ? `.${ext}` : ""}`;
 }
 
@@ -1087,7 +1440,8 @@ async function onSignedScans(e) {
     for (const file of files) {
       const item = await appendSignedScanToOrder(route.params.id, file);
       signedScans.value = [...signedScans.value, item].sort(
-        (a, b) => signedScanTimeMs(b.uploadedAt) - signedScanTimeMs(a.uploadedAt),
+        (a, b) =>
+          signedScanTimeMs(b.uploadedAt) - signedScanTimeMs(a.uploadedAt),
       );
       form.value.signedScanUrl = item.url;
       form.value.customerSignedAt = item.uploadedAt;
@@ -1110,7 +1464,11 @@ async function onDesignFiles(e) {
   designUploading.value = true;
   try {
     for (const file of files) {
-      const item = await uploadOrderAttachment(route.params.id, "designFiles", file);
+      const item = await uploadOrderAttachment(
+        route.params.id,
+        "designFiles",
+        file,
+      );
       designFiles.value.unshift(item);
     }
   } catch (err) {
@@ -1127,7 +1485,11 @@ async function onSamplePhotos(e) {
   sampleUploading.value = true;
   try {
     for (const file of files) {
-      const item = await uploadOrderAttachment(route.params.id, "samplePhotos", file);
+      const item = await uploadOrderAttachment(
+        route.params.id,
+        "samplePhotos",
+        file,
+      );
       samplePhotos.value.unshift(item);
     }
   } catch (err) {
@@ -1206,17 +1568,23 @@ const siteAddressChecking = ref(false);
 const siteAddressDuplicates = ref([]);
 const lastSiteAddressAlertKey = ref("");
 const issuedSiteAddressDuplicates = computed(() =>
-  siteAddressDuplicates.value.filter((item) => String(item.orderNo || "").trim()),
+  siteAddressDuplicates.value.filter((item) =>
+    String(item.orderNo || "").trim(),
+  ),
 );
 const draftSiteAddressDuplicates = computed(() =>
-  siteAddressDuplicates.value.filter((item) => !String(item.orderNo || "").trim()),
+  siteAddressDuplicates.value.filter(
+    (item) => !String(item.orderNo || "").trim(),
+  ),
 );
-const hasReusableDraftDuplicate = computed(() =>
-  !isEdit.value && draftSiteAddressDuplicates.value.length > 0,
+const hasReusableDraftDuplicate = computed(
+  () => !isEdit.value && draftSiteAddressDuplicates.value.length > 0,
 );
 
 function parseExtensionBase(orderNo = "") {
-  const clean = String(orderNo || "").trim().toUpperCase();
+  const clean = String(orderNo || "")
+    .trim()
+    .toUpperCase();
   if (!clean) return { prefix: "", suffix: "", seq: 0 };
   const matched = clean.match(/^(\d+)(?:-(\d+))?([A-Z]+)$/);
   if (!matched) {
@@ -1230,7 +1598,9 @@ function parseExtensionBase(orderNo = "") {
 }
 
 const suggestedExtensionOrderNo = computed(() => {
-  const numbered = issuedSiteAddressDuplicates.value.filter((item) => String(item.orderNo || "").trim());
+  const numbered = issuedSiteAddressDuplicates.value.filter((item) =>
+    String(item.orderNo || "").trim(),
+  );
   if (!numbered.length) return "";
 
   const latestParsed = parseExtensionBase(numbered[0].orderNo || "");
@@ -1239,7 +1609,10 @@ const suggestedExtensionOrderNo = computed(() => {
   let maxSeq = 0;
   numbered.forEach((item) => {
     const parsed = parseExtensionBase(item.orderNo || "");
-    if (parsed.prefix === latestParsed.prefix && parsed.suffix === latestParsed.suffix) {
+    if (
+      parsed.prefix === latestParsed.prefix &&
+      parsed.suffix === latestParsed.suffix
+    ) {
       maxSeq = Math.max(maxSeq, parsed.seq || 0);
     }
   });
@@ -1311,7 +1684,10 @@ async function checkDuplicateSiteAddress() {
       return;
     }
 
-    const alertKey = matches.map((item) => item.id).sort().join("|");
+    const alertKey = matches
+      .map((item) => item.id)
+      .sort()
+      .join("|");
     if (lastSiteAddressAlertKey.value === alertKey) return;
     lastSiteAddressAlertKey.value = alertKey;
 
@@ -1319,23 +1695,33 @@ async function checkDuplicateSiteAddress() {
     if (issuedSiteAddressDuplicates.value.length) {
       const summary = issuedSiteAddressDuplicates.value
         .slice(0, 5)
-        .map((item) => `${item.orderNo || item.id} ${item.customerName || ""}`.trim())
+        .map((item) =>
+          `${item.orderNo || item.id} ${item.customerName || ""}`.trim(),
+        )
         .join("\n");
       lines.push(`已有正式訂單 ${issuedSiteAddressDuplicates.value.length} 筆`);
       if (suggestedExtensionOrderNo.value) {
-        lines.push(`若要追加，建議訂單號碼：${suggestedExtensionOrderNo.value}`);
+        lines.push(
+          `若要追加，建議訂單號碼：${suggestedExtensionOrderNo.value}`,
+        );
       }
       if (summary) lines.push(summary);
     }
     if (draftSiteAddressDuplicates.value.length) {
       const summary = draftSiteAddressDuplicates.value
         .slice(0, 5)
-        .map((item) => `${item.customerName || item.id} ${item.promisedAt || item.orderedAt || ""}`.trim())
+        .map((item) =>
+          `${item.customerName || item.id} ${item.promisedAt || item.orderedAt || ""}`.trim(),
+        )
         .join("\n");
-      lines.push(`已有草稿 ${draftSiteAddressDuplicates.value.length} 筆，可直接使用現有草稿，不需新建`);
+      lines.push(
+        `已有草稿 ${draftSiteAddressDuplicates.value.length} 筆，可直接使用現有草稿，不需新建`,
+      );
       if (summary) lines.push(summary);
     }
-    alert(`此安裝地點已存在相同資料，請先確認是否重複建單。\n\n${lines.join("\n\n")}`);
+    alert(
+      `此安裝地點已存在相同資料，請先確認是否重複建單。\n\n${lines.join("\n\n")}`,
+    );
   } catch (e) {
     console.warn("check duplicate site address failed", e);
   } finally {
@@ -1431,16 +1817,21 @@ const form = ref(createEmptyOrderForm());
 
 // ── 計價明細 helpers ───────────────────────────────────
 function newLineItemId() {
-  return "li-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+  return (
+    "li-" +
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2, 6)
+  );
 }
 
 function makeLineItem(category, partial = {}) {
   const defaults = {
     countertop: { unit: "cm", qty: null, unitPrice: null },
-    sink:       { unit: "式", qty: 1,    unitPrice: null },
-    stove:      { unit: "式", qty: 1,    unitPrice: null },
-    special:    { unit: "式", qty: 1,    unitPrice: null },
-    other:      { unit: "式", qty: 1,    unitPrice: null },
+    sink: { unit: "式", qty: 1, unitPrice: null },
+    stove: { unit: "式", qty: 1, unitPrice: null },
+    special: { unit: "式", qty: 1, unitPrice: null },
+    other: { unit: "式", qty: 1, unitPrice: null },
   };
   const d = defaults[category] || defaults.other;
   return {
@@ -1463,6 +1854,50 @@ function recalcLineAmount(li) {
   li.amount = Math.round(q * p);
 }
 
+function normalizeStonePriceKey(stone = {}) {
+  return [stone?.brand, stone?.color]
+    .map((x) => String(x || "").trim())
+    .filter(Boolean)
+    .join("/");
+}
+
+function distinctStones(stones = []) {
+  const map = new Map();
+  for (const s of stones || []) {
+    const key = normalizeStonePriceKey(s);
+    if (!key || map.has(key)) continue;
+    const brand = String(s?.brand || "").trim();
+    const color = String(s?.color || "").trim();
+    map.set(key, {
+      key,
+      brand,
+      color,
+      label: [brand, color].filter(Boolean).join(" "),
+    });
+  }
+  return [...map.values()];
+}
+
+function stoneSuggestedPrice(stoneKey) {
+  if (!stoneKey || !customerPricing.value) return null;
+  const val = (customerPricing.value.stonePrices || {})[stoneKey];
+  if (val == null) return null;
+  return typeof val === "number" ? val : (val.lastPrice ?? null);
+}
+
+function syncSingleStoneCountertopUnitPrice() {
+  const stones = distinctStones(form.value.stones);
+  if (stones.length !== 1) return;
+  const ppc = Number(form.value.pricePerCm);
+  if (!Number.isFinite(ppc)) return;
+
+  for (const li of form.value.lineItems || []) {
+    if (li?.category !== "countertop") continue;
+    li.unitPrice = ppc;
+    recalcLineAmount(li);
+  }
+}
+
 function addLineItem(category = "other") {
   form.value.lineItems.push(makeLineItem(category));
 }
@@ -1472,13 +1907,55 @@ function removeLineItem(i) {
 }
 
 const subtotalComputed = computed(() =>
-  (form.value.lineItems || []).reduce((s, li) => s + (Number(li.amount) || 0), 0)
+  (form.value.lineItems || []).reduce(
+    (s, li) => s + (Number(li.amount) || 0),
+    0,
+  ),
+);
+
+const multiStoneCountertopItems = computed(() =>
+  (form.value.lineItems || []).filter(
+    (li) =>
+      li?.category === "countertop" &&
+      String(li?.refId || "").startsWith("main-stone-"),
+  ),
+);
+
+const countertopSplitExpectedCm = computed(
+  () => Math.round((Number(form.value.countertop?.totalCm) || 0) * 100) / 100,
+);
+
+const countertopSplitActualCm = computed(() => {
+  const total = multiStoneCountertopItems.value.reduce(
+    (s, li) => s + (Number(li?.qty) || 0),
+    0,
+  );
+  return Math.round(total * 100) / 100;
+});
+
+const countertopSplitDeltaCm = computed(() => {
+  const delta = countertopSplitActualCm.value - countertopSplitExpectedCm.value;
+  return Math.round(delta * 100) / 100;
+});
+
+const hasCountertopSplitMismatch = computed(() => {
+  const stones = distinctStones(form.value.stones);
+  if (stones.length <= 1) return false;
+  if (!multiStoneCountertopItems.value.length) return false;
+  return Math.abs(countertopSplitDeltaCm.value) >= 0.01;
+});
+
+watch(
+  () => [form.value.pricePerCm, distinctStones(form.value.stones).length],
+  () => {
+    syncSingleStoneCountertopUnitPrice();
+  },
 );
 
 const grandTotalComputed = computed(() => {
   const base = form.value.lineItems.length
     ? subtotalComputed.value
-    : (Number(form.value.total) || 0);
+    : Number(form.value.total) || 0;
   if (!base) return 0;
   return form.value.invoiceRequired ? Math.round(base * 1.05) : base;
 });
@@ -1491,21 +1968,64 @@ function syncLineItemsFromForm(scope = "all") {
 
   // 檯面（只一筆）
   if (scope === "all" || scope === "countertop") {
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const li = items[i];
+      if (
+        li?.category === "countertop" &&
+        (li?.refId === "main" ||
+          String(li?.refId || "").startsWith("main-stone-"))
+      ) {
+        items.splice(i, 1);
+      }
+    }
+
     const cm = Number(form.value.countertop?.totalCm) || 0;
     const ppc = Number(form.value.pricePerCm) || 0;
-    if (cm && ppc) {
+    const stones = distinctStones(form.value.stones);
+    if (stones.length > 1) {
+      stones.forEach((stone, idx) => {
+        const refId = `main-stone-${idx}`;
+        const existing = (form.value.lineItems || []).find(
+          (x) => x.category === "countertop" && x.refId === refId,
+        );
+        const suggested = stoneSuggestedPrice(stone.key);
+        const qty = existing?.qty ?? null;
+        const unitPrice = existing?.unitPrice ?? suggested ?? (ppc || null);
+        const li = {
+          id: existing?.id || newLineItemId(),
+          category: "countertop",
+          refId,
+          priceKey: stone.key,
+          description:
+            `${form.value.countertop?.type || "檯面"} ${stone.label}`.trim(),
+          unit: "cm",
+          qty,
+          unitPrice,
+          amount: Math.round((Number(qty) || 0) * (Number(unitPrice) || 0)),
+        };
+        items.push(li);
+      });
+    } else if (cm && ppc) {
       const stoneStr = (form.value.stones || [])
-        .map((s) => [s.brand, s.color].filter(Boolean).join(" ")).filter(Boolean).join(" / ");
+        .map((s) => [s.brand, s.color].filter(Boolean).join(" "))
+        .filter(Boolean)
+        .join(" / ");
       const firstStone = (form.value.stones || [])[0];
-      const priceKey = firstStone ? [firstStone.brand, firstStone.color].filter(Boolean).join("/") : null;
+      const priceKey = firstStone
+        ? [firstStone.brand, firstStone.color].filter(Boolean).join("/")
+        : null;
       const desc = `${form.value.countertop?.type || "檯面"} ${cm}cm${stoneStr ? " " + stoneStr : ""}`;
-      const idx = findIdx("countertop", "main");
-      const li = {
-        id: idx >= 0 ? items[idx].id : newLineItemId(),
-        category: "countertop", refId: "main", priceKey,
-        description: desc, unit: "cm", qty: cm, unitPrice: ppc, amount: Math.round(cm * ppc),
-      };
-      if (idx >= 0) items[idx] = li; else items.push(li);
+      items.push({
+        id: newLineItemId(),
+        category: "countertop",
+        refId: "main",
+        priceKey,
+        description: desc,
+        unit: "cm",
+        qty: cm,
+        unitPrice: ppc,
+        amount: Math.round(cm * ppc),
+      });
     }
   }
 
@@ -1515,18 +2035,24 @@ function syncLineItemsFromForm(scope = "all") {
   if (scope === "all" || scope === "sink") {
     (form.value.sinks || []).forEach((s, i) => {
       const refId = `sink-${i}`;
-      const desc = [s.method, matLabel, s.brand, s.model].filter(Boolean).join(" ") || `水槽${i + 1}`;
+      const desc =
+        [s.method, matLabel, s.brand, s.model].filter(Boolean).join(" ") ||
+        `水槽${i + 1}`;
       const idx = findIdx("sink", refId);
       const existing = idx >= 0 ? items[idx] : null;
       const li = {
         id: existing?.id || newLineItemId(),
-        category: "sink", refId, priceKey: holePriceKey(s.method, matLabel),
-        description: desc, unit: "式",
+        category: "sink",
+        refId,
+        priceKey: holePriceKey(s.method, matLabel),
+        description: desc,
+        unit: "式",
         qty: existing?.qty ?? 1,
         unitPrice: existing?.unitPrice ?? null,
         amount: existing?.amount ?? 0,
       };
-      if (idx >= 0) items[idx] = li; else items.push(li);
+      if (idx >= 0) items[idx] = li;
+      else items.push(li);
     });
   }
 
@@ -1534,18 +2060,24 @@ function syncLineItemsFromForm(scope = "all") {
   if (scope === "all" || scope === "stove") {
     (form.value.stoves || []).forEach((s, i) => {
       const refId = `stove-${i}`;
-      const desc = [s.method, matLabel, s.brand, s.model].filter(Boolean).join(" ") || `爐子${i + 1}`;
+      const desc =
+        [s.method, matLabel, s.brand, s.model].filter(Boolean).join(" ") ||
+        `爐子${i + 1}`;
       const idx = findIdx("stove", refId);
       const existing = idx >= 0 ? items[idx] : null;
       const li = {
         id: existing?.id || newLineItemId(),
-        category: "stove", refId, priceKey: holePriceKey(s.method, matLabel),
-        description: desc, unit: "式",
+        category: "stove",
+        refId,
+        priceKey: holePriceKey(s.method, matLabel),
+        description: desc,
+        unit: "式",
         qty: existing?.qty ?? 1,
         unitPrice: existing?.unitPrice ?? null,
         amount: existing?.amount ?? 0,
       };
-      if (idx >= 0) items[idx] = li; else items.push(li);
+      if (idx >= 0) items[idx] = li;
+      else items.push(li);
     });
   }
 
@@ -1557,17 +2089,22 @@ function syncLineItemsFromForm(scope = "all") {
       const existing = idx >= 0 ? items[idx] : null;
       const li = {
         id: existing?.id || newLineItemId(),
-        category: "special", refId, priceKey: name,
-        description: name, unit: "式",
+        category: "special",
+        refId,
+        priceKey: name,
+        description: name,
+        unit: "式",
         qty: existing?.qty ?? 1,
         unitPrice: existing?.unitPrice ?? null,
         amount: existing?.amount ?? 0,
       };
-      if (idx >= 0) items[idx] = li; else items.push(li);
+      if (idx >= 0) items[idx] = li;
+      else items.push(li);
     });
   }
 
   form.value.lineItems = items;
+  syncSingleStoneCountertopUnitPrice();
 }
 
 // 依訂單石材判斷主要材質標籤（用來組 priceKey 區分石英石 / 陶板價）
@@ -1591,7 +2128,9 @@ function holePriceKey(method, materialLabel) {
 
 // 大尺寸放大門檻：賽麗石 / silestone / 帝通石 = 68；其餘所有品牌 = 73
 function thresholdForStone(stone) {
-  const brand = String(stone?.brand || "").trim().toLowerCase();
+  const brand = String(stone?.brand || "")
+    .trim()
+    .toLowerCase();
   const is68 =
     brand.includes("賽麗石") ||
     brand.includes("silestone") ||
@@ -1609,7 +2148,10 @@ function groupStonesByThreshold(stones) {
     groups.get(th).push(s);
   }
   if (!groups.size) groups.set(68, []);
-  return Array.from(groups, ([threshold, items]) => ({ threshold, stones: items }));
+  return Array.from(groups, ([threshold, items]) => ({
+    threshold,
+    stones: items,
+  }));
 }
 
 function oversizeThresholdFromStones(stones) {
@@ -1674,11 +2216,23 @@ function mergePricingDocs(primaryDoc, byNameDoc) {
   return {
     ...byName,
     ...primary,
-    stonePrices: { ...(byName.stonePrices || {}), ...(primary.stonePrices || {}) },
+    stonePrices: {
+      ...(byName.stonePrices || {}),
+      ...(primary.stonePrices || {}),
+    },
     sinkPrices: { ...(byName.sinkPrices || {}), ...(primary.sinkPrices || {}) },
-    stovePrices: { ...(byName.stovePrices || {}), ...(primary.stovePrices || {}) },
-    specialPrices: { ...(byName.specialPrices || {}), ...(primary.specialPrices || {}) },
-    sitePriceEntries: { ...(byName.sitePriceEntries || {}), ...(primary.sitePriceEntries || {}) },
+    stovePrices: {
+      ...(byName.stovePrices || {}),
+      ...(primary.stovePrices || {}),
+    },
+    specialPrices: {
+      ...(byName.specialPrices || {}),
+      ...(primary.specialPrices || {}),
+    },
+    sitePriceEntries: {
+      ...(byName.sitePriceEntries || {}),
+      ...(primary.sitePriceEntries || {}),
+    },
   };
 }
 
@@ -1686,7 +2240,9 @@ async function loadCustomerPricingForCurrentForm() {
   const customerId = String(form.value.customerId || "").trim();
   const customerName = String(form.value.customerName || "").trim();
   const [byId, byName] = await Promise.all([
-    customerId ? getCustomerPricing(customerId).catch(() => null) : Promise.resolve(null),
+    customerId
+      ? getCustomerPricing(customerId).catch(() => null)
+      : Promise.resolve(null),
     customerName
       ? getCustomerPricingByCustomerName(customerName).catch(() => null)
       : Promise.resolve(null),
@@ -1706,7 +2262,7 @@ function computeDrawingLengthCm(state, type, opts = {}) {
   const skipOversize = !!opts.skipOversize;
   const oversizeThreshold = Number(opts.threshold) || 68;
   const thick = Number(state.counterThick) || 0;
-  const back = state.backstop ? (Number(state.backHeight) || 0) : 0;
+  const back = state.backstop ? Number(state.backHeight) || 0 : 0;
   const fmt = (n) => {
     const r = Math.round(Number(n) * 100) / 100;
     return Number.isInteger(r) ? String(r) : r.toFixed(2).replace(/\.?0+$/, "");
@@ -1756,8 +2312,7 @@ function computeDrawingLengthCm(state, type, opts = {}) {
     const ld = Number(state.leftDepth) || 0;
     const rd = Number(state.rightDepth) || 0;
     const shallow = Math.min(ld, rd);
-    const useShallow =
-      shallow > 0 && thick + back + shallow <= 40;
+    const useShallow = shallow > 0 && thick + back + shallow <= 40;
     const cornerDeduct = useShallow ? shallow / 2 : 30;
     total = a.v + b.v - cornerDeduct;
     if (total < 0) total = 0;
@@ -1812,19 +2367,33 @@ function collectHolesFromDrawing(state) {
     if (x?.enabled) stoves.push({ length: x.stoveLength, depth: x.stoveDepth });
   }
   // L/M 型：陣列
-  const sinkArrKeys = ["leftSinks", "rightSinks", "midSinks", "leftArmSinks", "rightArmSinks"];
-  const stoveArrKeys = ["leftStoves", "rightStoves", "midStoves", "leftArmStoves", "rightArmStoves"];
+  const sinkArrKeys = [
+    "leftSinks",
+    "rightSinks",
+    "midSinks",
+    "leftArmSinks",
+    "rightArmSinks",
+  ];
+  const stoveArrKeys = [
+    "leftStoves",
+    "rightStoves",
+    "midStoves",
+    "leftArmStoves",
+    "rightArmStoves",
+  ];
   for (const k of sinkArrKeys) {
     if (Array.isArray(state[k])) {
       for (const x of state[k]) {
-        if (x?.enabled) sinks.push({ length: x.sinkLength, depth: x.sinkDepth });
+        if (x?.enabled)
+          sinks.push({ length: x.sinkLength, depth: x.sinkDepth });
       }
     }
   }
   for (const k of stoveArrKeys) {
     if (Array.isArray(state[k])) {
       for (const x of state[k]) {
-        if (x?.enabled) stoves.push({ length: x.stoveLength, depth: x.stoveDepth });
+        if (x?.enabled)
+          stoves.push({ length: x.stoveLength, depth: x.stoveDepth });
       }
     }
   }
@@ -1860,7 +2429,7 @@ async function syncLineItemsFromDrawings() {
 
   // 移除所有「來自繪圖」的明細（檯面 / 水槽 / 爐子），其他類別保留
   const items = (form.value.lineItems || []).filter(
-    (li) => !((li.refId || "").startsWith("drawing-")),
+    (li) => !(li.refId || "").startsWith("drawing-"),
   );
 
   let cntCounter = 0;
@@ -1955,7 +2524,10 @@ async function syncLineItemsFromDrawings() {
 
   // 自動套用客戶歷史單價（若有）
   for (const li of items) {
-    if ((li.unitPrice == null || li.unitPrice === 0) && (li.refId || "").startsWith("drawing-")) {
+    if (
+      (li.unitPrice == null || li.unitPrice === 0) &&
+      (li.refId || "").startsWith("drawing-")
+    ) {
       const p = suggestionFor(li);
       if (p != null) {
         li.unitPrice = p;
@@ -1965,9 +2537,13 @@ async function syncLineItemsFromDrawings() {
   }
 
   form.value.lineItems = items;
+  syncSingleStoneCountertopUnitPrice();
   // 同步更新表單檯面總長（所有繪圖合計）
   const totalCm = items
-    .filter((li) => li.category === "countertop" && (li.refId || "").startsWith("drawing-"))
+    .filter(
+      (li) =>
+        li.category === "countertop" && (li.refId || "").startsWith("drawing-"),
+    )
     .reduce((s, li) => s + (Number(li.qty) || 0), 0);
   if (totalCm > 0) form.value.countertop.totalCm = totalCm;
 
@@ -2040,16 +2616,44 @@ function addStone() {
   });
 }
 
+function isStoneInInventory(stone = {}) {
+  const brand = String(stone.brand || "").trim();
+  const color = String(stone.color || "").trim();
+  if (!brand) return false;
+  const brandExists = brands.value.includes(brand);
+  if (!brandExists) return false;
+  if (!color) return true;
+  return colorsForBrand(brand).some((c) => String(c.color || "").trim() === color);
+}
+
+function normalizeStoneInputMode(stone = {}) {
+  const brand = String(stone.brand || "").trim();
+  const color = String(stone.color || "").trim();
+  const hasAnyValue = !!(brand || color);
+  const knownStone = isStoneInInventory(stone);
+  return {
+    ...stone,
+    freeInput: stone.freeInput === true || (hasAnyValue && !knownStone),
+  };
+}
+
+function normalizeStonesInputMode(stones = []) {
+  return Array.isArray(stones)
+    ? stones.map((stone) => normalizeStoneInputMode({ ...(stone || {}) }))
+    : [];
+}
+
 function toggleStoneFreeInput(i) {
   const s = form.value.stones[i];
-  s.freeInput = !s.freeInput;
-  // 切換時清空當下值，避免下拉模式留下非清單值
-  if (!s.freeInput) {
-    s.brand = "";
-    s.color = "";
-    s.modelCode = "";
-    s.materialType = "other";
+  if (!s) return;
+  const nextMode = !s.freeInput;
+  // If user tries to switch to dropdown while using non-inventory brand/color,
+  // keep free-input mode so custom values remain visible and editable.
+  if (!nextMode && !isStoneInInventory(s)) {
+    s.freeInput = true;
+    return;
   }
+  s.freeInput = nextMode;
 }
 
 function onStoneBrandChange(i) {
@@ -2084,7 +2688,7 @@ function onSinkTextChange(i, text) {
   const t = text.trim();
   // Try to match against inventory list (by "Brand Model" or just "Model")
   const m = sinkModels.value.find(
-    (x) => ((x.brand ? x.brand + " " : "") + x.model) === t || x.model === t
+    (x) => (x.brand ? x.brand + " " : "") + x.model === t || x.model === t,
   );
   if (m) {
     s.modelId = m.id;
@@ -2119,7 +2723,7 @@ function onStoveTextChange(i, text) {
   const s = form.value.stoves[i];
   const t = text.trim();
   const m = stoveModels.value.find(
-    (x) => ((x.brand ? x.brand + " " : "") + x.model) === t || x.model === t
+    (x) => (x.brand ? x.brand + " " : "") + x.model === t || x.model === t,
   );
   if (m) {
     s.modelId = m.id;
@@ -2144,7 +2748,8 @@ function toDateInputStr(val) {
   if (val?.toDate) d = val.toDate();
   else {
     const n = Number(val);
-    if (!isNaN(n) && n > 0 && n < 100000) d = new Date((n - 25569) * 86400 * 1000);
+    if (!isNaN(n) && n > 0 && n < 100000)
+      d = new Date((n - 25569) * 86400 * 1000);
     else if (!isNaN(n) && n >= 1000000000000) d = new Date(n);
     else d = new Date(String(val).slice(0, 10));
   }
@@ -2170,7 +2775,9 @@ function toPayload() {
     stones: f.stones.map((s) => ({ ...s })),
     countertop: { ...f.countertop },
     rearTreatment: f.rearTreatment || "flush",
-    specialMethods: Array.isArray(f.specialMethods) ? [...f.specialMethods] : [],
+    specialMethods: Array.isArray(f.specialMethods)
+      ? [...f.specialMethods]
+      : [],
     sinks: normalizeSinks(f.sinks),
     stoves: f.stoves.map((s) => ({ ...s })),
     cutMethod: f.cutMethod || "factory",
@@ -2200,7 +2807,8 @@ function getPayloadSignature() {
 }
 
 const hasUnsavedEditChanges = computed(() => {
-  if (!isEdit.value || loading.value || !lastSavedPayloadSignature.value) return false;
+  if (!isEdit.value || loading.value || !lastSavedPayloadSignature.value)
+    return false;
   return getPayloadSignature() !== lastSavedPayloadSignature.value;
 });
 
@@ -2231,121 +2839,127 @@ async function saveOrder({ createNext = false, silent = false } = {}) {
     if (!isEdit.value && draftSiteAddressDuplicates.value.length) {
       if (silent) return false;
       const firstDraft = draftSiteAddressDuplicates.value[0];
-      const shouldOpen = confirm("此安裝地點已有草稿，建議直接使用既有草稿，不需再新建。\n\n是否直接前往第一筆草稿？");
+      const shouldOpen = confirm(
+        "此安裝地點已有草稿，建議直接使用既有草稿，不需再新建。\n\n是否直接前往第一筆草稿？",
+      );
       if (shouldOpen && firstDraft?.id) {
         router.push({ name: "order-edit", params: { id: firstDraft.id } });
       }
       return false;
     }
 
-      saving.value = true;
-      try {
-        const pricingSource = {
-          customerId: form.value.customerId,
-          customerName: form.value.customerName,
-          lineItems: (form.value.lineItems || []).map((li) => ({ ...li })),
-          pricePerCm: form.value.pricePerCm,
-          stones: (form.value.stones || []).map((stone) => ({ ...stone })),
-          orderNo: form.value.orderNo || "",
-        };
-        const payload = toPayload();
-        if (isEdit.value) {
-          await updateSalesOrder(route.params.id, payload);
-          lastSavedPayloadSignature.value = getPayloadSignature();
-          if (createNext) {
-            await router.push({ name: "order-new" });
-            resetForNewOrder();
-            await nextTick();
-            focusFirstField();
-            if (!silent) alert("已更新，已切換到新建訂單");
-          } else if (!silent) {
-            alert("已更新");
-          }
-        } else {
-          const id = await createSalesOrder(payload);
-          if (createNext) {
-            resetForNewOrder();
-            if (route.name !== "order-new" || route.query.fromEstimate === "1") {
-              await router.replace({ name: "order-new" });
-            }
-            await nextTick();
-            focusFirstField();
-            if (!silent) alert(`已建立訂單 (id: ${id})，可直接輸入下一筆`);
-          } else {
-            if (!silent) alert(`已建立訂單 (id: ${id})`);
-            router.replace({ name: "order-edit", params: { id } });
-          }
+    saving.value = true;
+    try {
+      const pricingSource = {
+        customerId: form.value.customerId,
+        customerName: form.value.customerName,
+        lineItems: (form.value.lineItems || []).map((li) => ({ ...li })),
+        pricePerCm: form.value.pricePerCm,
+        stones: (form.value.stones || []).map((stone) => ({ ...stone })),
+        orderNo: form.value.orderNo || "",
+      };
+      const payload = toPayload();
+      if (isEdit.value) {
+        await updateSalesOrder(route.params.id, payload);
+        lastSavedPayloadSignature.value = getPayloadSignature();
+        if (createNext) {
+          await router.push({ name: "order-new" });
+          resetForNewOrder();
+          await nextTick();
+          focusFirstField();
+          if (!silent) alert("已更新，已切換到新建訂單");
+        } else if (!silent) {
+          alert("已更新");
         }
-        // 儲存客戶計價記憶：收集 lineItems 裡有 priceKey + unitPrice 的項目
-        if (pricingSource.customerId) {
-          const stonePrices = {};
-          const sinkPrices = {};
-          const stovePrices = {};
-          const specialPrices = {};
-          let defaultPpc = pricingSource.pricePerCm || null;
-          const today = new Date().toISOString().slice(0, 10);
-          const orderNo = pricingSource.orderNo || "";
-
-          const buckets = {
-            countertop: stonePrices,
-            sink: sinkPrices,
-            stove: stovePrices,
-            special: specialPrices,
-          };
-
-          for (const li of pricingSource.lineItems || []) {
-            if (!li.priceKey || !li.unitPrice) continue;
-            const bucket = buckets[li.category];
-            if (!bucket) continue;
-            bucket[li.priceKey] = {
-              lastPrice: Number(li.unitPrice),
-              lastDate: today,
-              lastOrderNo: orderNo,
-            };
-            if (li.category === "countertop") defaultPpc = Number(li.unitPrice);
+      } else {
+        const id = await createSalesOrder(payload);
+        if (createNext) {
+          resetForNewOrder();
+          if (route.name !== "order-new" || route.query.fromEstimate === "1") {
+            await router.replace({ name: "order-new" });
           }
+          await nextTick();
+          focusFirstField();
+          if (!silent) alert(`已建立訂單 (id: ${id})，可直接輸入下一筆`);
+        } else {
+          if (!silent) alert(`已建立訂單 (id: ${id})`);
+          router.replace({ name: "order-edit", params: { id } });
+        }
+      }
+      // 儲存客戶計價記憶：收集 lineItems 裡有 priceKey + unitPrice 的項目
+      if (pricingSource.customerId) {
+        const stonePrices = {};
+        const sinkPrices = {};
+        const stovePrices = {};
+        const specialPrices = {};
+        let defaultPpc = pricingSource.pricePerCm || null;
+        const today = new Date().toISOString().slice(0, 10);
+        const orderNo = pricingSource.orderNo || "";
 
-          // 舊路徑：若未使用 lineItems，仍用 pricePerCm + stones 記一筆
-          if (!pricingSource.lineItems?.length && pricingSource.pricePerCm) {
-            for (const s of pricingSource.stones || []) {
-              const key = [s.brand, s.color].filter(Boolean).join('/');
-              if (key) stonePrices[key] = {
+        const buckets = {
+          countertop: stonePrices,
+          sink: sinkPrices,
+          stove: stovePrices,
+          special: specialPrices,
+        };
+
+        for (const li of pricingSource.lineItems || []) {
+          if (!li.priceKey || !li.unitPrice) continue;
+          const bucket = buckets[li.category];
+          if (!bucket) continue;
+          bucket[li.priceKey] = {
+            lastPrice: Number(li.unitPrice),
+            lastDate: today,
+            lastOrderNo: orderNo,
+          };
+          if (li.category === "countertop") defaultPpc = Number(li.unitPrice);
+        }
+
+        // 舊路徑：若未使用 lineItems，仍用 pricePerCm + stones 記一筆
+        if (!pricingSource.lineItems?.length && pricingSource.pricePerCm) {
+          for (const s of pricingSource.stones || []) {
+            const key = [s.brand, s.color].filter(Boolean).join("/");
+            if (key)
+              stonePrices[key] = {
                 lastPrice: Number(pricingSource.pricePerCm),
                 lastDate: today,
                 lastOrderNo: orderNo,
               };
-            }
-          }
-
-          const hasAny =
-            Object.keys(stonePrices).length ||
-            Object.keys(sinkPrices).length ||
-            Object.keys(stovePrices).length ||
-            Object.keys(specialPrices).length ||
-            defaultPpc;
-          if (hasAny) {
-            await updateCustomerPricing(pricingSource.customerId, {
-              customerName: pricingSource.customerName,
-              stonePrices, sinkPrices, stovePrices, specialPrices,
-              defaultPricePerCm: defaultPpc,
-            });
-            if (!createNext) {
-              await loadCustomerPricingForCurrentForm();
-            }
           }
         }
-        return true;
-      } catch (e) {
-        console.error(e);
-        if (!silent) alert("儲存失敗：" + (e?.message || e));
-        return false;
-      } finally {
-        saving.value = false;
-        savePromise = null;
-      }
-    })();
 
-    return savePromise;
+        const hasAny =
+          Object.keys(stonePrices).length ||
+          Object.keys(sinkPrices).length ||
+          Object.keys(stovePrices).length ||
+          Object.keys(specialPrices).length ||
+          defaultPpc;
+        if (hasAny) {
+          await updateCustomerPricing(pricingSource.customerId, {
+            customerName: pricingSource.customerName,
+            stonePrices,
+            sinkPrices,
+            stovePrices,
+            specialPrices,
+            defaultPricePerCm: defaultPpc,
+          });
+          if (!createNext) {
+            await loadCustomerPricingForCurrentForm();
+          }
+        }
+      }
+      return true;
+    } catch (e) {
+      console.error(e);
+      if (!silent) alert("儲存失敗：" + (e?.message || e));
+      return false;
+    } finally {
+      saving.value = false;
+      savePromise = null;
+    }
+  })();
+
+  return savePromise;
 }
 
 async function onSave() {
@@ -2405,14 +3019,17 @@ async function loadAll() {
           owner: { ...form.value.owner, ...(doc.owner || {}) },
           countertop: { ...form.value.countertop, ...(doc.countertop || {}) },
           openEdges: { ...form.value.openEdges, ...(doc.openEdges || {}) },
-          stones: doc.stones || [],
+          stones: normalizeStonesInputMode(doc.stones || []),
           sinks: normalizeSinks(doc.sinks),
           stoves: doc.stoves || [],
           specialMethods: Array.isArray(doc.specialMethods)
             ? doc.specialMethods
             : [],
-          installDelayResponsibility: doc.installDelayResponsibility || "unknown",
-          lineItems: Array.isArray(doc.lineItems) ? doc.lineItems.map((li) => ({ ...li })) : [],
+          installDelayResponsibility:
+            doc.installDelayResponsibility || "unknown",
+          lineItems: Array.isArray(doc.lineItems)
+            ? doc.lineItems.map((li) => ({ ...li }))
+            : [],
           invoiceRequired: doc.invoiceRequired !== false,
           orderedAt: doc.orderedAt || "",
         });
@@ -2454,8 +3071,13 @@ async function loadAll() {
               ...form.value.customerContact,
               ...(data.customerContact || {}),
             },
-            countertop: { ...form.value.countertop, ...(data.countertop || {}) },
-            stones: Array.isArray(data.stones) ? data.stones : form.value.stones,
+            countertop: {
+              ...form.value.countertop,
+              ...(data.countertop || {}),
+            },
+            stones: Array.isArray(data.stones)
+              ? data.stones
+              : form.value.stones,
             pricePerCm: data.pricePerCm ?? form.value.pricePerCm,
             lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
             subtotal: data.subtotal ?? 0,
@@ -2474,6 +3096,9 @@ async function loadAll() {
         console.warn("載入估價暫存失敗:", e);
       }
     }
+
+    // Ensure stone input mode is consistent after all data/inventory options are loaded.
+    form.value.stones = normalizeStonesInputMode(form.value.stones || []);
   } catch (e) {
     console.error(e);
     error.value = "載入失敗：" + (e?.message || e);
@@ -2495,7 +3120,10 @@ onMounted(async () => {
   await loadAll();
   await nextTick();
   updateOrderHeaderHeight();
-  if (typeof ResizeObserver === "function" && pageHeaderRef.value instanceof HTMLElement) {
+  if (
+    typeof ResizeObserver === "function" &&
+    pageHeaderRef.value instanceof HTMLElement
+  ) {
     headerResizeObserver = new ResizeObserver(() => updateOrderHeaderHeight());
     headerResizeObserver.observe(pageHeaderRef.value);
   }
@@ -2692,7 +3320,10 @@ onBeforeRouteLeave(async () => {
   width: 100%;
   box-sizing: border-box;
   background: #fff;
-  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
 }
 .row textarea {
   min-height: 96px;
@@ -2921,6 +3552,16 @@ onBeforeRouteLeave(async () => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.pricing-warning {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: #fff7e6;
+  border: 1px solid #ffd59a;
+  border-radius: 8px;
+  color: #9a3f00;
+  font-size: 12px;
+  font-weight: 600;
 }
 .line-items-table {
   width: 100%;
@@ -3152,7 +3793,7 @@ onBeforeRouteLeave(async () => {
   position: absolute;
   top: 2px;
   right: 2px;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0, 0, 0, 0.55);
   color: #fff;
   border: 0;
   border-radius: 50%;
@@ -3173,7 +3814,7 @@ onBeforeRouteLeave(async () => {
 .lightbox {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.85);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3183,7 +3824,7 @@ onBeforeRouteLeave(async () => {
   max-width: 90vw;
   max-height: 90vh;
   border-radius: 4px;
-  box-shadow: 0 4px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
 }
 .lb-close {
   position: absolute;

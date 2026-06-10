@@ -70,8 +70,7 @@ const DEFAULT_PRICE_REDACT_BOX = {
 };
 
 const MULTIPART_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
-const DESIGN_REVIEW_CHECKLIST_TEMPLATE_DOC_ID =
-  "designReviewChecklistTemplate";
+const DESIGN_REVIEW_CHECKLIST_TEMPLATE_DOC_ID = "designReviewChecklistTemplate";
 
 const authReadyPromise = new Promise((resolve) => {
   const unsubscribe = onAuthStateChanged(auth, () => {
@@ -1950,7 +1949,9 @@ export async function listStoveModels() {
 }
 
 function normalizeModelDocId(value = "") {
-  return String(value || "").trim().replace(/\//g, "-");
+  return String(value || "")
+    .trim()
+    .replace(/\//g, "-");
 }
 
 export async function createStoveModel(payload = {}) {
@@ -2024,7 +2025,10 @@ function normalizeSearchableAddress(value) {
   text = text.replace(/(?:密碼|密码|門禁|门禁|備註|备注)[:：#＃]?.*$/i, "");
   text = text.replace(/[#＃].*$/, "");
   text = text.replace(/([樓Ff])[-－].*$/, "$1");
-  text = text.replace(/((?:號(?:之\d+)?|樓(?:之\d+)?|室))(?:[-－+＋].*)$/, "$1");
+  text = text.replace(
+    /((?:號(?:之\d+)?|樓(?:之\d+)?|室))(?:[-－+＋].*)$/,
+    "$1",
+  );
   text = text.trim();
   text = text.replace(/^(?:台灣|台湾)/, "");
   text = text.replace(/^[\u4e00-\u9fff]{2,3}[縣市]/, "");
@@ -2037,7 +2041,8 @@ function normalizeSearchableAddress(value) {
 function withSalesOrderSearchFields(data = {}) {
   if (!data || typeof data !== "object") return data;
   const payload = { ...data };
-  if (!Object.prototype.hasOwnProperty.call(payload, "siteAddress")) return payload;
+  if (!Object.prototype.hasOwnProperty.call(payload, "siteAddress"))
+    return payload;
   payload.searchableAddress = normalizeSearchableAddress(payload.siteAddress);
   return payload;
 }
@@ -2106,11 +2111,23 @@ export async function listSalesOrders({ status, limit: lim = 100 } = {}) {
 
   if (Number.isFinite(limitValue) && limitValue > 0) {
     const snap = await getDocs(
-      query(ref, ...constraints, orderBy("updatedAt", "desc"), limit(limitValue)),
+      query(
+        ref,
+        ...constraints,
+        orderBy("updatedAt", "desc"),
+        limit(limitValue),
+      ),
     ).catch(async () => {
       // Fallback for older datasets or index gaps: keep the list usable even if
       // updatedAt ordering is temporarily unavailable.
-      return getDocs(query(ref, ...constraints, orderBy("createdAt", "desc"), limit(limitValue)));
+      return getDocs(
+        query(
+          ref,
+          ...constraints,
+          orderBy("createdAt", "desc"),
+          limit(limitValue),
+        ),
+      );
     });
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   }
@@ -2156,7 +2173,10 @@ export async function listSalesOrdersByCustomerId(customerId, { status } = {}) {
 }
 
 // 依客戶名稱精準查詢全部訂單（不限制筆數）
-export async function listSalesOrdersByCustomerName(customerName, { status } = {}) {
+export async function listSalesOrdersByCustomerName(
+  customerName,
+  { status } = {},
+) {
   const name = String(customerName || "").trim();
   if (!name) return [];
 
@@ -3395,7 +3415,9 @@ export async function listOrders({ limit: lim = 500 } = {}) {
 
 export async function searchOrdersByOrderNo(keyword, { limit: lim = 20 } = {}) {
   await authReadyPromise;
-  const clean = String(keyword || "").trim().toUpperCase();
+  const clean = String(keyword || "")
+    .trim()
+    .toUpperCase();
   if (!clean) return [];
 
   const limitValue = Math.max(1, Math.min(50, Number(lim) || 20));
@@ -3419,25 +3441,43 @@ export async function searchOrdersByOrderNo(keyword, { limit: lim = 20 } = {}) {
   const legacyTasks = [
     getDoc(doc(db, "Orders", clean)),
     getDocs(query(legacyRef, where("orderNo", "==", clean), limit(limitValue))),
-    getDocs(query(legacyRef, where("訂單號碼", "==", clean), limit(limitValue))),
-    getDocs(query(legacyRef, where("訂單編號", "==", clean), limit(limitValue))),
-    getDocs(query(legacyRef, where("orderNumber", "==", clean), limit(limitValue))),
+    getDocs(
+      query(legacyRef, where("訂單號碼", "==", clean), limit(limitValue)),
+    ),
+    getDocs(
+      query(legacyRef, where("訂單編號", "==", clean), limit(limitValue)),
+    ),
+    getDocs(
+      query(legacyRef, where("orderNumber", "==", clean), limit(limitValue)),
+    ),
   ];
 
   if (isNumeric && Number.isFinite(numericValue)) {
     legacyTasks.push(
       getDocs(
-        query(legacyRef, where("訂單號碼", "==", numericValue), limit(limitValue)),
+        query(
+          legacyRef,
+          where("訂單號碼", "==", numericValue),
+          limit(limitValue),
+        ),
       ),
     );
     legacyTasks.push(
       getDocs(
-        query(legacyRef, where("訂單編號", "==", numericValue), limit(limitValue)),
+        query(
+          legacyRef,
+          where("訂單編號", "==", numericValue),
+          limit(limitValue),
+        ),
       ),
     );
     legacyTasks.push(
       getDocs(
-        query(legacyRef, where("orderNumber", "==", numericValue), limit(limitValue)),
+        query(
+          legacyRef,
+          where("orderNumber", "==", numericValue),
+          limit(limitValue),
+        ),
       ),
     );
   }
@@ -3462,7 +3502,9 @@ export async function searchOrdersByOrderNo(keyword, { limit: lim = 20 } = {}) {
   const [legacyDirect, ...legacySnaps] = legacyResults;
   if (legacyDirect.exists()) {
     seenLegacy.add(legacyDirect.id);
-    legacyMatches.push(_ordersMapDoc(legacyDirect.id, legacyDirect.data() || {}));
+    legacyMatches.push(
+      _ordersMapDoc(legacyDirect.id, legacyDirect.data() || {}),
+    );
   }
   for (const snap of legacySnaps) {
     snap.docs.forEach((d) => {
@@ -3484,7 +3526,9 @@ export async function searchOrdersByOrderNo(keyword, { limit: lim = 20 } = {}) {
   }
 
   const sortRank = (order) => {
-    const orderNo = String(order?.orderNo || order?.orderNumber || "").trim().toUpperCase();
+    const orderNo = String(order?.orderNo || order?.orderNumber || "")
+      .trim()
+      .toUpperCase();
     if (!orderNo) return 2;
     if (orderNo === clean) return 0;
     if (orderNo.startsWith(clean)) return 1;
@@ -3496,17 +3540,22 @@ export async function searchOrdersByOrderNo(keyword, { limit: lim = 20 } = {}) {
       const rankDiff = sortRank(a) - sortRank(b);
       if (rankDiff !== 0) return rankDiff;
       const ta =
-        _coerceJsDate(a.updatedAt || a.createdAt || a.orderedAt || a.promisedAt)?.getTime() ||
-        0;
+        _coerceJsDate(
+          a.updatedAt || a.createdAt || a.orderedAt || a.promisedAt,
+        )?.getTime() || 0;
       const tb =
-        _coerceJsDate(b.updatedAt || b.createdAt || b.orderedAt || b.promisedAt)?.getTime() ||
-        0;
+        _coerceJsDate(
+          b.updatedAt || b.createdAt || b.orderedAt || b.promisedAt,
+        )?.getTime() || 0;
       return tb - ta;
     })
     .slice(0, limitValue);
 }
 
-export async function searchSalesOrdersByKeyword(keyword, { limit: lim = 20 } = {}) {
+export async function searchSalesOrdersByKeyword(
+  keyword,
+  { limit: lim = 20 } = {},
+) {
   await authReadyPromise;
   const rawKeyword = String(keyword || "").trim();
   if (!rawKeyword) return [];
@@ -3519,7 +3568,13 @@ export async function searchSalesOrdersByKeyword(keyword, { limit: lim = 20 } = 
   const orderKeyword = rawKeyword.toUpperCase();
   if (/^[A-Za-z0-9-]+$/.test(orderKeyword) && orderKeyword.length >= 2) {
     tasks.push(
-      getDocs(query(salesRef, where("orderNo", "==", orderKeyword), limit(limitValue))),
+      getDocs(
+        query(
+          salesRef,
+          where("orderNo", "==", orderKeyword),
+          limit(limitValue),
+        ),
+      ),
     );
     tasks.push(
       getDocs(
@@ -3557,7 +3612,11 @@ export async function searchSalesOrdersByKeyword(keyword, { limit: lim = 20 } = 
   }
 
   const rawAddressVariants = Array.from(
-    new Set([rawKeyword].map((value) => String(value || "").trim()).filter((value) => value.length >= 2)),
+    new Set(
+      [rawKeyword]
+        .map((value) => String(value || "").trim())
+        .filter((value) => value.length >= 2),
+    ),
   );
 
   for (const value of rawAddressVariants) {
@@ -4235,6 +4294,10 @@ export async function issueOrder(
 ) {
   await authReadyPromise;
   const uid = auth.currentUser?.uid || null;
+  const issuedByName =
+    String(auth.currentUser?.displayName || "").trim() ||
+    String(auth.currentUser?.email || "").trim() ||
+    (uid ? String(uid) : "");
   let finalOrderNo = orderNo || "";
   const counterRef = doc(db, "SystemSettings", "orderCounter");
 
@@ -4271,6 +4334,9 @@ export async function issueOrder(
       ...updatedData,
       orderNo: finalOrderNo,
       status: "confirmed",
+      issuedAt: serverTimestamp(),
+      issuedByUid: uid,
+      issuedByName,
       customerSignedAt: serverTimestamp(),
       signedScanUrl: signedScanUrl || null,
       signedScans: nextSignedScans,
@@ -5133,7 +5199,7 @@ export async function updateCustomerPricing(
         : !!skipOversizeScaling,
     preferredConfirmationEdgeType:
       preferredConfirmationEdgeType === undefined
-        ? (cur.preferredConfirmationEdgeType || "")
+        ? cur.preferredConfirmationEdgeType || ""
         : String(preferredConfirmationEdgeType || "").trim(),
     updatedAt: serverTimestamp(),
   };
@@ -5141,7 +5207,9 @@ export async function updateCustomerPricing(
 }
 
 function buildCustomerPricingKey(rawCustomerName = "") {
-  const normalized = String(rawCustomerName || "").trim().toLowerCase();
+  const normalized = String(rawCustomerName || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return "";
   return normalized
     .replace(/\s+/g, "-")
@@ -5191,9 +5259,10 @@ export async function saveCustomerSitePrice({
   const snap = await getDoc(ref);
   const cur = snap.exists() ? snap.data() : {};
   const sitePriceEntries = { ...(cur.sitePriceEntries || {}) };
-  const targetEntryKey = String(entryKey || "").trim()
-    || buildSitePriceEntryKey(cleanProjectName, cleanColor)
-    || `${Date.now()}`;
+  const targetEntryKey =
+    String(entryKey || "").trim() ||
+    buildSitePriceEntryKey(cleanProjectName, cleanColor) ||
+    `${Date.now()}`;
 
   sitePriceEntries[targetEntryKey] = {
     customerName: cleanCustomerName,
@@ -5225,7 +5294,9 @@ export async function listCustomerSitePrices(customerName) {
   const entries = Object.entries(pricing?.sitePriceEntries || {}).map(
     ([entryKey, item]) => ({
       entryKey,
-      customerName: String(item?.customerName || pricing?.customerName || "").trim(),
+      customerName: String(
+        item?.customerName || pricing?.customerName || "",
+      ).trim(),
       projectName: String(item?.projectName || "").trim(),
       color: String(item?.color || "").trim(),
       price: Number(item?.price || 0),
@@ -5235,7 +5306,9 @@ export async function listCustomerSitePrices(customerName) {
       updatedByUid: String(item?.updatedByUid || ""),
     }),
   );
-  entries.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  entries.sort((a, b) =>
+    String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")),
+  );
   return entries;
 }
 

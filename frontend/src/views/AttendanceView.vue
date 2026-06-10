@@ -555,6 +555,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  getDoc,
   query,
   where,
   getDocs,
@@ -592,6 +593,9 @@ const punchErr = ref("");
 const geoBlocked = ref(false);
 const todayRec = ref(null);
 const isAdminOrManager = ref(false);
+const lastPunchActionAt = ref(0);
+
+const PUNCH_ACTION_COOLDOWN_MS = 60 * 1000;
 
 let punchLocationCfg = {
   enabled: false,
@@ -1211,6 +1215,32 @@ async function loadTodayRec() {
   }
 }
 
+async function loadTodayRecSnapshot() {
+  const id = `${todayStr()}_${currentUser.uid}`;
+  const snap = await getDoc(doc(db, "attendance", id));
+  if (!snap.exists()) {
+    todayRec.value = null;
+    return null;
+  }
+  const data = snap.data();
+  todayRec.value = data;
+  return data;
+}
+
+function beginPunchAction() {
+  if (punching.value) return false;
+  const now = Date.now();
+  if (now - lastPunchActionAt.value < PUNCH_ACTION_COOLDOWN_MS) {
+    punchErr.value = "1 分鐘內請勿重複打卡";
+    return false;
+  }
+  lastPunchActionAt.value = now;
+  punching.value = true;
+  punchErr.value = "";
+  geoBlocked.value = false;
+  return true;
+}
+
 // ── 載入審核身分（staffRole / dept） ─────────────────────────
 async function loadApproverInfo() {
   if (!currentUser) return;
@@ -1336,10 +1366,13 @@ function checkGeofence() {
 
 // ── 上班打卡 ──────────────────────────────────────────────
 async function punchIn() {
-  punching.value = true;
-  punchErr.value = "";
-  geoBlocked.value = false;
+  if (!beginPunchAction()) return;
   try {
+    const existing = await loadTodayRecSnapshot();
+    if (existing?.punchIn) {
+      punchErr.value = "今天已完成上班打卡";
+      return;
+    }
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
@@ -1375,10 +1408,13 @@ async function punchIn() {
 
 async function startLeave() {
   if (!todayRec.value || todayStatus.value !== "working") return;
-  punching.value = true;
-  punchErr.value = "";
-  geoBlocked.value = false;
+  if (!beginPunchAction()) return;
   try {
+    const latest = await loadTodayRecSnapshot();
+    if (!latest || getRecordStatus(latest) !== "working") {
+      punchErr.value = "狀態已更新，請重新確認後再操作";
+      return;
+    }
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
@@ -1430,10 +1466,13 @@ async function startLeave() {
 
 async function resumeWork() {
   if (!todayRec.value || todayStatus.value !== "on_leave") return;
-  punching.value = true;
-  punchErr.value = "";
-  geoBlocked.value = false;
+  if (!beginPunchAction()) return;
   try {
+    const latest = await loadTodayRecSnapshot();
+    if (!latest || getRecordStatus(latest) !== "on_leave") {
+      punchErr.value = "狀態已更新，請重新確認後再操作";
+      return;
+    }
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
@@ -1492,10 +1531,17 @@ async function resumeWork() {
 
 // ── 下班打卡 ──────────────────────────────────────────────
 async function punchOut() {
-  punching.value = true;
-  punchErr.value = "";
-  geoBlocked.value = false;
+  if (!beginPunchAction()) return;
   try {
+    const latest = await loadTodayRecSnapshot();
+    if (!latest) {
+      punchErr.value = "尚未上班打卡";
+      return;
+    }
+    if (latest?.punchOut) {
+      punchErr.value = "今天已完成下班打卡";
+      return;
+    }
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
@@ -2421,10 +2467,9 @@ tr.no-rec td {
 }
 .segment-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(
-      0,
-      1.4fr
-    ) auto;
+  grid-template-columns:
+    minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1.4fr)
+    auto;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;

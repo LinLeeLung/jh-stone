@@ -2,7 +2,9 @@
   <div class="review-page">
     <header class="review-header">
       <RouterLink class="back-btn" to="/orders">← 返回訂單</RouterLink>
-      <RouterLink class="back-btn" :to="`/orders/${orderId}/confirmation`">📋 確定單</RouterLink>
+      <RouterLink class="back-btn" :to="`/orders/${orderId}/confirmation`"
+        >📋 確定單</RouterLink
+      >
       <div class="title-wrap">
         <h1>原圖對圖註記</h1>
         <p v-if="order" class="meta">
@@ -39,7 +41,9 @@
         <div class="panel-block drawing-shortcut">
           <h3>本單繪圖</h3>
           <div class="drawing-actions">
-            <RouterLink class="btn" :to="`/orders/${orderId}/drawing`">前往繪圖</RouterLink>
+            <RouterLink class="btn" :to="`/orders/${orderId}/drawing`"
+              >前往繪圖</RouterLink
+            >
             <a
               class="btn"
               :href="`/orders/${orderId}/drawing`"
@@ -48,7 +52,9 @@
             >
               另開繪圖
             </a>
-            <button class="btn" type="button" @click="openDrawingSplitView">並排開啟</button>
+            <button class="btn" type="button" @click="openDrawingSplitView">
+              並排開啟
+            </button>
           </div>
         </div>
 
@@ -56,8 +62,12 @@
         <div class="checklist-head muted">
           已完成 {{ checklistDoneCount }} / {{ checklistItems.length }}
         </div>
-        <div class="muted checklist-tip">項目為全站共用；勾選狀態為本張原圖獨立。</div>
-        <p v-if="checklistTemplateMsg" class="checklist-template-msg muted">{{ checklistTemplateMsg }}</p>
+        <div class="muted checklist-tip">
+          項目為全站共用；勾選狀態為本張原圖獨立。
+        </div>
+        <p v-if="checklistTemplateMsg" class="checklist-template-msg muted">
+          {{ checklistTemplateMsg }}
+        </p>
         <div class="checklist-add">
           <input
             v-model.trim="newChecklistText"
@@ -65,10 +75,16 @@
             placeholder="新增檢核項目，例如：水槽位置已對圖"
             @keydown.enter.prevent="addChecklistItem"
           />
-          <button class="btn" type="button" @click="addChecklistItem">新增</button>
+          <button class="btn" type="button" @click="addChecklistItem">
+            新增
+          </button>
         </div>
         <ul v-if="checklistItems.length" class="checklist-list">
-          <li v-for="item in checklistItems" :key="item.id" class="checklist-row">
+          <li
+            v-for="item in checklistItems"
+            :key="item.id"
+            class="checklist-row"
+          >
             <label class="checklist-main">
               <input v-model="item.checked" type="checkbox" />
               <input
@@ -79,7 +95,11 @@
                 @blur="saveSharedChecklistTemplateFromCurrent"
               />
             </label>
-            <button class="btn btn-del-item" type="button" @click="removeChecklistItem(item.id)">
+            <button
+              class="btn btn-del-item"
+              type="button"
+              @click="removeChecklistItem(item.id)"
+            >
               刪除
             </button>
           </li>
@@ -90,7 +110,11 @@
         <div class="panel-block">
           <h3>最新記錄圖</h3>
           <template v-if="latestReviewImageUrl">
-            <a :href="latestReviewImageUrl" target="_blank" rel="noopener noreferrer">
+            <a
+              :href="latestReviewImageUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <img :src="latestReviewImageUrl" alt="最新記錄圖" class="thumb" />
             </a>
           </template>
@@ -114,7 +138,9 @@
       <section class="canvas-section">
         <div class="canvas-body">
           <div class="canvas-main">
-            <div v-if="!latestDesignFile" class="empty-state">此訂單尚無原圖檔。</div>
+            <div v-if="!latestDesignFile" class="empty-state">
+              此訂單尚無原圖檔。
+            </div>
 
             <div v-else-if="!canAnnotateFile" class="empty-state">
               目前原圖不是可註記格式（僅支援 PDF / 圖片）。
@@ -125,6 +151,11 @@
             <div v-else-if="pdfRenderError" class="empty-state">
               PDF 載入失敗：{{ pdfRenderError }}
             </div>
+            <div v-else-if="imageRenderError" class="empty-state">
+              原圖載入失敗：{{ imageRenderError }}
+              <br />
+              檔名：{{ latestDesignFile?.name || "(未知檔名)" }}
+            </div>
             <div v-else ref="captureRef" class="image-canvas-wrap">
               <img
                 v-if="isImageFile"
@@ -132,13 +163,15 @@
                 :src="latestDesignFile.url"
                 alt="原圖"
                 class="base-image"
-                @load="syncCanvasSize"
+                @load="onBaseImageLoad"
+                @error="onBaseImageError"
               />
-              <img
-                v-else
-                style="display:none"
+              <img v-else style="display: none" />
+              <canvas
+                v-if="isPdfFile"
+                ref="pdfBaseCanvasRef"
+                class="base-image base-pdf-canvas"
               />
-              <canvas v-if="isPdfFile" ref="pdfBaseCanvasRef" class="base-image base-pdf-canvas" />
               <div
                 ref="objectLayerRef"
                 class="object-layer"
@@ -164,13 +197,12 @@
                   :class="objectDraft.type"
                   :style="annotationObjectStyle(objectDraft)"
                 >
-                  <template v-if="objectDraft.type === 'text'">{{ objectDraft.text }}</template>
+                  <template v-if="objectDraft.type === 'text'">{{
+                    objectDraft.text
+                  }}</template>
                 </div>
               </div>
-              <canvas
-                ref="overlayCanvasRef"
-                class="overlay-canvas"
-              />
+              <canvas ref="overlayCanvasRef" class="overlay-canvas" />
               <canvas
                 ref="drawCanvasRef"
                 class="draw-canvas"
@@ -181,16 +213,36 @@
               />
             </div>
             <p v-if="isPdfFile" class="muted pdf-tip">
-              PDF 共 {{ pdfPageCount || "?" }} 頁（最多預覽 10 頁），可直接編輯與回存。
+              PDF 共 {{ pdfPageCount || "?" }} 頁（最多預覽 10
+              頁），可直接編輯與回存。
+            </p>
+            <p v-if="isPdfFile && pdfRendering" class="muted pdf-tip">
+              PDF 載入中，請稍候...
             </p>
           </div>
 
           <aside v-if="canAnnotateFile" class="tools-side">
             <div class="tools">
               <div class="tool-group">
-                <button class="btn" type="button" @click="clearCanvas">清除畫線</button>
-                <button class="btn" type="button" :disabled="!canUndo" @click="undoDraw">復原</button>
-                <button class="btn" type="button" :disabled="!canRedo" @click="redoDraw">重做</button>
+                <button class="btn" type="button" @click="clearCanvas">
+                  清除畫線
+                </button>
+                <button
+                  class="btn"
+                  type="button"
+                  :disabled="!canUndo"
+                  @click="undoDraw"
+                >
+                  復原
+                </button>
+                <button
+                  class="btn"
+                  type="button"
+                  :disabled="!canRedo"
+                  @click="redoDraw"
+                >
+                  重做
+                </button>
               </div>
               <div class="tool-group">
                 <button
@@ -208,7 +260,13 @@
                     placeholder="輸入文字後，點圖面放置"
                   />
                   <label class="muted">字級 {{ textSize }}</label>
-                  <input v-model.number="textSize" type="range" min="10" max="48" step="1" />
+                  <input
+                    v-model.number="textSize"
+                    type="range"
+                    min="10"
+                    max="48"
+                    step="1"
+                  />
                   <label class="muted text-bg-toggle">
                     <input v-model="textBgEnabled" type="checkbox" />
                     文字底色
@@ -251,7 +309,13 @@
               </div>
               <div class="tool-group">
                 <label class="muted">筆粗 {{ brushSize }}</label>
-                <input v-model.number="brushSize" type="range" min="1" max="14" step="1" />
+                <input
+                  v-model.number="brushSize"
+                  type="range"
+                  min="1"
+                  max="14"
+                  step="1"
+                />
               </div>
               <div class="tool-group color-palette">
                 <button
@@ -265,19 +329,57 @@
                 />
               </div>
               <div v-if="selectedObject" class="tool-group object-editor">
-                <span class="muted">已選取：{{ selectedObject.type === 'text' ? '文字' : selectedObject.type === 'rect' ? '矩形' : '圓形' }}</span>
-                <input v-if="selectedObject.type === 'text'" v-model="selectedObject.text" class="text-draft" placeholder="文字內容" />
-                <label v-if="selectedObject.type === 'text'" class="muted">字級 {{ selectedObject.fontSize }}</label>
-                <input v-if="selectedObject.type === 'text'" v-model.number="selectedObject.fontSize" type="range" min="10" max="48" step="1" />
-                <label v-else class="muted">線寬 {{ selectedObject.strokeWidth }}</label>
-                <input v-if="selectedObject.type !== 'text'" v-model.number="selectedObject.strokeWidth" type="range" min="1" max="14" step="1" />
-                <label v-if="selectedObject.type === 'text'" class="muted text-bg-toggle">
+                <span class="muted"
+                  >已選取：{{
+                    selectedObject.type === "text"
+                      ? "文字"
+                      : selectedObject.type === "rect"
+                        ? "矩形"
+                        : "圓形"
+                  }}</span
+                >
+                <input
+                  v-if="selectedObject.type === 'text'"
+                  v-model="selectedObject.text"
+                  class="text-draft"
+                  placeholder="文字內容"
+                />
+                <label v-if="selectedObject.type === 'text'" class="muted"
+                  >字級 {{ selectedObject.fontSize }}</label
+                >
+                <input
+                  v-if="selectedObject.type === 'text'"
+                  v-model.number="selectedObject.fontSize"
+                  type="range"
+                  min="10"
+                  max="48"
+                  step="1"
+                />
+                <label v-else class="muted"
+                  >線寬 {{ selectedObject.strokeWidth }}</label
+                >
+                <input
+                  v-if="selectedObject.type !== 'text'"
+                  v-model.number="selectedObject.strokeWidth"
+                  type="range"
+                  min="1"
+                  max="14"
+                  step="1"
+                />
+                <label
+                  v-if="selectedObject.type === 'text'"
+                  class="muted text-bg-toggle"
+                >
                   <input v-model="selectedObject.background" type="checkbox" />
                   文字底色
                 </label>
-                <button class="btn" type="button" @click="deleteSelectedObject">刪除物件</button>
+                <button class="btn" type="button" @click="deleteSelectedObject">
+                  刪除物件
+                </button>
               </div>
-              <span class="muted">可直接在原圖上畫線標記重點，再按「儲存註記」。</span>
+              <span class="muted"
+                >可直接在原圖上畫線標記重點，再按「儲存註記」。</span
+              >
             </div>
           </aside>
         </div>
@@ -307,7 +409,10 @@ const orderId = computed(() => String(route.params.id || ""));
 
 function openDrawingSplitView() {
   if (!orderId.value) return;
-  const resolved = router.resolve({ name: "order-drawing", params: { id: orderId.value } });
+  const resolved = router.resolve({
+    name: "order-drawing",
+    params: { id: orderId.value },
+  });
   const width = Math.max(980, Math.round(window.innerWidth * 0.58));
   const height = Math.max(700, Math.round(window.innerHeight * 0.9));
   const left = Math.max(0, window.screenX + (window.outerWidth - width));
@@ -347,6 +452,7 @@ const drawCanvasRef = ref(null);
 const pdfRenderError = ref("");
 const pdfRendering = ref(false);
 const pdfPageCount = ref(0);
+const imageRenderError = ref("");
 
 const isDrawing = ref(false);
 const hasInk = ref(false);
@@ -368,14 +474,20 @@ const redoStack = ref([]);
 const brushPalette = ["#ef4444", "#2563eb", "#16a34a", "#eab308", "#111827"];
 const canUndo = computed(() => undoStack.value.length > 0);
 const canRedo = computed(() => redoStack.value.length > 0);
-const checklistDoneCount = computed(() =>
-  checklistItems.value.filter((item) => item.checked).length,
+const checklistDoneCount = computed(
+  () => checklistItems.value.filter((item) => item.checked).length,
 );
-const selectedObject = computed(() =>
-  annotationObjects.value.find((obj) => obj.id === selectedObjectId.value) || null,
+const selectedObject = computed(
+  () =>
+    annotationObjects.value.find((obj) => obj.id === selectedObjectId.value) ||
+    null,
 );
-const activeColor = computed(() => selectedObject.value?.color || brushColor.value);
-const objectLayerInteractive = computed(() => toolMode.value !== "draw" && !eraserMode.value);
+const activeColor = computed(
+  () => selectedObject.value?.color || brushColor.value,
+);
+const objectLayerInteractive = computed(
+  () => toolMode.value !== "draw" && !eraserMode.value,
+);
 
 function isEditedDesignFileName(name) {
   return /-edited-\d{8}-\d{6}\.pdf$/i.test(String(name || ""));
@@ -439,7 +551,10 @@ function hydrateChecklistItems(templateItems, checkedMap) {
 }
 
 function buildChecklistTemplateFromCurrent() {
-  return buildChecklistPayload().map((item) => ({ id: item.id, text: item.text }));
+  return buildChecklistPayload().map((item) => ({
+    id: item.id,
+    text: item.text,
+  }));
 }
 
 async function saveSharedChecklistTemplateFromCurrent() {
@@ -486,17 +601,20 @@ const latestDesignFile = computed(() => {
   return original || files[0] || null;
 });
 const latestReviewImageUrl = computed(() => {
-  if (order.value?.latestDesignReviewImageUrl) return order.value.latestDesignReviewImageUrl;
+  if (order.value?.latestDesignReviewImageUrl)
+    return order.value.latestDesignReviewImageUrl;
   return reviewFiles.value[0]?.url || "";
 });
 
 const latestReviewPdfUrl = computed(() => {
-  if (order.value?.latestDesignReviewPdfUrl) return order.value.latestDesignReviewPdfUrl;
+  if (order.value?.latestDesignReviewPdfUrl)
+    return order.value.latestDesignReviewPdfUrl;
   return reviewPdfFiles.value[0]?.url || "";
 });
 
 const latestReviewOverlayUrl = computed(() => {
-  if (order.value?.latestDesignReviewOverlayUrl) return order.value.latestDesignReviewOverlayUrl;
+  if (order.value?.latestDesignReviewOverlayUrl)
+    return order.value.latestDesignReviewOverlayUrl;
   return reviewOverlayFiles.value[0]?.url || "";
 });
 
@@ -519,7 +637,9 @@ async function getPdfJs() {
     _pdfJsPromise = (async () => {
       const pdfjs = await import("pdfjs-dist");
       if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-        const workerUrl = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
+        const workerUrl = (
+          await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
+        ).default;
         pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       }
       return pdfjs;
@@ -531,9 +651,9 @@ async function getPdfJs() {
 async function getPdfWasmUrl() {
   if (!_pdfWasmUrlPromise) {
     _pdfWasmUrlPromise = (async () => {
-      const base = String(import.meta.env.BASE_URL || "/");
-      const normalizedBase = base.endsWith("/") ? base : `${base}/`;
-      return `${normalizedBase}pdfjs/`;
+      const jbig2WasmUrl = (await import("pdfjs-dist/wasm/jbig2.wasm?url"))
+        .default;
+      return jbig2WasmUrl.replace(/jbig2\.wasm(?:\?.*)?$/i, "");
     })();
   }
   return _pdfWasmUrlPromise;
@@ -542,6 +662,7 @@ async function getPdfWasmUrl() {
 async function renderPdfFirstPage(file) {
   if (!file) return;
   pdfRenderError.value = "";
+  imageRenderError.value = "";
   pdfRendering.value = true;
   pdfPageCount.value = 0;
   try {
@@ -556,13 +677,19 @@ async function renderPdfFirstPage(file) {
     if (file.storagePath) {
       try {
         const data = await downloadStorageFileBytes(file.storagePath);
-        task = pdfjs.getDocument({ data, disableWorker: true, wasmUrl });
+        task = pdfjs.getDocument({
+          data,
+          disableWorker: true,
+          useWasm: true,
+          wasmUrl,
+        });
       } catch (storageError) {
         console.warn("PDF bytes load failed, fallback to URL", storageError);
         task = pdfjs.getDocument({
           url: file.url,
           withCredentials: false,
           disableWorker: true,
+          useWasm: true,
           wasmUrl,
         });
       }
@@ -571,6 +698,7 @@ async function renderPdfFirstPage(file) {
         url: file.url,
         withCredentials: false,
         disableWorker: true,
+        useWasm: true,
         wasmUrl,
       });
     }
@@ -635,7 +763,6 @@ async function renderPdfFirstPage(file) {
       ctx.drawImage(item.canvas, 0, y);
       y += item.renderViewport.height + renderGap;
     }
-
   } catch (error) {
     console.error("PDF render failed", error);
     pdfRenderError.value = error?.message || String(error);
@@ -644,16 +771,30 @@ async function renderPdfFirstPage(file) {
   }
 }
 
+function onBaseImageLoad() {
+  imageRenderError.value = "";
+  syncCanvasSize();
+}
+
+function onBaseImageError() {
+  imageRenderError.value = "可能是檔案連結失效、權限不足或檔案已被移動。";
+}
+
 async function loadAll() {
   if (!orderId.value) return;
-  const [ord, files, reviews, reviewPdfs, reviewOverlays, sharedTemplate] = await Promise.all([
-    getSalesOrder(orderId.value),
-    listOrderAttachments(orderId.value, "designFiles").catch(() => []),
-    listOrderAttachments(orderId.value, "designReviewFiles").catch(() => []),
-    listOrderAttachments(orderId.value, "designReviewPdfs").catch(() => []),
-    listOrderAttachments(orderId.value, "designReviewOverlays").catch(() => []),
-    getDesignReviewChecklistTemplate().catch(() => []),
-  ]);
+  imageRenderError.value = "";
+  pdfRenderError.value = "";
+  const [ord, files, reviews, reviewPdfs, reviewOverlays, sharedTemplate] =
+    await Promise.all([
+      getSalesOrder(orderId.value),
+      listOrderAttachments(orderId.value, "designFiles").catch(() => []),
+      listOrderAttachments(orderId.value, "designReviewFiles").catch(() => []),
+      listOrderAttachments(orderId.value, "designReviewPdfs").catch(() => []),
+      listOrderAttachments(orderId.value, "designReviewOverlays").catch(
+        () => [],
+      ),
+      getDesignReviewChecklistTemplate().catch(() => []),
+    ]);
   order.value = ord || null;
   designFiles.value = files || [];
   reviewFiles.value = reviews || [];
@@ -780,7 +921,11 @@ function newObjectId() {
 }
 
 function getObjectLayerRect() {
-  return objectLayerRef.value?.getBoundingClientRect() || drawCanvasRef.value?.getBoundingClientRect() || null;
+  return (
+    objectLayerRef.value?.getBoundingClientRect() ||
+    drawCanvasRef.value?.getBoundingClientRect() ||
+    null
+  );
 }
 
 function getObjectLayerSize() {
@@ -788,7 +933,8 @@ function getObjectLayerSize() {
   const height = Number(objectLayerSize.value?.height || 0);
   if (width > 0 && height > 0) return { width, height };
   const rect = getObjectLayerRect();
-  if (rect?.width && rect?.height) return { width: rect.width, height: rect.height };
+  if (rect?.width && rect?.height)
+    return { width: rect.width, height: rect.height };
   return { width: 0, height: 0 };
 }
 
@@ -896,11 +1042,19 @@ function onObjectLayerPointerDown(event) {
 
 function onObjectLayerPointerMove(event) {
   if (dragState.value) {
-    const dx = (event.clientX - dragState.value.startClientX) / Math.max(dragState.value.width, 1);
-    const dy = (event.clientY - dragState.value.startClientY) / Math.max(dragState.value.height, 1);
+    const dx =
+      (event.clientX - dragState.value.startClientX) /
+      Math.max(dragState.value.width, 1);
+    const dy =
+      (event.clientY - dragState.value.startClientY) /
+      Math.max(dragState.value.height, 1);
     annotationObjects.value = annotationObjects.value.map((obj) =>
       obj.id === dragState.value.id
-        ? { ...obj, xPct: Math.max(0, dragState.value.originXPct + dx), yPct: Math.max(0, dragState.value.originYPct + dy) }
+        ? {
+            ...obj,
+            xPct: Math.max(0, dragState.value.originXPct + dx),
+            yPct: Math.max(0, dragState.value.originYPct + dy),
+          }
         : obj,
     );
     return;
@@ -910,7 +1064,10 @@ function onObjectLayerPointerMove(event) {
   if (!point) return;
   const left = Math.min(shapeStartPoint.value.x, point.x);
   const top = Math.min(shapeStartPoint.value.y, point.y);
-  const size = sizeToPct(Math.abs(point.x - shapeStartPoint.value.x), Math.abs(point.y - shapeStartPoint.value.y));
+  const size = sizeToPct(
+    Math.abs(point.x - shapeStartPoint.value.x),
+    Math.abs(point.y - shapeStartPoint.value.y),
+  );
   const pos = pointToPct({ x: left, y: top });
   if (!size || !pos) return;
   objectDraft.value = {
@@ -928,9 +1085,13 @@ function onObjectLayerPointerUp() {
     dragState.value = null;
     return;
   }
-  if ((toolMode.value === "rect" || toolMode.value === "ellipse") && objectDraft.value) {
+  if (
+    (toolMode.value === "rect" || toolMode.value === "ellipse") &&
+    objectDraft.value
+  ) {
     annotationObjects.value.push({ ...objectDraft.value, id: newObjectId() });
-    selectedObjectId.value = annotationObjects.value[annotationObjects.value.length - 1]?.id || null;
+    selectedObjectId.value =
+      annotationObjects.value[annotationObjects.value.length - 1]?.id || null;
     objectDraft.value = null;
   }
   shapeStartPoint.value = null;
@@ -939,7 +1100,9 @@ function onObjectLayerPointerUp() {
 
 function deleteSelectedObject() {
   if (!selectedObject.value) return;
-  annotationObjects.value = annotationObjects.value.filter((obj) => obj.id !== selectedObject.value.id);
+  annotationObjects.value = annotationObjects.value.filter(
+    (obj) => obj.id !== selectedObject.value.id,
+  );
   clearSelection();
 }
 
@@ -1051,7 +1214,9 @@ function onPointerDown(event) {
   pushUndoState();
   redoStack.value = [];
 
-  ctx.globalCompositeOperation = eraserMode.value ? "destination-out" : "source-over";
+  ctx.globalCompositeOperation = eraserMode.value
+    ? "destination-out"
+    : "source-over";
   ctx.lineWidth = brushSize.value;
   ctx.strokeStyle = brushColor.value;
   ctx.lineCap = "round";
@@ -1209,7 +1374,10 @@ function buildEditedPdfFileName() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const baseName = String(latestDesignFile.value?.name || "original").replace(/\.pdf$/i, "");
+  const baseName = String(latestDesignFile.value?.name || "original").replace(
+    /\.pdf$/i,
+    "",
+  );
   return `${baseName}-edited-${ts}.pdf`;
 }
 
@@ -1247,7 +1415,11 @@ async function saveBackAsPdf() {
     const file = new File([blob], buildEditedPdfFileName(), {
       type: "application/pdf",
     });
-    const uploaded = await uploadOrderAttachment(orderId.value, "designReviewPdfs", file);
+    const uploaded = await uploadOrderAttachment(
+      orderId.value,
+      "designReviewPdfs",
+      file,
+    );
 
     await updateSalesOrder(orderId.value, {
       latestDesignReviewPdfUrl: uploaded?.url || null,
@@ -1301,11 +1473,19 @@ async function saveReview() {
         scale: 2,
       });
       const blob = await new Promise((resolve, reject) => {
-        snapshot.toBlob((b) => (b ? resolve(b) : reject(new Error("影像轉檔失敗"))), "image/png", 0.92);
+        snapshot.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("影像轉檔失敗"))),
+          "image/png",
+          0.92,
+        );
       });
       const fileName = `design-review-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
       const file = new File([blob], fileName, { type: "image/png" });
-      const uploaded = await uploadOrderAttachment(orderId.value, "designReviewFiles", file);
+      const uploaded = await uploadOrderAttachment(
+        orderId.value,
+        "designReviewFiles",
+        file,
+      );
       latestImageUrl = uploaded?.url || latestImageUrl;
 
       const overlayBlob = await buildMergedOverlayBlob();
@@ -1323,7 +1503,9 @@ async function saveReview() {
     }
 
     await updateSalesOrder(orderId.value, {
-      originalDesignReviewNote: checklistPayload.map((item) => item.text).join("\n"),
+      originalDesignReviewNote: checklistPayload
+        .map((item) => item.text)
+        .join("\n"),
       designReviewChecklist: checklistPayload,
       designReviewChecklistState: checklistStatePayload,
       latestDesignReviewImageUrl: latestImageUrl || null,
@@ -1335,7 +1517,9 @@ async function saveReview() {
 
     const [reviews, overlays] = await Promise.all([
       listOrderAttachments(orderId.value, "designReviewFiles").catch(() => []),
-      listOrderAttachments(orderId.value, "designReviewOverlays").catch(() => []),
+      listOrderAttachments(orderId.value, "designReviewOverlays").catch(
+        () => [],
+      ),
     ]);
     reviewFiles.value = reviews || [];
     reviewOverlayFiles.value = overlays || [];
