@@ -55,7 +55,7 @@
       >
         清除已選客戶
       </button>
-      <select v-model="statusFilter" @change="applyFilter">
+      <select v-model="statusFilter" @change="onFilterChange">
         <option value="">全部狀態</option>
         <option value="draft">草稿</option>
         <option value="pendingSign">待回簽</option>
@@ -65,7 +65,7 @@
         <option value="done">完工</option>
         <option value="cancelled">已取消</option>
       </select>
-      <select v-model="sinkStatusFilter" @change="applyFilter">
+      <select v-model="sinkStatusFilter" @change="onFilterChange">
         <option value="">全部水槽狀態</option>
         <option v-for="s in SINK_STATUS_LIST" :key="s.value" :value="s.value">
           {{ s.label }}
@@ -381,6 +381,9 @@ import {
 } from "../firebase";
 import { SINK_STATUS_LIST, getSinkStatus } from "../utils/sinkStatus";
 
+// 搜尋狀態持久化的 key
+const SEARCH_STATE_KEY = "ordersView.searchState";
+
 const STATUS_LABEL = {
   draft: "草稿",
   pendingSign: "待回簽",
@@ -443,14 +446,67 @@ let latestDrawingHydration = 0;
 
 const DRAWING_STATUS_BACKFILL_LIMIT = 60;
 
+// 保存搜尋狀態到 sessionStorage
+function saveSearchState() {
+  try {
+    const state = {
+      keyword: keyword.value,
+      statusFilter: statusFilter.value,
+      sinkStatusFilter: sinkStatusFilter.value,
+      sortCol: sortCol.value,
+      sortDir: sortDir.value,
+      selectedCustomerForKeyword: selectedCustomerForKeyword.value,
+    };
+    sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn("Failed to save search state:", e);
+  }
+}
+
+// 從 sessionStorage 恢復搜尋狀態
+function restoreSearchState() {
+  try {
+    const saved = sessionStorage.getItem(SEARCH_STATE_KEY);
+    if (saved) {
+      const state = JSON.parse(saved);
+      keyword.value = state.keyword || "";
+      statusFilter.value = state.statusFilter || "";
+      sinkStatusFilter.value = state.sinkStatusFilter || "";
+      sortCol.value = state.sortCol || "updatedAt";
+      sortDir.value = state.sortDir || -1;
+      selectedCustomerForKeyword.value = state.selectedCustomerForKeyword || null;
+      return true;
+    }
+  } catch (e) {
+    console.warn("Failed to restore search state:", e);
+  }
+  return false;
+}
+
+// 清除搜尋狀態
+function clearSearchState() {
+  try {
+    sessionStorage.removeItem(SEARCH_STATE_KEY);
+  } catch (e) {
+    console.warn("Failed to clear search state:", e);
+  }
+}
+
 function setSort(col) {
   if (sortCol.value === col) sortDir.value *= -1;
   else {
     sortCol.value = col;
     sortDir.value = 1;
   }
+  saveSearchState();
   applyFilter();
 }
+
+function onFilterChange() {
+  saveSearchState();
+  applyFilter();
+}
+
 function sortIcon(col) {
   if (sortCol.value !== col) return " ↕";
   return sortDir.value === 1 ? " ↑" : " ↓";
@@ -517,6 +573,9 @@ function sortVal(o, col) {
 
 onMounted(async () => {
   try {
+    // 恢復之前的搜尋狀態
+    restoreSearchState();
+
     const uid = auth.currentUser?.uid;
     if (uid) {
       const u = await getUserByUid(uid);
@@ -788,6 +847,7 @@ function onKeywordInput() {
     selectedCustomerForKeyword.value = null;
   }
   showCustomerMatchList.value = true;
+  saveSearchState();
   void applyFilter();
 }
 
@@ -809,6 +869,7 @@ function selectCustomerForSearch(customer) {
   };
   keyword.value = label;
   showCustomerMatchList.value = false;
+  saveSearchState();
   void applyFilter();
 }
 
@@ -816,6 +877,7 @@ function clearSelectedCustomerSearch() {
   selectedCustomerForKeyword.value = null;
   keyword.value = "";
   showCustomerMatchList.value = false;
+  saveSearchState();
   void applyFilter();
 }
 

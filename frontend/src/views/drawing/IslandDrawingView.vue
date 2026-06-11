@@ -1415,8 +1415,14 @@ function drawTopLengthMarker(x0, y0, totalLength) {
   draw
     .line(x0 + totalLength, yLine - 8, x0 + totalLength, yLine + 8)
     .stroke({ width: 1, color: "black" });
+  const formatDimension = (value) => {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    return Number.isInteger(rounded)
+      ? String(rounded)
+      : String(rounded).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+  };
   const textNode = draw
-    .text(String(totalLength))
+    .text(formatDimension(totalLength))
     .font({ size: getAnnotationValue("s1", 18), family: "DFKai-sb" });
   textNode.move(
     x0 + totalLength / 2 - textNode.bbox().width / 2,

@@ -24,6 +24,12 @@
         <RouterLink
           v-if="isEdit"
           class="btn-aux"
+          :to="`/orders/${route.params.id}/original-review`"
+          >🖼️ 原圖</RouterLink
+        >
+        <RouterLink
+          v-if="isEdit"
+          class="btn-aux"
           :to="`/orders/${route.params.id}/sink-print`"
           >🖨 印水槽</RouterLink
         >
@@ -195,6 +201,11 @@
         </div>
 
         <div class="row">
+          <label>打板日</label>
+          <input v-model="form.templatingDate" type="date" />
+        </div>
+
+        <div class="row">
           <label>下單日</label>
           <input v-model="form.orderedAt" type="date" />
         </div>
@@ -202,6 +213,11 @@
         <div class="row">
           <label>預交日</label>
           <input v-model="form.promisedAt" type="date" />
+        </div>
+
+        <div class="row">
+          <label>收尾日</label>
+          <input v-model="form.finishDate" type="date" />
         </div>
 
         <div class="row">
@@ -1071,10 +1087,6 @@
       <section class="card card-production">
         <h3>生產指令</h3>
         <div class="row">
-          <label>打板日</label>
-          <input v-model="form.templatingDate" type="date" />
-        </div>
-        <div class="row">
           <label>打板人員</label>
           <select v-model="form.templatingStaff">
             <option value="">-- 選擇 --</option>
@@ -1801,6 +1813,7 @@ function createEmptyOrderForm() {
     drawingStaff: "",
     installDelayResponsibility: "unknown",
     promisedAt: "",
+    finishDate: "",
     sinkReceivedAt: "",
     specialNotes: "",
     isTestData: false,
@@ -2172,8 +2185,75 @@ function suggestionFor(li) {
   }[li.category];
   if (!mapName) return null;
   const map = customerPricing.value[mapName] || {};
+  const normalized = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s　]+/g, "")
+      .replace(/[‐‑‒–—−]/g, "-")
+      .replace(/[()（）【】\[\]{}]/g, "");
+  const specialAliases = {
+    中島: ["中島", "中島工資"],
+    側落腳: [
+      "側落腳",
+      "側腳",
+      "側落腳工資",
+      "側腳平接工資",
+      "側落腳平接",
+      "側落腳卡榫",
+      "k1卡榫接",
+      "k1卡準接",
+      "h1平接",
+      "h2平接",
+    ],
+  };
+  const tryKeys = [li.priceKey];
+
+  // special 類別支援常見同義名稱，避免估價/訂單的命名差異導致抓不到價
+  if (li.category === "special") {
+    const rawKey = String(li.priceKey || li.description || "").trim();
+    const normKey = normalized(rawKey);
+    for (const [canonical, aliases] of Object.entries(specialAliases)) {
+      const keys = [canonical, ...(aliases || [])];
+      if (keys.some((key) => normalized(key) === normKey)) {
+        tryKeys.push(...keys.filter(Boolean));
+        break;
+      }
+      if (
+        keys.some((key) => {
+          const nk = normalized(key);
+          return nk && (normKey.includes(nk) || nk.includes(normKey));
+        })
+      ) {
+        tryKeys.push(...keys.filter(Boolean));
+        break;
+      }
+    }
+  }
+
   // 先查完整 priceKey；若沒有，對水槽/爐子退回只用工法（向後相容舊資料）
-  let val = map[li.priceKey];
+  let val = null;
+  for (const key of tryKeys) {
+    if (key == null || key === "") continue;
+    if (map[key] != null) {
+      val = map[key];
+      break;
+    }
+    const foundKey = Object.keys(map).find((candidate) => normalized(candidate) === normalized(key));
+    if (foundKey && map[foundKey] != null) {
+      val = map[foundKey];
+      break;
+    }
+    const fuzzyKey = Object.keys(map).find((candidate) => {
+      const nc = normalized(candidate);
+      const nk = normalized(key);
+      return nc && nk && (nc.includes(nk) || nk.includes(nc));
+    });
+    if (fuzzyKey && map[fuzzyKey] != null) {
+      val = map[fuzzyKey];
+      break;
+    }
+  }
   if (val == null && (li.category === "sink" || li.category === "stove")) {
     const methodOnly = String(li.priceKey).split("-")[0];
     if (methodOnly && methodOnly !== li.priceKey) val = map[methodOnly];
@@ -2248,6 +2328,9 @@ async function loadCustomerPricingForCurrentForm() {
       : Promise.resolve(null),
   ]);
   customerPricing.value = mergePricingDocs(byId, byName);
+  if (!form.value.pricePerCm && customerPricing.value?.defaultPricePerCm) {
+    form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
+  }
 }
 
 // ─── 從繪圖資料產生檯面明細 ──────────────────────────────
@@ -2435,26 +2518,49 @@ async function syncLineItemsFromDrawings() {
   let cntCounter = 0;
   let totalSinks = 0;
   let totalStoves = 0;
+  let totalSpecials = 0;
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
   // 一、檯面（每張繪圖一筆；若訂單混合不同門檻的石材，則「分開計」每組各一筆）
   const skipOversize = !!customerPricing.value?.skipOversizeScaling;
   const stoneGroups = groupStonesByThreshold(form.value.stones);
   const isMixed = stoneGroups.length > 1;
+  const countertopTypeText = String(form.value.countertop?.type || "").trim();
+  const isIslandDrawingRecord = (drawing) => {
+    const isIslandByType = /island|中島|中岛/i.test(String(drawing?.type || ""));
+    const state = drawing?.state || {};
+    const hasIslandStateHints =
+      state &&
+      ("legMode" in state ||
+        "legHeight" in state ||
+        "frontWrap" in state ||
+        "backWrap" in state ||
+        "box1" in state ||
+        "box2" in state);
+    return isIslandByType || /中島/.test(countertopTypeText) || !!hasIslandStateHints;
+  };
+  const islandDrawings = drawings.filter((d) => isIslandDrawingRecord(d));
   for (const d of drawings) {
     const label = DRAWING_TYPE_LABEL[d.type] || d.type;
+    const isIslandDrawing = isIslandDrawingRecord(d);
     for (const g of stoneGroups) {
       const { cm, formula } = computeDrawingLengthCm(d.state, d.type, {
         skipOversize,
         threshold: g.threshold,
       });
       if (cm <= 0) continue;
+      const frontWrap = Math.max(0, Number(d?.state?.frontWrap) || 0);
+      const backWrap = Math.max(0, Number(d?.state?.backWrap) || 0);
+      const islandTopCm = isIslandDrawing ? round2(cm + frontWrap + backWrap) : cm;
       const grpStr = g.stones
         .map((s) => [s.brand, s.color].filter(Boolean).join(" "))
         .filter(Boolean)
         .join(" / ");
       const stonePart = grpStr ? " " + grpStr : "";
-      const calc = formula ? `（${formula}）` : `${cm}cm`;
-      const desc = `${label}#${d.seq}${isMixed ? `[門檻${g.threshold}]` : ""} ${calc}${stonePart}`;
+      const calc = formula ? `（${formula}）` : `${islandTopCm}cm`;
+      const desc = isIslandDrawing
+        ? `${label}#${d.seq} 枱面(含倒包)${isMixed ? `[門檻${g.threshold}]` : ""} ${calc}${stonePart}`
+        : `${label}#${d.seq}${isMixed ? `[門檻${g.threshold}]` : ""} ${calc}${stonePart}`;
       const grpPriceKey = g.stones[0]
         ? [g.stones[0].brand, g.stones[0].color].filter(Boolean).join("/")
         : priceKey;
@@ -2466,11 +2572,104 @@ async function syncLineItemsFromDrawings() {
         priceKey: grpPriceKey,
         description: desc,
         unit: "cm",
-        qty: cm,
+        qty: islandTopCm,
         unitPrice: defaultPpc,
-        amount: Math.round(cm * defaultPpc),
+        amount: Math.round(islandTopCm * defaultPpc),
       });
       cntCounter++;
+    }
+  }
+
+  const islandSegmentKeys = [
+    "plusLeft",
+    "box1",
+    "box2",
+    "box3",
+    "box4",
+    "box5",
+    "box6",
+    "box7",
+    "plusRight",
+  ];
+
+  for (const d of islandDrawings) {
+    const state = d?.state?.form || d?.state || {};
+    const frontWrap = Math.max(0, Number(state.frontWrap) ?? 12);
+    const backWrap = Math.max(0, Number(state.backWrap) ?? 12);
+    const islandDepth = Math.max(0, Number(state.depth) ?? 60);
+    const islandFrontEdge = Math.max(0, Number(state.legThickness) ?? 6);
+    const islandBaseLen = Math.round(islandSegmentKeys.reduce(
+      (sum, key) => sum + (Math.max(0, Number(state[key]) ?? 0)),
+      0,
+    ));
+    console.log(`[中島 ${d.id}] depth=${islandDepth} legThickness=${islandFrontEdge} frontWrap=${frontWrap} backWrap=${backWrap} baseLen=${islandBaseLen} legHeight=${state.legHeight} legMode=${state.legMode}`);
+    // 中島台面 cm = (深 + 前沿×2 + 前倒包 + 後倒包 - 8) / 60 × 中島長
+    const islandThickness = islandDepth + islandFrontEdge * 2 + frontWrap + backWrap - 8;
+    const islandTopCm = Math.round(islandThickness / 60 * islandBaseLen);
+
+    if (
+      islandTopCm > 0 &&
+      !items.some((li) => String(li.refId || "").startsWith(`drawing-ct-${d.id}`))
+    ) {
+      items.push({
+        id: newLineItemId(),
+        category: "countertop",
+        refId: `drawing-ct-${d.id}`,
+        priceKey: priceKey,
+        description: `中島枱面${islandTopCm}cm (${islandBaseLen}×(${islandDepth}+${islandFrontEdge}×2+${frontWrap}+${backWrap}-8))`,
+        unit: "cm",
+        qty: islandTopCm,
+        unitPrice: defaultPpc,
+        amount: Math.round(islandTopCm * defaultPpc),
+      });
+      cntCounter++;
+    }
+
+    const legMode = String(state.legMode || "B").toUpperCase();
+    const legCount = legMode === "B" ? 2 : (legMode === "L" || legMode === "R" ? 1 : 0);
+    const legHeight = Math.max(0, Number(state.legHeight) ?? 90);
+    const legDepth = Math.max(0, Number(state.depth) ?? 60);
+    const legThickness = Math.max(0, Number(state.legThickness) ?? 6);
+    // 側落腳 cm = legCount × (腳深 + 前沿×2 + 前倒包 + 後倒包 - 8) / 60 × 腳高
+    const sideLegThickness = legDepth + legThickness * 2 + frontWrap + backWrap - 8;
+    const sideLegCm = Math.round(legCount * sideLegThickness / 60 * legHeight);
+
+    if (
+      sideLegCm > 0 &&
+      !items.some((li) => String(li.refId || "") === `drawing-ct-sideleg-${d.id}`)
+    ) {
+      items.push({
+        id: newLineItemId(),
+        category: "countertop",
+        refId: `drawing-ct-sideleg-${d.id}`,
+        priceKey: priceKey,
+        description: `側落腳(含倒包)${sideLegCm}cm`,
+        unit: "cm",
+        qty: sideLegCm,
+        unitPrice: defaultPpc,
+        amount: Math.round(sideLegCm * defaultPpc),
+      });
+      cntCounter++;
+    }
+
+    const seamKey = /K1|卡準|卡榫/i.test(countertopTypeText)
+      ? "K1卡準接"
+      : "側落腳平接工資";
+    if (
+      !items.some((li) => String(li.refId || "") === `drawing-special-sideleg-seam-${d.id}`)
+    ) {
+      items.push({
+        id: newLineItemId(),
+        category: "special",
+        refId: `drawing-special-sideleg-seam-${d.id}`,
+        priceKey: seamKey,
+        description: seamKey,
+        unit: "支",
+        qty: legCount || 1,
+        unitPrice: null,
+        amount: 0,
+      });
+      totalSpecials++;
     }
   }
 
@@ -2517,7 +2716,44 @@ async function syncLineItemsFromDrawings() {
     }
   }
 
-  if (!cntCounter && !totalSinks && !totalStoves) {
+  const specialJobs = [];
+  const hasIslandDrawing = drawings.some((d) =>
+    /island|中島|中岛/i.test(String(d.type || "")),
+  );
+  if (!hasIslandDrawing && /中島/.test(countertopTypeText)) {
+    specialJobs.push({
+      key: "中島",
+      description: "中島工資",
+    });
+  }
+  if (/(側落腳|側腳)/.test(countertopTypeText)) {
+    const sideLegKey = /K1|卡準|卡榫/i.test(countertopTypeText)
+      ? "K1卡準接"
+      : /H1|H2|平接/i.test(countertopTypeText)
+        ? "側落腳平接"
+        : "側落腳工資";
+    specialJobs.push({
+      key: sideLegKey,
+      description: `側落腳工資${sideLegKey !== "側落腳工資" ? `（${sideLegKey}）` : ""}`,
+    });
+  }
+
+  for (const job of specialJobs) {
+    items.push({
+      id: newLineItemId(),
+      category: "special",
+      refId: `drawing-special-${job.key}`,
+      priceKey: job.key,
+      description: job.description,
+      unit: "式",
+      qty: 1,
+      unitPrice: null,
+      amount: 0,
+    });
+    totalSpecials++;
+  }
+
+  if (!cntCounter && !totalSinks && !totalStoves && !totalSpecials) {
     alert("繪圖中沒有可用的桶身尺寸或水槽/爐子");
     return;
   }
@@ -2552,6 +2788,7 @@ async function syncLineItemsFromDrawings() {
       `‧檯面 ${cntCounter} 筆（合計 ${totalCm} cm）\n` +
       `‧水槽下嵌 ${totalSinks} 個\n` +
       `‧爐子上掛 ${totalStoves} 個\n` +
+      `‧特殊工資 ${totalSpecials} 筆\n` +
       `（價格欄如為空，請手動填入或會自動依歷史價帶入）`,
   );
 }
@@ -2788,6 +3025,7 @@ function toPayload() {
     drawingStaff: f.drawingStaff || "",
     installDelayResponsibility: f.installDelayResponsibility || "unknown",
     promisedAt: trimDate(f.promisedAt),
+    finishDate: trimDate(f.finishDate),
     sinkReceivedAt: trimDate(f.sinkReceivedAt),
     specialNotes: f.specialNotes || "",
     isTestData: f.isTestData === true,
@@ -3032,6 +3270,7 @@ async function loadAll() {
             : [],
           invoiceRequired: doc.invoiceRequired !== false,
           orderedAt: doc.orderedAt || "",
+          finishDate: doc.finishDate || doc.finishTime || "",
         });
         customerKeyword.value =
           `${doc.customerId || ""} ${doc.customerName || ""}`.trim();
@@ -3041,6 +3280,9 @@ async function loadAll() {
         // 統一將 promisedAt 轉成 YYYY-MM-DD（相容 Excel 序號、毫秒時間戳）
         if (form.value.promisedAt) {
           form.value.promisedAt = toDateInputStr(form.value.promisedAt);
+        }
+        if (form.value.finishDate) {
+          form.value.finishDate = toDateInputStr(form.value.finishDate);
         }
         // 載入客戶計價記憑
         if (form.value.customerId) {
@@ -3119,12 +3361,19 @@ function handleOrderEditPageHide() {
 onMounted(async () => {
   await loadAll();
   await nextTick();
-  updateOrderHeaderHeight();
+  const applyHeaderHeight = () => {
+    const root = orderEditRef.value;
+    const header = pageHeaderRef.value;
+    if (!(root instanceof HTMLElement) || !(header instanceof HTMLElement)) return;
+    const measured = Math.max(64, Math.ceil(header.getBoundingClientRect().height));
+    root.style.setProperty("--order-header-height", `${measured}px`);
+  };
+  applyHeaderHeight();
   if (
     typeof ResizeObserver === "function" &&
     pageHeaderRef.value instanceof HTMLElement
   ) {
-    headerResizeObserver = new ResizeObserver(() => updateOrderHeaderHeight());
+    headerResizeObserver = new ResizeObserver(() => applyHeaderHeight());
     headerResizeObserver.observe(pageHeaderRef.value);
   }
   window.addEventListener("pagehide", handleOrderEditPageHide);

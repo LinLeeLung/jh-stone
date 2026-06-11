@@ -235,6 +235,14 @@
         >
           ↺ 重設基準
         </button>
+        <button
+          v-show="selectedBlkId !== null"
+          class="btn-draw"
+          @click="rotateSelectedBlock"
+          title="選中的繪圖逆時針轉 90 度"
+        >
+          ↺ 轉 90°
+        </button>
         <button class="btn-print" @click="doPrint" title="列印或輸出 PDF">
           🖨️ 列印 / PDF
         </button>
@@ -365,7 +373,7 @@
                         {{ fmtDate(order?.promisedAt) }}
                       </td>
                     </tr>
-                    <tr>
+                    <tr class="stone-row">
                       <td class="lbl">{{ stoneTypeLbl }}</td>
                       <td class="val" colspan="3">
                         <div v-for="(c, i) in stoneColors" :key="i">
@@ -594,7 +602,12 @@
                         v-for="(ln, i) in column"
                         :key="`c${columnIndex}-${i}`"
                       >
-                        <td class="pt-desc">{{ ln.desc }}</td>
+                        <td class="pt-desc">
+                          <div>{{ ln.desc }}</div>
+                          <div v-if="ln.formula" class="pt-formula">
+                            {{ ln.formula }}
+                          </div>
+                        </td>
                         <td class="pt-calc">{{ ln.calc }}</td>
                         <td class="pt-amt">{{ ln.amt }}</td>
                       </tr>
@@ -607,7 +620,6 @@
                 <span v-else class="price-val">{{ untaxedPriceDisplay }}</span>
               </div>
               <div class="sig-col">
-                <div class="sig-lbl">客戶回簽</div>
                 <div class="sig-box">
                   <div class="sig-hand">👉</div>
                   <div class="sig-pencil">✍️</div>
@@ -618,6 +630,16 @@
           <!-- main-area -->
 
           <!-- 右側直條 -->
+          <div class="elevator-badge">
+            <span class="elevator-lbl">電梯</span
+            ><input
+              v-model="cf.elevator"
+              type="number"
+              max="999"
+              class="elevator-input"
+              @change="markDirty"
+            />
+          </div>
           <div class="vert-strip vert-r">
             <span class="vert-txt">零樹脂成分之瓷板，無板材保固。★</span>
             <div class="cabinet-ready-wrap">
@@ -647,12 +669,6 @@
                 </button>
               </div>
             </div>
-            <span class="vert-txt2"
-              >電梯<input
-                v-model="cf.elevator"
-                class="ii-vert"
-                @change="markDirty"
-            /></span>
             <div class="vert-fields">
               <div class="vf-row">
                 <span class="vf-lbl">列印</span
@@ -924,6 +940,8 @@
             :style="{
               width: Math.round(blk.origW * blk.scale) + 'px',
               height: Math.round(blk.origH * blk.scale) + 'px',
+              transform: `rotate(${blk.rotation || 0}deg)`,
+              transformOrigin: 'center center',
             }"
           >
             <div
@@ -1135,9 +1153,25 @@ const priceBreakdown = computed(() => {
   // 去掉描述尾部的「 尺寸」（例如 67.8×49cm）以便聚合
   const normName = (s) =>
     String(s || "")
+      .replace(/\s*[（(].*[）)]\s*$/g, "")
       .replace(/\s+\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?\s*cm?$/i, "")
       .replace(/\s+\d+(?:\.\d+)?\s*cm$/i, "")
       .trim();
+  // 去掉尾部石材品牌色號（如 ABK MN139D12普爾比斯象牙白）
+  const stripStone = (s) =>
+    String(s || "")
+      .replace(/\s+[A-Z]{2,}[\w\s\u4e00-\u9fff\u3000-\u303f]*$/u, "")
+      .trim();
+
+  // 從描述中抽出括號內的計算式顯示為副行
+  const extractFormula = (s) => {
+    const text = String(s || "");
+    const open = text.search(/[（(]/);
+    if (open < 0) return "";
+    const close = Math.max(text.lastIndexOf("）"), text.lastIndexOf(")"));
+    if (close <= open) return "";
+    return text.slice(open + 1, close).trim();
+  };
 
   const groups = new Map();
   let total = 0;
@@ -1147,15 +1181,22 @@ const priceBreakdown = computed(() => {
     const amt = Number(li.amount) || Math.round(qty * up);
     if (!qty && !up && !amt) continue;
     const name = normName(li.description) || li.priceKey || "項目";
+    const displayName = stripStone(name) || name;
     const unit = li.unit || "";
-    const key = `${name}__${up}__${unit}`;
+    const key = `${displayName}__${up}__${unit}`;
+    const formula = extractFormula(li.description);
     const g = groups.get(key) || {
-      name,
+      name: displayName,
       unit,
       unitPrice: up,
       qty: 0,
       amount: 0,
+      formula: "",
     };
+    if (formula) {
+      if (!g.formula) g.formula = formula;
+      else if (!g.formula.includes(formula)) g.formula += ` / ${formula}`;
+    }
     g.qty += qty;
     g.amount += amt;
     groups.set(key, g);
@@ -1171,12 +1212,13 @@ const priceBreakdown = computed(() => {
       : `${qtyStr}${g.unit}`;
     return {
       desc: g.name,
+      formula: g.formula || "",
       calc,
       amt: g.amount > 0 ? g.amount.toLocaleString() : "",
     };
   });
 
-  const columnCount = lines.length >= 7 ? 3 : 2;
+  const columnCount = 4;
   const rowsPerColumn = Math.ceil(lines.length / columnCount);
   const columns = Array.from({ length: columnCount }, (_, index) =>
     lines.slice(index * rowsPerColumn, (index + 1) * rowsPerColumn),
@@ -1551,6 +1593,13 @@ function setMeasurementReferenceFromSelected() {
 function resetMeasurementScale() {
   measurementScale.value = 1;
   markDirty();
+}
+function rotateSelectedBlock() {
+  const blk = drawingBlocks.value.find((b) => b.drawingId === selectedBlkId.value);
+  if (!blk) return;
+  blk.rotation = ((blk.rotation || 0) - 90) % 360;
+  markAnnotationDirty();
+  recordAnnotationHistory();
 }
 function getMeasurementLabelPos(start, end) {
   return {
@@ -3653,6 +3702,7 @@ onBeforeRouteLeave(async () => {
 .body-row {
   display: flex;
   height: calc(794px - 28px - 16px);
+  position: relative;
 }
 
 /* ══ 左右直條 ══ */
@@ -3671,6 +3721,41 @@ onBeforeRouteLeave(async () => {
 }
 .vert-r {
   border-left: none;
+  overflow: visible;
+}
+.elevator-badge {
+  position: absolute;
+  top: 2px;
+  right: 26px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  background: #fff;
+  z-index: 5;
+  padding: 1px 3px;
+}
+.elevator-lbl {
+  white-space: nowrap;
+  font-size: 13px;
+}
+.elevator-input {
+  width: 7ch;
+  min-width: 7ch;
+  max-width: 7ch;
+  padding: 0;
+  border: none;
+  border-bottom: 1px solid #999;
+  outline: none;
+  font-size: 13px;
+  background: transparent;
+  text-align: center;
+  appearance: textfield;
+}
+.elevator-input::-webkit-outer-spin-button,
+.elevator-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .vert-txt,
 .vert-txt2 {
@@ -3886,6 +3971,9 @@ onBeforeRouteLeave(async () => {
   padding-top: 0;
   padding-bottom: 0;
   vertical-align: middle;
+}
+.fields-tbl tr.stone-row td {
+  height: 31px;
 }
 .fields-tbl tr.edge-row .lbl {
   top: 0;
@@ -4131,10 +4219,10 @@ onBeforeRouteLeave(async () => {
 }
 .install-sticker-lines {
   position: absolute;
-  top: -3pt;
-  right: 2px;
-  width: 140px;
-  height: calc(100% + 50px);
+  top: -1pt;
+  right: 0px;
+  width: 138px;
+  height: calc(100% + 38px);
   display: grid;
   grid-template-rows: repeat(4, minmax(0, 1fr));
   align-content: stretch;
@@ -4284,8 +4372,7 @@ onBeforeRouteLeave(async () => {
   justify-content: center;
   border-right: 1px solid var(--sheet-grid-border);
   padding: 2px 4px 10px;
-  overflow-x: hidden;
-  overflow-y: visible;
+  overflow: hidden;
 }
 .price-val {
   white-space: nowrap;
@@ -4297,7 +4384,7 @@ onBeforeRouteLeave(async () => {
 .price-grid {
   width: 100%;
   display: grid;
-  column-gap: 10px;
+  column-gap: 6px;
   row-gap: 0;
   align-items: start;
   padding: 1px 2px 2px;
@@ -4308,6 +4395,9 @@ onBeforeRouteLeave(async () => {
 .price-grid--cols-3 {
   grid-template-columns: 1fr 1fr 1fr;
 }
+.price-grid--cols-4 {
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+}
 .price-grid--dense {
   column-gap: 6px;
 }
@@ -4315,13 +4405,13 @@ onBeforeRouteLeave(async () => {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  line-height: 1.2;
+  line-height: 1.15;
   table-layout: fixed;
 }
 .price-table td {
-  padding: 1px 2px 2px;
+  padding: 0 2px 1px;
   vertical-align: top;
-  border-bottom: 1px dotted #ddd;
+  border-bottom: 1px dotted #ccc;
 }
 .price-table tr:last-child td {
   border-bottom: none;
@@ -4330,39 +4420,48 @@ onBeforeRouteLeave(async () => {
   text-align: left;
   white-space: normal;
   word-break: break-word;
-  overflow: visible;
-  width: 44%;
+  width: 40%;
+}
+.price-table .pt-formula {
+  font-size: 10px;
+  color: #777;
+  line-height: 1.15;
+  word-break: break-all;
 }
 .price-table .pt-calc {
   text-align: right;
-  color: #666;
-  white-space: nowrap;
-  width: 36%;
+  color: #555;
+  white-space: normal;
+  word-break: break-word;
+  width: 38%;
   font-variant-numeric: tabular-nums;
+  font-size: 11px;
 }
 .price-table .pt-amt {
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  width: 20%;
+  width: 22%;
   font-weight: 600;
 }
 .price-sum {
-  grid-column: 1 / -1;
-  border-top: 2px solid #c0392b;
-  margin-top: 6px;
-  padding: 2px 4px 5px 0;
-  text-align: right;
+  border-top: 1px solid #c0392b;
+  margin-top: 2px;
+  padding: 1px 4px 2px 0;
+  text-align: center;
   font-weight: 700;
-  font-size: 15px;
-  line-height: 1.15;
+  font-size: 13px;
+  line-height: 1.1;
   color: #c0392b;
   position: relative;
-  top: -2px;
+  top: 0;
+}
+.price-grid--cols-4 .price-sum {
+  grid-column: 4 / 5;
 }
 .price-sum span {
-  margin-left: 6px;
-  font-size: 18px;
+  margin-left: 4px;
+  font-size: 15px;
   line-height: 1;
   letter-spacing: 1px;
 }
@@ -4424,7 +4523,10 @@ onBeforeRouteLeave(async () => {
 
 /* Export-only readability boost: applied only during snapshot/PDF rendering */
 .a4-page.export-readable .fields-tbl td {
-  height: 24px;
+  height: 29px;
+}
+.a4-page.export-readable .fields-tbl tr.stone-row td {
+  height: 37px;
 }
 .a4-page.export-readable .lbl,
 .a4-page.export-readable .val {
@@ -4509,11 +4611,14 @@ onBeforeRouteLeave(async () => {
   font-size: 15px;
 }
 .a4-page.export-rendering .fields-tbl td {
-  height: 28px;
+  height: 33px;
   line-height: 1.1;
   vertical-align: top;
   padding-top: 0;
   padding-bottom: 2px;
+}
+.a4-page.export-rendering .fields-tbl tr.stone-row td {
+  height: 41px;
 }
 .a4-page.export-rendering .fields-tbl .lbl,
 .a4-page.export-rendering .fields-tbl .val {
