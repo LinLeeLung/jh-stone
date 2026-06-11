@@ -13,9 +13,6 @@
         <RouterLink class="btn-aux" to="/dispatch-sheet"
           >🚚 派車表單</RouterLink
         >
-        <RouterLink v-if="canDispatch" class="btn-aux" to="/stove-models"
-          >🔥 爐子型號</RouterLink
-        >
         <button class="btn-aux" type="button" @click="openSitePriceModal">
           工地價格
         </button>

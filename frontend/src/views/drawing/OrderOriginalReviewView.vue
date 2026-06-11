@@ -650,11 +650,12 @@ async function getPdfJs() {
 
 async function getPdfWasmUrl() {
   if (!_pdfWasmUrlPromise) {
-    _pdfWasmUrlPromise = (async () => {
-      const jbig2WasmUrl = (await import("pdfjs-dist/wasm/jbig2.wasm?url"))
-        .default;
-      return jbig2WasmUrl.replace(/jbig2\.wasm(?:\?.*)?$/i, "");
-    })();
+    _pdfWasmUrlPromise = Promise.resolve().then(() => {
+      const baseUrl = String(import.meta.env.BASE_URL || "/");
+      const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+      // pdf.js expects a directory URL (must end with /), not a direct wasm file URL.
+      return `${normalizedBase}pdfjs/`;
+    });
   }
   return _pdfWasmUrlPromise;
 }

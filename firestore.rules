@@ -65,6 +65,12 @@ service cloud.firestore {
       return hasRole('admin') || hasRole('管理者');
     }
 
+    function isAttendanceApprover() {
+      return isAdminOrManager()
+        || userDoc().data.staffRole == '主管'
+        || userDoc().data.staffRole == 'HR';
+    }
+
     function isReceivableOrderUpdate() {
       return request.resource.data.updatedByUid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -233,6 +239,32 @@ service cloud.firestore {
       allow read: if canUseAttendance()
         && (resource == null || resource.data.uid == request.auth.uid || isAdminOrManager());
       allow delete: if isAdminOrManager();
+    }
+
+    // Attendance correction requests（補打卡申請）
+    match /attendanceCorrectionRequests/{docId} {
+      // 員工建立自己的 pending 申請；審核者也可代建立
+      allow create: if (canUseAttendance() && request.resource.data.uid == request.auth.uid)
+        || isAttendanceApprover();
+      // 申請人可讀自己的單；審核者可讀全部（含待審清單）
+      allow read: if isAttendanceApprover()
+        || (canUseAttendance() && resource.data.uid == request.auth.uid);
+      // 審核者可更新審核結果；申請人可更新自己的 pending 內容
+      allow update: if isAttendanceApprover()
+        || (
+          canUseAttendance()
+          && resource.data.uid == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.status == 'pending'
+        );
+      // 申請人只能刪自己的 pending；審核者可刪除
+      allow delete: if isAttendanceApprover()
+        || (
+          canUseAttendance()
+          && resource.data.uid == request.auth.uid
+          && resource.data.status == 'pending'
+        );
     }
 
     // Leave requests: staff submit own; admin/manager review all

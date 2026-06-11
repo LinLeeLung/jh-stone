@@ -1615,7 +1615,7 @@ function drawStoveV(s, x0, y0, hL, wL) {
   else if (position === "上開") yp = y0 + dis;
   else yp = y0 + wL - dis - sl;
   const xp = x0 + dig;
-  drawStoveBox(xp, yp, sd, sl, r);
+  drawStoveBoxVertical(xp, yp, sd, sl, r);
   const label = `${position}${dis}`;
   drawRightLabel(
     label,
@@ -1656,6 +1656,27 @@ function drawStoveBox(x, y, w, h, r) {
   draw
     .circle(cr)
     .move(x + (w * 3) / 4 - cr / 2, y + h / 2 - cr / 2)
+    .fill("none")
+    .stroke({ width: 1, color: "black" });
+}
+
+function drawStoveBoxVertical(x, y, w, h, r) {
+  draw
+    .rect(w, h)
+    .move(x, y)
+    .radius(r)
+    .fill("none")
+    .stroke({ width: 1, color: "black" });
+  const cr = 12;
+  // 右台面爐眼改為上下排列
+  draw
+    .circle(cr)
+    .move(x + w / 2 - cr / 2, y + h / 4 - cr / 2)
+    .fill("none")
+    .stroke({ width: 1, color: "black" });
+  draw
+    .circle(cr)
+    .move(x + w / 2 - cr / 2, y + (h * 3) / 4 - cr / 2)
     .fill("none")
     .stroke({ width: 1, color: "black" });
 }

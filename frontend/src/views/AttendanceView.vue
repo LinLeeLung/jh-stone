@@ -110,6 +110,34 @@
             {{ t("geo_hint_safari") }}
           </div>
         </div>
+
+        <div v-if="isLoggedIn" class="correction-box">
+          <div class="correction-title">{{ t("corr_apply_title") }}</div>
+          <div class="correction-grid">
+            <label>{{ t("col_date") }}</label>
+            <input type="date" v-model="correctionForm.date" />
+            <label>{{ t("corr_col_in") }}</label>
+            <input type="time" v-model="correctionForm.punchIn" step="1" />
+            <label>{{ t("corr_col_out") }}</label>
+            <input type="time" v-model="correctionForm.punchOut" step="1" />
+          </div>
+          <div class="correction-grid correction-grid-reason">
+            <label>{{ t("col_reason") }}</label>
+            <input
+              v-model.trim="correctionForm.reason"
+              class="correction-reason"
+              :placeholder="t('corr_reason_ph')"
+            />
+            <button
+              class="btn-edit-sm"
+              :disabled="correctionSubmitting"
+              @click="submitCorrectionRequest"
+            >
+              {{ correctionSubmitting ? t("corr_submitting") : t("corr_submit") }}
+            </button>
+          </div>
+          <div v-if="correctionMsg" class="correction-msg">{{ correctionMsg }}</div>
+        </div>
       </div>
 
       <!-- 明日請假 / 未打卡 -->
@@ -212,6 +240,71 @@
             <th>{{ personalTotalHours }} h</th>
           </tr>
         </tfoot>
+      </table>
+
+      <h2 style="margin-top: 18px">{{ t("corr_my_title") }}</h2>
+      <div v-if="loadingMyCorrections" class="loading">{{ t("loading") }}</div>
+      <table v-else class="att-table">
+        <thead>
+          <tr>
+            <th>{{ t("col_date") }}</th>
+            <th>{{ t("corr_col_in") }}</th>
+            <th>{{ t("corr_col_out") }}</th>
+            <th>{{ t("col_reason") }}</th>
+            <th>{{ t("col_status") }}</th>
+            <th>{{ t("corr_review_note") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in myCorrectionRequests" :key="r.id">
+            <td>{{ r.date }}</td>
+            <td>{{ r.punchIn || "—" }}</td>
+            <td>{{ r.punchOut || "—" }}</td>
+            <td>{{ r.reason || "—" }}</td>
+            <td>
+              <span :class="['correction-status', `status-${r.status || 'pending'}`]">
+                {{ correctionStatusText(r.status) }}
+              </span>
+            </td>
+            <td>{{ r.reviewComment || r.rejectReason || "—" }}</td>
+          </tr>
+          <tr v-if="!myCorrectionRequests.length">
+            <td colspan="6" class="empty">{{ t("corr_empty_mine") }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="isApprover" class="admin-section" style="margin-bottom: 24px">
+      <h2>{{ t("corr_review_title") }}</h2>
+      <div v-if="loadingPendingCorrections" class="loading">{{ t("loading") }}</div>
+      <table v-else class="att-table">
+        <thead>
+          <tr>
+            <th>{{ t("col_employee") }}</th>
+            <th>{{ t("col_date") }}</th>
+            <th>{{ t("corr_col_in") }}</th>
+            <th>{{ t("corr_col_out") }}</th>
+            <th>{{ t("col_reason") }}</th>
+            <th>{{ t("col_actions") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in pendingCorrectionRequests" :key="r.id">
+            <td>{{ r.name || r.email || r.uid }}</td>
+            <td>{{ r.date }}</td>
+            <td>{{ r.punchIn || "—" }}</td>
+            <td>{{ r.punchOut || "—" }}</td>
+            <td>{{ r.reason || "—" }}</td>
+            <td>
+              <button class="btn-edit-sm" @click="approveCorrectionRequest(r)">{{ t("corr_approve") }}</button>
+              <button class="btn-cancel" style="margin-left:6px" @click="rejectCorrectionRequest(r)">{{ t("corr_reject") }}</button>
+            </td>
+          </tr>
+          <tr v-if="!pendingCorrectionRequests.length">
+            <td colspan="6" class="empty">{{ t("corr_empty_pending") }}</td>
+          </tr>
+        </tbody>
       </table>
     </div>
 
@@ -552,6 +645,7 @@ import {
 import { t, lang } from "../locale";
 import {
   collection,
+  addDoc,
   doc,
   setDoc,
   updateDoc,
@@ -647,6 +741,19 @@ const filteredNewRecUsers = computed(() => {
     return fields.some((value) => value.includes(kw));
   });
 });
+
+const correctionForm = ref({
+  date: todayStr(),
+  punchIn: "",
+  punchOut: "",
+  reason: "",
+});
+const correctionSubmitting = ref(false);
+const correctionMsg = ref("");
+const myCorrectionRequests = ref([]);
+const pendingCorrectionRequests = ref([]);
+const loadingMyCorrections = ref(false);
+const loadingPendingCorrections = ref(false);
 
 // ── 今明日請假名單 ─────────────────────────────────
 const notPunchedList = ref([]);
@@ -1155,6 +1262,192 @@ function calcHours(inStr, outStr) {
   return (diff / 3600).toFixed(1);
 }
 
+function correctionStatusText(status) {
+  if (status === "approved") return t("corr_status_approved");
+  if (status === "rejected") return t("corr_status_rejected");
+  return t("corr_status_pending");
+}
+
+async function loadMyCorrectionRequests() {
+  if (!currentUser?.uid) return;
+  loadingMyCorrections.value = true;
+  try {
+    const snaps = await getDocs(
+      query(
+        collection(db, "attendanceCorrectionRequests"),
+        where("uid", "==", currentUser.uid),
+      ),
+    );
+    myCorrectionRequests.value = snaps.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) =>
+        `${b.date || ""}${b.createdAt || ""}`.localeCompare(
+          `${a.date || ""}${a.createdAt || ""}`,
+        ),
+      );
+  } catch (e) {
+    console.error("loadMyCorrectionRequests:", e);
+  } finally {
+    loadingMyCorrections.value = false;
+  }
+}
+
+async function loadPendingCorrectionRequests() {
+  if (!isApprover.value) return;
+  loadingPendingCorrections.value = true;
+  try {
+    const snaps = await getDocs(
+      query(
+        collection(db, "attendanceCorrectionRequests"),
+        where("status", "==", "pending"),
+      ),
+    );
+    let rows = snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (isDeptHead.value && myDept.value) {
+      rows = rows.filter((r) => r.dept === myDept.value);
+    }
+    pendingCorrectionRequests.value = rows.sort((a, b) =>
+      `${a.date || ""}${a.createdAt || ""}`.localeCompare(
+        `${b.date || ""}${b.createdAt || ""}`,
+      ),
+    );
+  } catch (e) {
+    console.error("loadPendingCorrectionRequests:", e);
+  } finally {
+    loadingPendingCorrections.value = false;
+  }
+}
+
+async function submitCorrectionRequest() {
+  if (!currentUser?.uid) return;
+  const date = String(correctionForm.value.date || "").trim();
+  const punchIn = toHMS(correctionForm.value.punchIn);
+  const punchOut = toHMS(correctionForm.value.punchOut);
+  const reason = String(correctionForm.value.reason || "").trim();
+  if (!date || !punchIn) {
+    correctionMsg.value = t("corr_submit_need_date_in");
+    return;
+  }
+  if (punchOut && (toSeconds(punchOut) ?? 0) <= (toSeconds(punchIn) ?? 0)) {
+    correctionMsg.value = t("corr_submit_out_after_in");
+    return;
+  }
+
+  correctionSubmitting.value = true;
+  correctionMsg.value = "";
+  try {
+    await addDoc(collection(db, "attendanceCorrectionRequests"), {
+      uid: currentUser.uid,
+      name:
+        userDoc?.displayName || currentUser.displayName || currentUser.email || "",
+      email: currentUser.email || "",
+      dept: myDept.value || userDoc?.dept || "",
+      date,
+      punchIn,
+      punchOut: punchOut || null,
+      reason,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    correctionMsg.value = t("corr_submit_success");
+    correctionForm.value.punchIn = "";
+    correctionForm.value.punchOut = "";
+    correctionForm.value.reason = "";
+    await loadMyCorrectionRequests();
+    if (isApprover.value) await loadPendingCorrectionRequests();
+  } catch (e) {
+    correctionMsg.value = `${t("corr_submit_fail")}${e.message || e}`;
+  } finally {
+    correctionSubmitting.value = false;
+  }
+}
+
+async function approveCorrectionRequest(req) {
+  try {
+    const attendanceId = `${req.date}_${req.uid}`;
+    const attendanceRef = doc(db, "attendance", attendanceId);
+    const snap = await getDoc(attendanceRef);
+    const existing = snap.exists() ? snap.data() : null;
+
+    const workSegments = buildManualWorkSegments(req.punchIn, req.punchOut);
+    const leaveSegments = cloneSegments(existing, "leaveSegments");
+    const derived = buildAttendanceStateFromSegments(workSegments, leaveSegments);
+    const afterRecord = {
+      ...(existing || {}),
+      uid: req.uid,
+      name: req.name || req.email || req.uid,
+      email: req.email || "",
+      date: req.date,
+      ...derived,
+    };
+
+    const upd = {
+      uid: req.uid,
+      name: req.name || req.email || req.uid,
+      email: req.email || "",
+      date: req.date,
+      punchIn: derived.punchIn,
+      punchOut: derived.punchOut,
+      currentState: derived.currentState,
+      workSegments: derived.workSegments,
+      leaveSegments: derived.leaveSegments,
+      auditTrail: appendAuditTrail(
+        existing,
+        existing ? "manualEditByCorrectionRequest" : "manualCreateByCorrectionRequest",
+        afterRecord,
+        { source: "correctionRequest", requestId: req.id },
+      ),
+      manualCorrected: true,
+      correctedBy: getActorName(),
+      correctedAt: new Date().toISOString(),
+      correctionRequestId: req.id,
+    };
+    if (!derived.punchOut) {
+      upd.gpsDistOut = null;
+      upd.gpsLatOut = null;
+      upd.gpsLngOut = null;
+      upd.gpsAccuracyOut = null;
+      upd.locationVerifiedOut = null;
+    }
+    await setDoc(attendanceRef, upd, { merge: true });
+
+    await updateDoc(doc(db, "attendanceCorrectionRequests", req.id), {
+      status: "approved",
+      reviewedAt: new Date().toISOString(),
+      reviewerUid: currentUser?.uid || "",
+      reviewerName: getActorName(),
+      reviewComment: t("corr_approved_note"),
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (isAdminOrManager.value && queryDate.value === req.date) await fetchRecords();
+    await loadPendingCorrectionRequests();
+    await loadMyCorrectionRequests();
+  } catch (e) {
+    alert(`${t("corr_approve_fail")}${e.message || e}`);
+  }
+}
+
+async function rejectCorrectionRequest(req) {
+  const reason = String(prompt(t("corr_reject_prompt"), "") || "").trim();
+  if (!reason) return;
+  try {
+    await updateDoc(doc(db, "attendanceCorrectionRequests", req.id), {
+      status: "rejected",
+      rejectReason: reason,
+      reviewedAt: new Date().toISOString(),
+      reviewerUid: currentUser?.uid || "",
+      reviewerName: getActorName(),
+      updatedAt: new Date().toISOString(),
+    });
+    await loadPendingCorrectionRequests();
+    await loadMyCorrectionRequests();
+  } catch (e) {
+    alert(`${t("corr_reject_fail")}${e.message || e}`);
+  }
+}
+
 // ── 初始化 ────────────────────────────────────────────────
 let currentUser = null;
 let userDoc = null;
@@ -1182,6 +1475,7 @@ onMounted(async () => {
   isLoggedIn.value = true;
   await loadTodayRec();
   fetchPersonalRecords();
+  loadMyCorrectionRequests();
   if (isAdminOrManager.value) {
     fetchRecords();
     fetchLaborReport();
@@ -1189,7 +1483,10 @@ onMounted(async () => {
 
   // 讀取 staff role/dept 與待審計數
   await loadApproverInfo();
-  if (isApprover.value) await loadPendingCounts();
+  if (isApprover.value) {
+    await loadPendingCounts();
+    loadPendingCorrectionRequests();
+  }
   fetchNotPunched();
 });
 
@@ -2562,6 +2859,62 @@ tr.no-rec td {
   background: #999;
 }
 
+.correction-box {
+  margin-top: 12px;
+  border-top: 1px dashed #dbe1e8;
+  padding-top: 10px;
+  text-align: left;
+}
+.correction-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1f4bb8;
+  margin-bottom: 8px;
+}
+.correction-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.correction-grid label {
+  font-size: 0.82rem;
+  color: #555;
+}
+.correction-grid input {
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  font-size: 0.86rem;
+}
+.correction-grid-reason {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.correction-msg {
+  font-size: 0.82rem;
+  color: #1d4ed8;
+}
+.correction-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.correction-status.status-pending {
+  background: #fff7e6;
+  color: #b36b00;
+}
+.correction-status.status-approved {
+  background: #ecfdf3;
+  color: #027a48;
+}
+.correction-status.status-rejected {
+  background: #fef3f2;
+  color: #b42318;
+}
+
 /* ── 手機響應式：側邊請假面板改為上下排列 ── */
 @media (max-width: 640px) {
   .punch-row {
@@ -2586,6 +2939,11 @@ tr.no-rec td {
   }
   .side-name::after {
     content: "\00a0";
+  }
+  .correction-grid,
+  .correction-grid-reason {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }
 
