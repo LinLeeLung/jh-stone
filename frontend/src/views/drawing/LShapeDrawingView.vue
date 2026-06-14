@@ -695,7 +695,8 @@ function restoreSnapshot(snap) {
   if (snap.leftPlus != null) leftPlus.value = snap.leftPlus;
   if (snap.leftConnect != null) leftConnect.value = snap.leftConnect;
   if (snap.leftCutToggled != null) leftCutToggled.value = snap.leftCutToggled;
-  if (Array.isArray(snap.rightCabins)) rightCabins.value = [...snap.rightCabins];
+  if (Array.isArray(snap.rightCabins))
+    rightCabins.value = [...snap.rightCabins];
   if (snap.rightDepth != null) rightDepth.value = snap.rightDepth;
   if (snap.rightPlus != null) rightPlus.value = snap.rightPlus;
   if (snap.rightConnect != null) rightConnect.value = snap.rightConnect;
@@ -1189,10 +1190,14 @@ function drawRightLengthMarker(xEdge, y0, wL) {
   draw
     .line(xLine - 6, y0 + wL, xLine + 6, y0 + wL)
     .stroke({ width: 1, color: "black" });
-  // 水平正立文字，置於引線右側
+  // 竖立文字（旋转90度），置於引線右側 - like "火中" label
   const t = draw.text(String(wL)).font({ size: 16, family: "DFKai-sb" });
   const bb = t.bbox();
-  t.move(xLine + 8, y0 + wL / 2 - bb.height / 2);
+  // Position text center, then rotate 90 degrees clockwise
+  const centerX = xLine + 20;
+  const centerY = y0 + wL / 2;
+  t.move(centerX - bb.width / 2, centerY - bb.height / 2);
+  t.rotate(90, centerX, centerY);
 }
 
 function drawLeftDepthLabel(x0, y0, h) {

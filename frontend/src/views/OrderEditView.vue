@@ -2673,6 +2673,123 @@ async function syncLineItemsFromDrawings() {
     }
   }
 
+  // L 型侧落腳
+  const lShapeDrawings = drawings.filter((d) =>
+    /l-shape|L型|L 型/i.test(String(d.type || "")),
+  );
+  for (const d of lShapeDrawings) {
+    const state = d?.state || {};
+    const counterThick = Math.max(0, Number(state.counterThick) || 4);
+    const backHeight = state.backstop ? Math.max(0, Number(state.backHeight) || 0) : 0;
+    const backstopSum = counterThick + backHeight;
+
+    // 左側落腳
+    if (state.leftEnd === "左側落腳" && state.leftSideLeg) {
+      const leftLeg = state.leftSideLeg;
+      const leftHeight = Math.max(0, Number(leftLeg.height) ?? 85);
+      const leftDepth = Math.max(0, Number(leftLeg.depth) ?? 60);
+      const leftThickness = Math.max(0, Number(leftLeg.thickness) ?? 4);
+      const leftWrap = Math.max(0, Number(leftLeg.wrap) ?? 0);
+      
+      // 側落腳 cm = (脚深 + 厚×2 + 倒包 - 8) / 60 × 脚高
+      const leftLegThickness = leftDepth + leftThickness * 2 + leftWrap - 8;
+      const leftLegCm = Math.round(leftLegThickness / 60 * leftHeight);
+
+      if (
+        leftLegCm > 0 &&
+        !items.some((li) => String(li.refId || "") === `drawing-ct-sideleg-left-${d.id}`)
+      ) {
+        items.push({
+          id: newLineItemId(),
+          category: "countertop",
+          refId: `drawing-ct-sideleg-left-${d.id}`,
+          priceKey: priceKey,
+          description: `側落腳-左(含倒包)${leftLegCm}cm`,
+          unit: "cm",
+          qty: leftLegCm,
+          unitPrice: defaultPpc,
+          amount: Math.round(leftLegCm * defaultPpc),
+        });
+        cntCounter++;
+      }
+
+      const leftSeamKey = /K1|卡準|卡榫/i.test(String(leftLeg.method || "K1"))
+        ? "K1卡準接"
+        : /H1|H2|平接/i.test(String(leftLeg.method || ""))
+          ? "側落腳平接工資"
+          : "側落腳工資";
+      if (
+        !items.some((li) => String(li.refId || "") === `drawing-special-sideleg-left-seam-${d.id}`)
+      ) {
+        items.push({
+          id: newLineItemId(),
+          category: "special",
+          refId: `drawing-special-sideleg-left-seam-${d.id}`,
+          priceKey: leftSeamKey,
+          description: leftSeamKey,
+          unit: "支",
+          qty: 1,
+          unitPrice: null,
+          amount: 0,
+        });
+        totalSpecials++;
+      }
+    }
+
+    // 右側落腳
+    if (state.rightEnd === "右側落腳" && state.rightSideLeg) {
+      const rightLeg = state.rightSideLeg;
+      const rightHeight = Math.max(0, Number(rightLeg.height) ?? 85);
+      const rightDepth = Math.max(0, Number(rightLeg.depth) ?? 60);
+      const rightThickness = Math.max(0, Number(rightLeg.thickness) ?? 4);
+      const rightWrap = Math.max(0, Number(rightLeg.wrap) ?? 0);
+      
+      // 側落腳 cm = (脚深 + 厚×2 + 倒包 - 8) / 60 × 脚高
+      const rightLegThickness = rightDepth + rightThickness * 2 + rightWrap - 8;
+      const rightLegCm = Math.round(rightLegThickness / 60 * rightHeight);
+
+      if (
+        rightLegCm > 0 &&
+        !items.some((li) => String(li.refId || "") === `drawing-ct-sideleg-right-${d.id}`)
+      ) {
+        items.push({
+          id: newLineItemId(),
+          category: "countertop",
+          refId: `drawing-ct-sideleg-right-${d.id}`,
+          priceKey: priceKey,
+          description: `側落腳-右(含倒包)${rightLegCm}cm`,
+          unit: "cm",
+          qty: rightLegCm,
+          unitPrice: defaultPpc,
+          amount: Math.round(rightLegCm * defaultPpc),
+        });
+        cntCounter++;
+      }
+
+      const rightSeamKey = /K1|卡準|卡榫/i.test(String(rightLeg.method || "K1"))
+        ? "K1卡準接"
+        : /H1|H2|平接/i.test(String(rightLeg.method || ""))
+          ? "側落腳平接工資"
+          : "側落腳工資";
+      if (
+        !items.some((li) => String(li.refId || "") === `drawing-special-sideleg-right-seam-${d.id}`)
+      ) {
+        items.push({
+          id: newLineItemId(),
+          category: "special",
+          refId: `drawing-special-sideleg-right-seam-${d.id}`,
+          priceKey: rightSeamKey,
+          description: rightSeamKey,
+          unit: "支",
+          qty: 1,
+          unitPrice: null,
+          amount: 0,
+        });
+        totalSpecials++;
+      }
+    }
+  }
+
   // 二、水槽（預設下嵌）/ 爐子（預設上掛）— 區分石材材質
   const matLabel = materialLabelFromStones(form.value.stones);
   const sinkMethod = "下嵌";

@@ -331,6 +331,17 @@
             <input type="number" v-model.number="form.foreignService" min="0" />
           </label>
           <label
+            >其他減項（元/月）
+            <input type="number" v-model.number="form.otherDeduction" min="0" />
+          </label>
+          <label
+            >其他減項原因
+            <input
+              v-model="form.otherDeductionNote"
+              placeholder="可備註原因"
+            />
+          </label>
+          <label
             >銀行 / 分行
             <input v-model="form.bankName" placeholder="例：台銀 信義分行" />
           </label>
@@ -435,6 +446,8 @@ const FIELDS = [
   { key: "electricFee", label: "電費", type: "number" },
   { key: "foreignMedical", label: "體檢費-外勞", type: "number" },
   { key: "foreignService", label: "服務費-外勞", type: "number" },
+  { key: "otherDeduction", label: "其他減項", type: "number" },
+  { key: "otherDeductionNote", label: "其他減項原因" },
   { key: "staffRole", label: "角色" },
   { key: "status", label: "狀態" },
   { key: "note", label: "備註" },
@@ -505,6 +518,10 @@ const AUTO_MAP = {
   體檢費: "foreignMedical",
   "服務費-外勞": "foreignService",
   服務費: "foreignService",
+  其他減項: "otherDeduction",
+  其他扣項: "otherDeduction",
+  其他減項原因: "otherDeductionNote",
+  其他扣項原因: "otherDeductionNote",
   角色: "staffRole",
   員工角色: "staffRole",
   狀態: "status",
@@ -786,6 +803,8 @@ const emptyForm = () => ({
   electricFee: null,
   foreignMedical: null,
   foreignService: null,
+  otherDeduction: null,
+  otherDeductionNote: "",
   bankName: "",
   bankAccount: "",
   emergencyName: "",

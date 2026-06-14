@@ -280,7 +280,7 @@
                   ? r.unit === "小時"
                     ? `${r.startDate} ${r.startTime}–${r.endTime}`
                     : `${r.startDate}${r.startDate !== r.endDate ? " ~ " + r.endDate : ""}${r.halfDay ? "（" + r.halfDay + "）" : ""}`
-                  : `${r.date}  ${r.startTime}–${r.endTime}`
+                  : `${r.date}  ${displayOtTimeRange(r)}`
               }}
             </td>
             <td>
@@ -289,7 +289,7 @@
                   ? r.unit === "小時"
                     ? r.hours + " " + t("hr_unit")
                     : r.days + " " + t("leave_unit_day")
-                  : r.hours + " " + t("hr_unit")
+                  : displayOtHours(r)
               }}
             </td>
             <td>
@@ -363,6 +363,9 @@
                 <th>{{ t("col_ot_date") }}</th>
                 <th>{{ t("col_time") }}</th>
                 <th>{{ t("col_hours") }}</th>
+                <th>實際打卡</th>
+                <th>交集時段</th>
+                <th>比對結果</th>
               </template>
               <th>{{ t("leave_reason") }}</th>
               <th>{{ t("col_attach") }}</th>
@@ -425,7 +428,24 @@
                 <td>{{ r.date }}</td>
                 <td>{{ r.startTime }} – {{ r.endTime }}</td>
                 <td>{{ r.hours }} 時</td>
+                <td>{{ r.attendanceTimeRange || "—" }}</td>
+                <td>{{ r.effectiveTimeRange || "—" }}</td>
+                <td>
+                  <span :class="['status-badge', otDecisionClass(r)]">
+                    {{ otDecisionText(r) }}
+                  </span>
+                </td>
                 <td>{{ r.reason || "—" }}</td>
+                <td>
+                  <a
+                    v-if="r.docUrl"
+                    :href="r.docUrl"
+                    target="_blank"
+                    class="doc-view-link"
+                    >{{ t("view_attach") }}</a
+                  >
+                  <span v-else class="doc-none">—</span>
+                </td>
                 <td class="action-cell">
                   <button class="btn-sm btn-ok" @click="approveOT(r, 1)">
                     {{ t("btn_approve") }}
@@ -439,7 +459,7 @@
                 </td>
               </tr>
               <tr v-if="!pendingOT1.length">
-                <td colspan="8" class="empty">{{ t("empty_ot") }}</td>
+                <td colspan="11" class="empty">{{ t("empty_ot") }}</td>
               </tr>
             </template>
           </tbody>
@@ -462,6 +482,9 @@
                 <th>{{ t("col_ot_date") }}</th>
                 <th>{{ t("col_time") }}</th>
                 <th>{{ t("col_hours") }}</th>
+                <th>實際打卡</th>
+                <th>交集時段</th>
+                <th>比對結果</th>
               </template>
               <th>{{ t("leave_reason") }}</th>
               <th>{{ t("col_attach") }}</th>
@@ -526,7 +549,24 @@
                 <td>{{ r.date }}</td>
                 <td>{{ r.startTime }} – {{ r.endTime }}</td>
                 <td>{{ r.hours }} 時</td>
+                <td>{{ r.attendanceTimeRange || "—" }}</td>
+                <td>{{ r.effectiveTimeRange || "—" }}</td>
+                <td>
+                  <span :class="['status-badge', otDecisionClass(r)]">
+                    {{ otDecisionText(r) }}
+                  </span>
+                </td>
                 <td>{{ r.reason || "—" }}</td>
+                <td>
+                  <a
+                    v-if="r.docUrl"
+                    :href="r.docUrl"
+                    target="_blank"
+                    class="doc-view-link"
+                    >{{ t("view_attach") }}</a
+                  >
+                  <span v-else class="doc-none">—</span>
+                </td>
                 <td>{{ r.reviewer1Name || "—" }}</td>
                 <td class="action-cell">
                   <button class="btn-sm btn-ok" @click="approveOT(r, 2)">
@@ -541,7 +581,7 @@
                 </td>
               </tr>
               <tr v-if="!pendingOT2.length">
-                <td colspan="8" class="empty">{{ t("empty_ot") }}</td>
+                <td colspan="12" class="empty">{{ t("empty_ot") }}</td>
               </tr>
             </template>
           </tbody>
@@ -550,23 +590,46 @@
 
       <!-- 已批准記錄 -->
       <template v-if="approveSubTab === 'approved'">
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap">
-          <label style="font-weight:500">{{ t("month_label") }}</label>
-          <input type="month" v-model="approvedMonth"
-            style="padding:4px 8px; border:1px solid #ccc; border-radius:5px" />
-          <button class="btn-sm btn-ok" @click="loadMyApproved">{{ t("btn_query") }}</button>
-          <span v-if="loadingApproved" class="muted-text" style="font-size:.85rem">{{ t("loading") }}</span>
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+          "
+        >
+          <label style="font-weight: 500">{{ t("month_label") }}</label>
+          <input
+            type="month"
+            v-model="approvedMonth"
+            style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 5px"
+          />
+          <button class="btn-sm btn-ok" @click="loadMyApproved">
+            {{ t("btn_query") }}
+          </button>
+          <span
+            v-if="loadingApproved"
+            class="muted-text"
+            style="font-size: 0.85rem"
+            >{{ t("loading") }}</span
+          >
         </div>
 
         <h4>{{ t("approved_leave_count")(approvedLeaveByMe.length) }}</h4>
         <table class="rec-table">
           <thead>
             <tr>
-              <th>{{ t("col_employee") }}</th><th>{{ t("col_leave_type") }}</th><th>{{ t("col_date") }}</th><th>{{ t("col_days") }}/{{ t("col_hours") }}</th>
+              <th>{{ t("col_employee") }}</th>
+              <th>{{ t("col_leave_type") }}</th>
+              <th>{{ t("col_date") }}</th>
+              <th>{{ t("col_days") }}/{{ t("col_hours") }}</th>
               <th>{{ t("col_submitted_at") }}</th>
               <th>{{ t("col_status") }}</th>
-              <th>{{ t("col_supervisor") }}</th><th>{{ t("col_supervisor_time") }}</th>
-              <th>{{ t("col_hr") }}</th><th>{{ t("col_hr_time") }}</th>
+              <th>{{ t("col_supervisor") }}</th>
+              <th>{{ t("col_supervisor_time") }}</th>
+              <th>{{ t("col_hr") }}</th>
+              <th>{{ t("col_hr_time") }}</th>
               <th>{{ t("col_actions") }}</th>
             </tr>
           </thead>
@@ -574,40 +637,68 @@
             <tr v-for="r in approvedLeaveByMe" :key="r.id">
               <td>{{ r.name }}</td>
               <td>{{ r.type }}</td>
-              <td>{{ r.startDate }}{{ r.startDate !== r.endDate ? ' ~ ' + r.endDate : '' }}</td>
-              <td>{{ r.unit === '小時' ? (r.hours + ' ' + t("hr_unit")) : (r.days + ' ' + t("leave_unit_day")) }}</td>
+              <td>
+                {{ r.startDate
+                }}{{ r.startDate !== r.endDate ? " ~ " + r.endDate : "" }}
+              </td>
+              <td>
+                {{
+                  r.unit === "小時"
+                    ? r.hours + " " + t("hr_unit")
+                    : r.days + " " + t("leave_unit_day")
+                }}
+              </td>
               <td>{{ fmtTs(r.createdAt) }}</td>
-              <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
-              <td>{{ r.reviewer1Name || '—' }}</td>
+              <td>
+                <span :class="['status-badge', statusClass(r.status)]">{{
+                  statusLabel(r.status)
+                }}</span>
+              </td>
+              <td>{{ r.reviewer1Name || "—" }}</td>
               <td>{{ fmtTs(r.reviewedAt1) }}</td>
-              <td>{{ r.reviewer2Name || '—' }}</td>
+              <td>{{ r.reviewer2Name || "—" }}</td>
               <td>{{ fmtTs(r.reviewedAt2) }}</td>
               <td class="action-cell">
-                <button v-if="canRevoke(r, 1)" class="btn-sm btn-aux"
-                  @click="revokeApproval(r, 'leave', 1)">
+                <button
+                  v-if="canRevoke(r, 1)"
+                  class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'leave', 1)"
+                >
                   {{ t("btn_revoke_stage1") }}
                 </button>
-                <button v-if="canRevoke(r, 2)" class="btn-sm btn-aux"
-                  @click="revokeApproval(r, 'leave', 2)">
+                <button
+                  v-if="canRevoke(r, 2)"
+                  class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'leave', 2)"
+                >
                   {{ t("btn_revoke_stage2") }}
                 </button>
               </td>
             </tr>
             <tr v-if="!approvedLeaveByMe.length">
-              <td colspan="11" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_leave") }}</td>
+              <td colspan="11" class="empty">
+                {{ loadingApproved ? t("loading") : t("empty_approved_leave") }}
+              </td>
             </tr>
           </tbody>
         </table>
 
-        <h4 style="margin-top:24px">{{ t("approved_ot_count")(approvedOTByMe.length) }}</h4>
+        <h4 style="margin-top: 24px">
+          {{ t("approved_ot_count")(approvedOTByMe.length) }}
+        </h4>
         <table class="rec-table">
           <thead>
             <tr>
-              <th>{{ t("col_employee") }}</th><th>{{ t("col_ot_date") }}</th><th>{{ t("col_time") }}</th><th>{{ t("col_hours") }}</th>
+              <th>{{ t("col_employee") }}</th>
+              <th>{{ t("col_ot_date") }}</th>
+              <th>{{ t("col_time") }}</th>
+              <th>{{ t("col_hours") }}</th>
               <th>{{ t("col_submitted_at") }}</th>
               <th>{{ t("col_status") }}</th>
-              <th>{{ t("col_supervisor") }}</th><th>{{ t("col_supervisor_time") }}</th>
-              <th>{{ t("col_hr") }}</th><th>{{ t("col_hr_time") }}</th>
+              <th>{{ t("col_supervisor") }}</th>
+              <th>{{ t("col_supervisor_time") }}</th>
+              <th>{{ t("col_hr") }}</th>
+              <th>{{ t("col_hr_time") }}</th>
               <th>{{ t("col_actions") }}</th>
             </tr>
           </thead>
@@ -618,24 +709,36 @@
               <td>{{ r.startTime }} – {{ r.endTime }}</td>
               <td>{{ r.hours }} {{ t("hr_unit") }}</td>
               <td>{{ fmtTs(r.createdAt) }}</td>
-              <td><span :class="['status-badge', statusClass(r.status)]">{{ statusLabel(r.status) }}</span></td>
-              <td>{{ r.reviewer1Name || '—' }}</td>
+              <td>
+                <span :class="['status-badge', statusClass(r.status)]">{{
+                  statusLabel(r.status)
+                }}</span>
+              </td>
+              <td>{{ r.reviewer1Name || "—" }}</td>
               <td>{{ fmtTs(r.reviewedAt1) }}</td>
-              <td>{{ r.reviewer2Name || '—' }}</td>
+              <td>{{ r.reviewer2Name || "—" }}</td>
               <td>{{ fmtTs(r.reviewedAt2) }}</td>
               <td class="action-cell">
-                <button v-if="canRevoke(r, 1)" class="btn-sm btn-aux"
-                  @click="revokeApproval(r, 'ot', 1)">
+                <button
+                  v-if="canRevoke(r, 1)"
+                  class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'ot', 1)"
+                >
                   {{ t("btn_revoke_stage1") }}
                 </button>
-                <button v-if="canRevoke(r, 2)" class="btn-sm btn-aux"
-                  @click="revokeApproval(r, 'ot', 2)">
+                <button
+                  v-if="canRevoke(r, 2)"
+                  class="btn-sm btn-aux"
+                  @click="revokeApproval(r, 'ot', 2)"
+                >
                   {{ t("btn_revoke_stage2") }}
                 </button>
               </td>
             </tr>
             <tr v-if="!approvedOTByMe.length">
-              <td colspan="11" class="empty">{{ loadingApproved ? t("loading") : t("empty_approved_ot") }}</td>
+              <td colspan="11" class="empty">
+                {{ loadingApproved ? t("loading") : t("empty_approved_ot") }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -719,7 +822,8 @@
             border-radius: 4px;
           "
         >
-          {{ p.name }}：實際 {{ formatHour(p.actual) }}h ／ 申報 {{ formatHour(p.official) }}h
+          {{ p.name }}：實際 {{ formatHour(p.actual) }}h ／ 申報
+          {{ formatHour(p.official) }}h
           <span v-if="p.official > 46"> ⚠ 超過46h</span>
         </span>
       </div>
@@ -862,8 +966,10 @@ const myEmpNo = ref("");
 const myName = ref("");
 const myDept = ref("");
 const myStaffRole = ref(""); // 員工 / 主管 / HR
-const deptMap = { "1": "辦公室", "2": "安裝", "3": "廠內", "4": "外勞" };
-function deptLabel(v) { return deptMap[String(v)] || v || "—"; }
+const deptMap = { 1: "辦公室", 2: "安裝", 3: "廠內", 4: "外勞" };
+function deptLabel(v) {
+  return deptMap[String(v)] || v || "—";
+}
 const myQuota = ref(null);
 
 const isManager = computed(
@@ -965,15 +1071,199 @@ const otf = reactive({
 const submittingOT = ref(false);
 const otMsg = ref("");
 const otMsgIsErr = ref(false);
+const OT_START_BASE = "17:30";
+
+function hmToMinutes(value) {
+  if (!value) return null;
+  const [h, m] = String(value).split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+function toHm(value) {
+  if (!value) return "";
+  const [h, m] = String(value).split(":");
+  if (h == null || m == null) return "";
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
+}
+
+function getAttendanceWorkSegments(att) {
+  const rawSegments = Array.isArray(att?.workSegments) ? att.workSegments : [];
+  const normalized = rawSegments
+    .map((seg) => ({
+      start: toHm(seg?.start),
+      end: toHm(seg?.end),
+    }))
+    .filter((seg) => seg.start && seg.end)
+    .sort((a, b) => (hmToMinutes(a.start) ?? 0) - (hmToMinutes(b.start) ?? 0));
+  if (normalized.length) return normalized;
+  const fallbackStart = toHm(att?.punchIn);
+  const fallbackEnd = toHm(att?.punchOut);
+  if (fallbackStart && fallbackEnd) {
+    return [{ start: fallbackStart, end: fallbackEnd }];
+  }
+  return [];
+}
+
+function calcOtIntersection(record, attendanceRecord) {
+  const reqStart = hmToMinutes(record?.startTime);
+  const reqEnd = hmToMinutes(record?.endTime);
+  if (reqStart == null || reqEnd == null || reqEnd <= reqStart) {
+    return {
+      hasAttendance: !!attendanceRecord,
+      hours: 0,
+      timeRange: "",
+    };
+  }
+  if (!attendanceRecord) {
+    return {
+      hasAttendance: false,
+      hours: 0,
+      timeRange: "—",
+    };
+  }
+
+  let overlapMinutes = 0;
+  let firstStart = null;
+  let lastEnd = null;
+  getAttendanceWorkSegments(attendanceRecord).forEach((seg) => {
+    const segStart = hmToMinutes(seg.start);
+    const segEnd = hmToMinutes(seg.end);
+    if (segStart == null || segEnd == null || segEnd <= segStart) return;
+    const overlapStart = Math.max(reqStart, segStart);
+    const overlapEnd = Math.min(reqEnd, segEnd);
+    if (overlapEnd <= overlapStart) return;
+    overlapMinutes += overlapEnd - overlapStart;
+    if (firstStart == null || overlapStart < firstStart)
+      firstStart = overlapStart;
+    if (lastEnd == null || overlapEnd > lastEnd) lastEnd = overlapEnd;
+  });
+
+  const hours = Math.round((overlapMinutes / 60) * 10) / 10;
+  const toHHMM = (mins) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  };
+
+  return {
+    hasAttendance: true,
+    hours,
+    timeRange:
+      firstStart != null && lastEnd != null
+        ? `${toHHMM(firstStart)}–${toHHMM(lastEnd)}`
+        : "—",
+  };
+}
+
+function getAttendanceTimeRange(attendanceRecord) {
+  if (!attendanceRecord) return "—";
+  const segments = getAttendanceWorkSegments(attendanceRecord).filter(
+    (seg) => seg.start && seg.end,
+  );
+  if (!segments.length) return "—";
+  return `${segments[0].start}–${segments[segments.length - 1].end}`;
+}
+
+function getApprovedOtHours(record) {
+  const approved = Number(record?.approvedHours);
+  if (Number.isFinite(approved) && approved >= 0) return approved;
+  const effective = Number(record?.effectiveHours);
+  if (Number.isFinite(effective) && effective >= 0) return effective;
+  return Number(record?.hours) || 0;
+}
+
+function otDecisionText(record) {
+  const requested = Number(record?.hours) || 0;
+  const approved = getApprovedOtHours(record);
+  if (!(record?.hasAttendance ?? true)) return "無出勤";
+  if (approved <= 0) return "無交集";
+  if (requested > 0 && approved + 0.01 < requested)
+    return `部分核準 ${formatHour(approved)}h`;
+  return "核準";
+}
+
+function otDecisionClass(record) {
+  const approved = getApprovedOtHours(record);
+  const requested = Number(record?.hours) || 0;
+  if (!(record?.hasAttendance ?? true) || approved <= 0) return "st-rejected";
+  if (requested > 0 && approved + 0.01 < requested) return "st-approved1";
+  return "st-approved";
+}
+
+function displayOtTimeRange(record) {
+  if (!record) return "—";
+  return (
+    record.effectiveTimeRange ||
+    `${record.startTime || "--:--"}–${record.endTime || "--:--"}`
+  );
+}
+
+function displayOtHours(record) {
+  const h = getApprovedOtHours(record);
+  return `${formatHour(h)} ${t("hr_unit")}`;
+}
+
+async function enrichOTRecordsWithAttendance(records) {
+  if (!Array.isArray(records) || !records.length) return [];
+
+  const dateMapByUid = new Map();
+  records.forEach((r) => {
+    const uid = String(r?.uid || "").trim();
+    const date = String(r?.date || "").trim();
+    if (!uid || !date) return;
+    if (!dateMapByUid.has(uid)) dateMapByUid.set(uid, new Set());
+    dateMapByUid.get(uid).add(date);
+  });
+
+  const attendanceByUidDate = new Map();
+  await Promise.all(
+    [...dateMapByUid.entries()].map(async ([uid, dateSet]) => {
+      const attSnap = await getDocs(
+        query(collection(db, "attendance"), where("uid", "==", uid)),
+      );
+      attSnap.docs.forEach((d) => {
+        const data = d.data();
+        const date = String(data?.date || "").trim();
+        if (!dateSet.has(date)) return;
+        attendanceByUidDate.set(`${uid}::${date}`, data);
+      });
+    }),
+  );
+
+  return records.map((r) => {
+    const uid = String(r?.uid || "").trim();
+    const date = String(r?.date || "").trim();
+    const att = uid && date ? attendanceByUidDate.get(`${uid}::${date}`) : null;
+    const intersection = calcOtIntersection(r, att);
+    return {
+      ...r,
+      hasAttendance: intersection.hasAttendance,
+      effectiveHours: intersection.hours,
+      effectiveTimeRange: intersection.timeRange,
+      attendanceTimeRange: getAttendanceTimeRange(att),
+      approvedHours:
+        Number(r?.approvedHours) >= 0
+          ? Number(r.approvedHours)
+          : intersection.hours,
+    };
+  });
+}
 
 watch([() => otf.startTime, () => otf.endTime], () => {
   if (!otf.startTime || !otf.endTime) {
     otf.hours = 0;
     return;
   }
-  const [sh, sm] = otf.startTime.split(":").map(Number);
-  const [eh, em] = otf.endTime.split(":").map(Number);
-  const minutes = eh * 60 + em - (sh * 60 + sm);
+  const startMinutes = hmToMinutes(otf.startTime);
+  const endMinutes = hmToMinutes(otf.endTime);
+  const baseMinutes = hmToMinutes(OT_START_BASE) ?? 0;
+  if (startMinutes == null || endMinutes == null) {
+    otf.hours = 0;
+    return;
+  }
+  const payableStart = Math.max(startMinutes, baseMinutes);
+  const minutes = endMinutes - payableStart;
   otf.hours = minutes > 0 ? Math.round((minutes / 60) * 10) / 10 : 0;
 });
 
@@ -1068,8 +1358,16 @@ function fmtTs(ts) {
   if (!ts) return "—";
   try {
     const d = ts.toDate ? ts.toDate() : new Date(ts);
-    return d.toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-  } catch { return "—"; }
+    return d.toLocaleString("zh-TW", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return "—";
+  }
 }
 function statusClass(s) {
   return (
@@ -1114,12 +1412,19 @@ async function loadMyApproved() {
       const [lSnaps, oSnaps] = await Promise.all([
         Promise.all(
           STATUSES.map((s) =>
-            getDocs(query(collection(db, "leaveRequests"), where("status", "==", s))),
+            getDocs(
+              query(collection(db, "leaveRequests"), where("status", "==", s)),
+            ),
           ),
         ),
         Promise.all(
           STATUSES.map((s) =>
-            getDocs(query(collection(db, "overtimeRequests"), where("status", "==", s))),
+            getDocs(
+              query(
+                collection(db, "overtimeRequests"),
+                where("status", "==", s),
+              ),
+            ),
           ),
         ),
       ]);
@@ -1127,10 +1432,30 @@ async function loadMyApproved() {
       otDocs = oSnaps.flatMap((s) => s.docs);
     } else {
       const [la, lb, oa, ob] = await Promise.all([
-        getDocs(query(collection(db, "leaveRequests"), where("reviewer1Uid", "==", uid))),
-        getDocs(query(collection(db, "leaveRequests"), where("reviewer2Uid", "==", uid))),
-        getDocs(query(collection(db, "overtimeRequests"), where("reviewer1Uid", "==", uid))),
-        getDocs(query(collection(db, "overtimeRequests"), where("reviewer2Uid", "==", uid))),
+        getDocs(
+          query(
+            collection(db, "leaveRequests"),
+            where("reviewer1Uid", "==", uid),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, "leaveRequests"),
+            where("reviewer2Uid", "==", uid),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, "overtimeRequests"),
+            where("reviewer1Uid", "==", uid),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, "overtimeRequests"),
+            where("reviewer2Uid", "==", uid),
+          ),
+        ),
       ]);
       leaveDocs = [...la.docs, ...lb.docs];
       otDocs = [...oa.docs, ...ob.docs];
@@ -1156,10 +1481,16 @@ async function loadMyApproved() {
     try {
       const usersSnap = await getDocs(collection(db, "Users"));
       const nameMap = {};
-      usersSnap.docs.forEach((d) => { const n = d.data().displayName; if (n) nameMap[d.id] = n; });
-      [...approvedLeaveByMe.value, ...approvedOTByMe.value]
-        .forEach((r) => { if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid]; });
-    } catch (_) { /* ignore */ }
+      usersSnap.docs.forEach((d) => {
+        const n = d.data().displayName;
+        if (n) nameMap[d.id] = n;
+      });
+      [...approvedLeaveByMe.value, ...approvedOTByMe.value].forEach((r) => {
+        if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid];
+      });
+    } catch (_) {
+      /* ignore */
+    }
   } catch (e) {
     console.error(e);
   } finally {
@@ -1175,7 +1506,9 @@ function canRevoke(r, stage) {
   if (stage === 1) {
     if (!r.reviewer1Uid) return false;
     return (
-      isHRRole.value || r.reviewer1Uid === currentUser.value.uid || isManager.value
+      isHRRole.value ||
+      r.reviewer1Uid === currentUser.value.uid ||
+      isManager.value
     );
   }
   if (stage === 2) {
@@ -1186,7 +1519,8 @@ function canRevoke(r, stage) {
 }
 
 async function revokeApproval(r, col, stage) {
-  const msg = stage === 1 ? t("confirm_revoke_stage1") : t("confirm_revoke_stage2");
+  const msg =
+    stage === 1 ? t("confirm_revoke_stage1") : t("confirm_revoke_stage2");
   if (!confirm(msg)) return;
   const colName = col === "leave" ? "leaveRequests" : "overtimeRequests";
   try {
@@ -1202,7 +1536,13 @@ async function revokeApproval(r, col, stage) {
         rejectReason: null,
       };
       // 若是請假且原本為 approved2，需把已扣的配額還回
-      if (col === "leave" && r.status === "approved2" && r.uid && r.type && r.days) {
+      if (
+        col === "leave" &&
+        r.status === "approved2" &&
+        r.uid &&
+        r.type &&
+        r.days
+      ) {
         await restoreQuota(r.uid, r.type, r.days);
       }
     } else {
@@ -1439,6 +1779,28 @@ async function submitOT() {
     otMsgIsErr.value = true;
     return;
   }
+  const startMinutes = hmToMinutes(otf.startTime);
+  const endMinutes = hmToMinutes(otf.endTime);
+  const baseMinutes = hmToMinutes(OT_START_BASE) ?? 0;
+  if (
+    startMinutes == null ||
+    endMinutes == null ||
+    endMinutes <= startMinutes
+  ) {
+    otMsg.value = "請填寫完整加班資訊，且結束時間須晚於開始時間";
+    otMsgIsErr.value = true;
+    return;
+  }
+  if (endMinutes <= baseMinutes) {
+    otMsg.value = "加班僅能計算 17:30 之後時段";
+    otMsgIsErr.value = true;
+    return;
+  }
+  if (startMinutes < baseMinutes) {
+    otMsg.value = "加班起算時間為 17:30，請調整起始時間後再送出";
+    otMsgIsErr.value = true;
+    return;
+  }
   submittingOT.value = true;
   otMsg.value = "";
   try {
@@ -1501,7 +1863,36 @@ async function loadMyRecords() {
       ),
     ]);
     myLeaveRecs.value = lSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    myOTRecs.value = oSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const otRecords = oSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const targetDates = new Set(
+      otRecords.map((r) => String(r.date || "").trim()).filter(Boolean),
+    );
+    let attendanceByDate = new Map();
+    if (targetDates.size) {
+      const attSnap = await getDocs(
+        query(
+          collection(db, "attendance"),
+          where("uid", "==", currentUser.value.uid),
+        ),
+      );
+      attendanceByDate = new Map(
+        attSnap.docs
+          .map((d) => d.data())
+          .filter((r) => targetDates.has(String(r.date || "").trim()))
+          .map((r) => [String(r.date || "").trim(), r]),
+      );
+    }
+    myOTRecs.value = otRecords.map((r) => {
+      const intersection = calcOtIntersection(
+        r,
+        attendanceByDate.get(String(r.date || "").trim()),
+      );
+      return {
+        ...r,
+        effectiveHours: intersection.hours,
+        effectiveTimeRange: intersection.timeRange,
+      };
+    });
   } finally {
     loadingMine.value = false;
   }
@@ -1564,10 +1955,16 @@ async function loadPending() {
       });
       const fill = (arr) =>
         arr.forEach((r) => {
-          if (!r.dept && r.email && emailDept[r.email]) r.dept = emailDept[r.email];
+          if (!r.dept && r.email && emailDept[r.email])
+            r.dept = emailDept[r.email];
         });
-      fill(lv1); fill(lv2); fill(ov1); fill(ov2);
-    } catch (_) { /* ignore */ }
+      fill(lv1);
+      fill(lv2);
+      fill(ov1);
+      fill(ov2);
+    } catch (_) {
+      /* ignore */
+    }
 
     // 以 Users 集合的最新 displayName 覆蓋申請時存的舊姓名
     try {
@@ -1578,9 +1975,16 @@ async function loadPending() {
         if (n) nameMap[d.id] = n;
       });
       const applyName = (arr) =>
-        arr.forEach((r) => { if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid]; });
-      applyName(lv1); applyName(lv2); applyName(ov1); applyName(ov2);
-    } catch (_) { /* ignore */ }
+        arr.forEach((r) => {
+          if (r.uid && nameMap[r.uid]) r.name = nameMap[r.uid];
+        });
+      applyName(lv1);
+      applyName(lv2);
+      applyName(ov1);
+      applyName(ov2);
+    } catch (_) {
+      /* ignore */
+    }
 
     if (isDeptHead.value && myDept.value) {
       // 主管只看同部門 stage 1；stage 2 由 HR 處理
@@ -1589,10 +1993,15 @@ async function loadPending() {
       lv2 = [];
       ov2 = [];
     }
+    const [ov1Enriched, ov2Enriched] = await Promise.all([
+      enrichOTRecordsWithAttendance(ov1),
+      enrichOTRecordsWithAttendance(ov2),
+    ]);
+
     pendingLeave1.value = lv1;
     pendingLeave2.value = lv2;
-    pendingOT1.value = ov1;
-    pendingOT2.value = ov2;
+    pendingOT1.value = ov1Enriched;
+    pendingOT2.value = ov2Enriched;
   } finally {
     loadingPending.value = false;
   }
@@ -1632,17 +2041,38 @@ async function approveLeave(r, stage) {
 
 // ── Approve OT ────────────────────────────────────────────────────────────
 async function approveOT(r, stage) {
+  if (Number(r?.effectiveHours) <= 0) {
+    alert("此筆加班與打卡無交集，請改用駁回或先修正打卡紀錄");
+    return;
+  }
+
+  const requestedHours = Number(r?.hours) || 0;
+  const approvedHours = Number(r?.effectiveHours) || 0;
+  const approvalMode =
+    requestedHours > 0 && approvedHours + 0.01 < requestedHours
+      ? "partial"
+      : "full";
   const reviewer = myName.value || currentUser.value?.email;
   const upd =
     stage === 1
       ? {
           status: "approved1",
+          approvedHours,
+          approvedTimeRange: r.effectiveTimeRange || "—",
+          approvalMode,
+          comparedAttendanceRange: r.attendanceTimeRange || "—",
           reviewer1Uid: currentUser.value.uid,
           reviewer1Name: reviewer,
           reviewedAt1: serverTimestamp(),
         }
       : {
           status: "approved2",
+          approvedHours,
+          officialHours:
+            Number(r?.officialHours) >= 0 ? Number(r.officialHours) : approvedHours,
+          approvedTimeRange: r.effectiveTimeRange || "—",
+          approvalMode,
+          comparedAttendanceRange: r.attendanceTimeRange || "—",
           reviewer2Uid: currentUser.value.uid,
           reviewer2Name: reviewer,
           reviewedAt2: serverTimestamp(),

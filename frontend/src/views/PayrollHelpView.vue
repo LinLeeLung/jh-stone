@@ -9,9 +9,9 @@
     <div class="toc">
       <strong>目錄</strong>
       <ol>
-        <li><a href="#s1">加班費</a></li>
+        <li><a href="#s1">加班費與審核規則（HR）</a></li>
         <li><a href="#s2">請假扣薪</a></li>
-        <li><a href="#s3">新進員工未滿月計薪</a></li>
+        <li><a href="#s3">未滿月 / 月中離職計薪</a></li>
         <li><a href="#s4">薪資計算觸發方式</a></li>
         <li><a href="#s5">實領薪資公式</a></li>
         <li><a href="#s6">曠職扣薪</a></li>
@@ -20,11 +20,32 @@
       </ol>
     </div>
 
-    <!-- 一、加班費 -->
+    <!-- 一、加班費與審核規則 -->
     <section id="s1">
-      <h3>一、加班費</h3>
+      <h3>一、加班費與審核規則（HR）</h3>
       <h4>資料來源</h4>
       <p>從 <code>overtimeRequests</code> 查詢該員工當月且已雙層主管簽核（<code>status: "approved2"</code>）的加班申請。</p>
+      <h4>人資審核規則（看這段即可）</h4>
+      <table>
+        <thead><tr><th>關卡</th><th>角色</th><th>規則</th></tr></thead>
+        <tbody>
+          <tr><td>第 1 關</td><td>部門主管</td><td>先審核申請時段與打卡交集</td></tr>
+          <tr><td>第 2 關</td><td>HR</td><td>做最終核準（<code>approved2</code>）後才會進薪資</td></tr>
+        </tbody>
+      </table>
+      <p class="note">
+        系統會用「申請時段」比對「當日打卡時段」：
+        有完整覆蓋就核準、僅部分重疊就部分核準（只核交集時數）、完全無交集則應駁回。
+      </p>
+      <table>
+        <thead><tr><th>比對結果</th><th>建議動作</th><th>寫入欄位</th></tr></thead>
+        <tbody>
+          <tr><td>有完整交集</td><td>核準</td><td><code>approvalMode: "full"</code></td></tr>
+          <tr><td>部分交集</td><td>部分核準（只核交集時數）</td><td><code>approvalMode: "partial"</code>、<code>approvedHours</code></td></tr>
+          <tr><td>無交集</td><td>不核準，請改駁回或先修正打卡</td><td>不應進入 <code>approved2</code></td></tr>
+        </tbody>
+      </table>
+      <p class="note">薪資計算時，加班依核準時數（<code>approvedHours</code>）與最終核準狀態（<code>approved2</code>）計入。</p>
       <h4>計算方式（勞基法第 24 條）</h4>
       <p>時薪基準（月薪制）：<code>時薪 = 月薪 ÷ 240</code>（30天 × 8小時）</p>
       <table>
@@ -56,16 +77,49 @@
 
     <!-- 三、新進員工 -->
     <section id="s3">
-      <h3>三、新進員工未滿月計薪</h3>
-      <p>適用條件：薪資類型為月薪制，且到職日在當月內。</p>
-      <p><code>當月底薪 = 月薪 × (到職日至月底天數 ÷ 當月總天數)</code></p>
+      <h3>三、未滿月 / 月中離職計薪</h3>
+      <p>適用條件：薪資類型為月薪制，且員工在當月的在職區間短於整月。</p>
+      <p>這包含兩種情況：<strong>月中到職</strong>與<strong>月中離職</strong>。</p>
+      <p><code>當月底薪 = 月薪 × 在職天數 ÷ 當月總天數</code></p>
+      <p>系統實際使用的在職區間為：</p>
+      <ul>
+        <li><code>employmentStart</code> = max(到職日, 當月 1 日)</li>
+        <li><code>employmentEnd</code> = min(離職日, 當月最後一日)</li>
+      </ul>
       <div class="example">
-        <strong>範例</strong>：5 月 15 日到職，月薪 40,000<br>
+        <strong>範例 1（月中到職）</strong>：5 月 15 日到職，月薪 40,000<br>
         40,000 × 17 ÷ 31 ≈ <strong>21,935 元</strong>
+      </div>
+      <div class="example">
+        <strong>範例 2（月中離職）</strong>：5 月 20 日離職，月薪 40,000<br>
+        40,000 × 20 ÷ 31 ≈ <strong>25,806 元</strong>
+      </div>
+      <div class="example">
+        <strong>範例 3（同月到離職）</strong>：5 月 10 日到職，5 月 20 日離職，月薪 40,000<br>
+        40,000 × 11 ÷ 31 ≈ <strong>14,194 元</strong>
       </div>
       <h4>日薪制底薪</h4>
       <p>適用條件：薪資類型為日薪制。</p>
       <p><code>當月底薪 = 日薪 × 當月實際出勤天數（有 punchIn 與 punchOut）</code></p>
+      <p class="note">在職區間外（到職前、離職後）不會計入加班、請假、打卡與曠職統計。</p>
+
+      <div class="hr-key-box">
+        <h4>人資必看：如果忘了填離職日，系統會怎麼算？</h4>
+        <p>
+          系統會把該員工視為「仍在職」，<strong>計薪區間會算到月底</strong>。
+        </p>
+        <ul>
+          <li>月薪制可能會算成整月或超出實際在職天數。</li>
+          <li>離職後日期仍可能被納入加班、請假、打卡、曠職判斷。</li>
+          <li>結果容易出現多算薪資或多算異常。</li>
+        </ul>
+        <p class="hr-key-checklist-title">計薪前 3 秒檢查：</p>
+        <ol class="hr-key-checklist">
+          <li>員工資料有填到職日。</li>
+          <li>離職員工有填離職日（或 leaveDate / resignDate / terminationDate）。</li>
+          <li>薪資單中的 <code>employmentStart</code> / <code>employmentEnd</code> 符合預期。</li>
+        </ol>
+      </div>
     </section>
 
     <!-- 四、觸發方式 -->
@@ -289,4 +343,29 @@ code {
 .lf-yes { color: #1a7a3c; }
 .lf-no  { color: #b45309; }
 .lf-result { color: #c0392b; margin-top: 4px; }
+
+.hr-key-box {
+  margin-top: 14px;
+  background: #fff5f5;
+  border: 1px solid #f3bcbc;
+  border-left: 5px solid #dc2626;
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.hr-key-box h4 {
+  margin-top: 0;
+  color: #991b1b;
+}
+.hr-key-box ul {
+  margin: 8px 0 6px;
+  padding-left: 20px;
+}
+.hr-key-checklist-title {
+  margin: 8px 0 2px;
+  font-weight: 600;
+}
+.hr-key-checklist {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
 </style>

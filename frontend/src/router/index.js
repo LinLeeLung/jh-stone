@@ -90,9 +90,7 @@ const OrderSinkPrintView = lazyRoute(
 const CustomerMgmtView = lazyRoute(
   () => import("../views/CustomerMgmtView.vue"),
 );
-const StoveModelsView = lazyRoute(
-  () => import("../views/StoveModelsView.vue"),
-);
+const StoveModelsView = lazyRoute(() => import("../views/StoveModelsView.vue"));
 const QuotePageView = lazyRoute(() => import("../views/QuotePageView.vue"));
 const InstallTasksView = lazyRoute(
   () => import("../views/InstallTasksView.vue"),
@@ -221,13 +219,13 @@ const router = createRouter({
       path: "/payroll",
       name: "payroll",
       component: PayrollView,
-      meta: { roles: ["admin", "管理者"], title: "薪資單" },
+      meta: { roles: ["admin", "管理者", "HR"], title: "薪資單" },
     },
     {
       path: "/payroll/help",
       name: "payroll-help",
       component: PayrollHelpView,
-      meta: { roles: ["admin", "管理者"], title: "薪資計算說明" },
+      meta: { roles: ["admin", "管理者", "HR"], title: "薪資計算說明" },
     },
     {
       path: "/receivable/help",
@@ -365,7 +363,7 @@ const router = createRouter({
       meta: {
         roles: ["員工", "admin", "管理者"],
         depts: ["1"],
-        title: "爐子型號管理",
+        title: "水槽/爐子型號管理",
       },
     },
     {

@@ -14,6 +14,8 @@ const path = require("path");
 const crypto = require("crypto");
 const Busboy = require("busboy");
 const admin = require("firebase-admin");
+const chromium = require("@sparticuz/chromium");
+const puppeteer = require("puppeteer-core");
 admin.initializeApp();
 const SYNO_USERNAME_SECRET = defineSecret("SYNO_USERNAME");
 const SYNO_PASSWORD_SECRET = defineSecret("SYNO_PASSWORD");
@@ -74,6 +76,322 @@ function canViewOrderPdfPrice({ profile = null, viewerEmail = "" } = {}) {
   }
 
   return normalizedEmail === ADMIN_EMAIL;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatPdfDate(value) {
+  if (!value) return "—";
+  const date = value?.toDate ? value.toDate() : new Date(value);
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return new Intl.DateTimeFormat("zh-TW", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function pickOrderRemark(order = {}, customer = {}) {
+  return [customer?.notes, order?.specialNotes]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildConfirmedPdfComparisonHtml({
+  order = {},
+  customer = {},
+  confirmation = {},
+  generatedAt = new Date(),
+}) {
+  const customerContact = [
+    order?.customerContact?.name,
+    order?.customerContact?.phone,
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  const customerFax = [
+    order?.customerFax,
+    customer?.fax,
+    customer?.contactFax,
+    order?.customerContact?.fax,
+  ]
+    .map((item) => String(item || "").trim())
+    .find(Boolean);
+  const noteText = pickOrderRemark(order, customer);
+  const drawingBlocks = Array.isArray(confirmation?.drawingBlocks)
+    ? confirmation.drawingBlocks.length
+    : 0;
+  const overlayImgs = Array.isArray(confirmation?.overlayImgs)
+    ? confirmation.overlayImgs.length
+    : 0;
+  const cf = confirmation?.cf || {};
+  const rows = [
+    ["訂單編號", order?.orderNo || order?.id || "—"],
+    ["客戶名稱", order?.customerName || customer?.name || "—"],
+    ["客戶端業務", customerContact || "—"],
+    ["圖面傳真", customerFax || "—"],
+    ["下單日", formatPdfDate(order?.orderedAt)],
+    ["預交日", formatPdfDate(order?.promisedAt)],
+    ["收尾日", formatPdfDate(order?.finishDate)],
+    ["施工地址", order?.siteAddress || "—"],
+    [
+      "現場/屋主",
+      [order?.owner?.name, order?.owner?.phone].filter(Boolean).join(" ") ||
+        "—",
+    ],
+    [
+      "打板",
+      [order?.templatingStaff, formatPdfDate(order?.templatingDate)]
+        .filter(Boolean)
+        .join(" / ") || "—",
+    ],
+    ["繪圖", order?.drawingStaff || "—"],
+  ];
+
+  return `<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>生產確定單後端比較版</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #e5e9f0;
+      --paper: #f8fafc;
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #94a3b8;
+      --accent: #0f766e;
+      --accent-2: #1d4ed8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+    }
+    .page {
+      width: 1123px;
+      min-height: 794px;
+      margin: 0 auto;
+      background: var(--paper);
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+      padding: 18px 20px 20px;
+    }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--line);
+    }
+    .title {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+    }
+    .subtitle {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .badge {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #dbeafe;
+      color: #1e40af;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .card {
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .card-hd {
+      padding: 8px 12px;
+      background: linear-gradient(90deg, #0f766e, #1d4ed8);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .card-bd {
+      padding: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    td {
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      vertical-align: top;
+      font-size: 13px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    td.k {
+      width: 120px;
+      background: #f1f5f9;
+      color: #334155;
+      font-weight: 700;
+    }
+    .note {
+      min-height: 92px;
+      white-space: pre-wrap;
+    }
+    .list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px;
+      align-items: start;
+    }
+    .kv .key {
+      color: #334155;
+      font-weight: 700;
+    }
+    .kv .val {
+      white-space: pre-wrap;
+      color: #0f172a;
+    }
+    .footer {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px dashed #94a3b8;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 11px;
+      color: #64748b;
+    }
+    .source-note {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid #bae6fd;
+      background: #f0f9ff;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #0f172a;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <div>
+        <div class="title">生產確定單</div>
+        <div class="subtitle">後端無頭瀏覽器比較版，供與前端封存PDF對照</div>
+      </div>
+      <div class="badge">Backend PDF Comparison</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-hd">訂單資訊</div>
+        <div class="card-bd">
+          <table>
+            ${rows
+              .map(
+                ([key, value]) => `
+              <tr>
+                <td class="k">${escapeHtml(key)}</td>
+                <td>${escapeHtml(value)}</td>
+              </tr>`,
+              )
+              .join("")}
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-hd">後端比較摘要</div>
+        <div class="card-bd list">
+          <div class="kv"><div class="key">資料來源</div><div class="val">salesOrders / confirmationDoc / customers</div></div>
+          <div class="kv"><div class="key">繪圖區塊</div><div class="val">${drawingBlocks}</div></div>
+          <div class="kv"><div class="key">疊圖數量</div><div class="val">${overlayImgs}</div></div>
+          <div class="kv"><div class="key">邊型設定</div><div class="val">${escapeHtml(cf.edgeType || "—")}</div></div>
+          <div class="kv"><div class="key">縮放基準</div><div class="val">${escapeHtml(String(confirmation?.measurementScale || 1))}</div></div>
+          <div class="kv"><div class="key">產生時間</div><div class="val">${escapeHtml(formatPdfDate(generatedAt))}</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-hd">備註</div>
+        <div class="card-bd note">${escapeHtml(noteText || "—")}</div>
+      </div>
+      <div class="card">
+        <div class="card-hd">比較說明</div>
+        <div class="card-bd">
+          <div class="source-note">
+            這份 PDF 是由後端 Puppeteer 直接產生，目的是與前端目前的封存 PDF 對照。
+            如果版面差異很大，通常代表前端畫布渲染和後端列印渲染在字型、尺寸或內容載入時序上有差異。
+          </div>
+          <div style="margin-top: 10px; font-size: 13px; line-height: 1.6; color: #334155;">
+            <div>1. 前端版偏向「畫布快照」，較接近目前畫面內容。</div>
+            <div>2. 後端版偏向「瀏覽器列印」，較接近實際 HTML 排版。</div>
+            <div>3. 兩份一起看，可以快速判斷字型、留白、分頁與載入時序差異。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>Generated by Firebase Functions + Puppeteer</div>
+      <div>${escapeHtml(String(order?.orderNo || order?.id || ""))}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+async function launchPdfBrowser() {
+  const executablePath = await chromium.executablePath();
+  return puppeteer.launch({
+    args: chromium.args,
+    executablePath,
+    headless: chromium.headless ?? true,
+    defaultViewport: chromium.defaultViewport || {
+      width: 1440,
+      height: 1024,
+      deviceScaleFactor: 1,
+    },
+  });
 }
 
 // 查詢 NAS 是否有包含訂單號碼的資料夾
@@ -4482,10 +4800,14 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     const orderNumber = String(
       form?.fields?.orderNumber || folderParts.orderNumber || "",
     ).trim();
-    const orderToken = normalizeOrderToken(folderParts.orderNumber || orderNumber);
+    const orderToken = normalizeOrderToken(
+      folderParts.orderNumber || orderNumber,
+    );
 
     function canUseCachedNasFolder(pathValue) {
-      const candidate = normalizeSynologyDirPath(String(pathValue || "").trim());
+      const candidate = normalizeSynologyDirPath(
+        String(pathValue || "").trim(),
+      );
       if (!candidate) return false;
 
       // Cached folder must stay under configured order root.
@@ -6684,6 +7006,201 @@ exports.serveOrderPdf = onRequestV2(
   },
 );
 
+exports.generateConfirmedPdfComparison = onRequestV2(
+  {
+    invoker: "public",
+    memory: "1GiB",
+    timeoutSeconds: 300,
+  },
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (req.method !== "GET") {
+      res
+        .status(405)
+        .type("text/plain; charset=utf-8")
+        .send("Method Not Allowed");
+      return;
+    }
+
+    const authHeader = String(req.get("Authorization") || "").trim();
+    const bearerToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+    const queryToken = String(req.query.token || "").trim();
+    const token = bearerToken || queryToken;
+    if (!token) {
+      res.status(401).type("text/plain; charset=utf-8").send("missing token");
+      return;
+    }
+
+    const orderId = String(req.query.orderId || "").trim();
+    if (!orderId) {
+      res.status(400).type("text/plain; charset=utf-8").send("missing orderId");
+      return;
+    }
+
+    let uid;
+    try {
+      const decoded = await admin.auth().verifyIdToken(token);
+      uid = decoded.uid;
+    } catch (e) {
+      res.status(401).type("text/plain; charset=utf-8").send("invalid token");
+      return;
+    }
+
+    const profile = await readUserProfile(uid);
+    const role = String(profile.role || "").trim();
+    if (!role) {
+      res.status(403).type("text/plain; charset=utf-8").send("forbidden");
+      return;
+    }
+
+    const db = admin.firestore();
+    const orderSnap = await db.collection("salesOrders").doc(orderId).get();
+    if (!orderSnap.exists) {
+      res.status(404).type("text/plain; charset=utf-8").send("order not found");
+      return;
+    }
+
+    const order = orderSnap.data() || {};
+
+    let browser;
+    try {
+      // Generate a short-lived custom token so Puppeteer can sign in as this user
+      const customToken = await admin.auth().createCustomToken(uid);
+      const pageUrl = `https://jh-stone.web.app/orders/${encodeURIComponent(orderId)}/confirmation`;
+
+      browser = await launchPdfBrowser();
+      const page = await browser.newPage();
+
+      // Inject custom token before the app boots so main.js can auto-sign-in
+      await page.evaluateOnNewDocument((ct) => {
+        window.__puppeteerCustomToken = ct;
+      }, customToken);
+
+      await page.setViewport({
+        width: 1123,
+        height: 794,
+        deviceScaleFactor: 1,
+      });
+
+      // networkidle0 can be slow on SPA pages with long-lived connections.
+      // Optimized fast-path: balance speed with content loading
+      await page.goto(pageUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 20000,
+      });
+
+      // Wait for page to be ready with content (shorter timeout than before)
+      await page.waitForSelector(".a4-page", { timeout: 8000 });
+
+      // Quick content check with reduced timeout
+      await Promise.race([
+        page.waitForFunction(
+          () => {
+            const sheet = document.querySelector(".a4-page");
+            if (!sheet) return false;
+            const text = (sheet.innerText || "").trim();
+            return text.length >= 50;
+          },
+          { timeout: 5000 },
+        ),
+        new Promise((resolve) => setTimeout(resolve, 4000)), // Fallback after 4s
+      ]).catch(() => {}); // Don't fail if timeout
+
+      // Inject styles immediately
+      await page.evaluate(() => {
+        const styleId = "__pdf-compare-print-style";
+        let style = document.getElementById(styleId);
+        if (!style) {
+          style = document.createElement("style");
+          style.id = styleId;
+          style.textContent = `
+            @page { size: A4 landscape; margin: 0; }
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              width: 297mm !important;
+              height: 210mm !important;
+              overflow: hidden !important;
+              background: #fff !important;
+            }
+            body * {
+              visibility: hidden !important;
+            }
+            .a4-page, .a4-page * {
+              visibility: visible !important;
+            }
+            .a4-page {
+              position: fixed !important;
+              left: 0 !important;
+              top: 0 !important;
+              margin: 0 !important;
+              width: 297mm !important;
+              height: 210mm !important;
+              box-shadow: none !important;
+              overflow: hidden !important;
+              transform: none !important;
+            }
+          `;
+          document.head.appendChild(style);
+        }
+      });
+
+      // Minimal font wait with aggressive timeout
+      await page.evaluate(async () => {
+        if (!document.fonts || !document.fonts.ready) return;
+        await Promise.race([
+          document.fonts.ready,
+          new Promise((resolve) => setTimeout(resolve, 300)),
+        ]);
+      });
+
+      await page.emulateMediaType("print");
+
+      const pdfBuffer = await page.pdf({
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: { top: "0", right: "0", bottom: "0", left: "0" },
+      });
+
+      const fileName = `${String(order.orderNo || orderId || "confirmation")}-backend-compare.pdf`;
+      res.set("Content-Type", "application/pdf");
+      res.set(
+        "Content-Disposition",
+        `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      );
+      res.status(200).send(pdfBuffer);
+    } catch (err) {
+      logger.error("generateConfirmedPdfComparison failed", {
+        orderId,
+        uid,
+        error: err?.message || String(err),
+      });
+      res
+        .status(500)
+        .type("text/plain; charset=utf-8")
+        .send(err?.message || "pdf generation failed");
+    } finally {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
+  },
+);
+
 exports.syncCompletionPhotoToNas = onDocumentWritten(
   {
     document: "Orders/{orderId}/completionPhotos/{photoId}",
@@ -7190,9 +7707,9 @@ exports.updateOrderIncompleteStatus = onCall(async (payload, ctx) => {
       updatedByUid: authUid,
       updatedByName: updatedByName,
       updatedByEmail: updatedByEmail,
-        最後更新員工: updatedByName,
-        最後更新員工Uid: authUid,
-        最後更新員工Email: updatedByEmail,
+      最後更新員工: updatedByName,
+      最後更新員工Uid: authUid,
+      最後更新員工Email: updatedByEmail,
     },
     { merge: true },
   );
@@ -7252,9 +7769,9 @@ exports.updateOrderIncompleteReason = onCall(async (payload, ctx) => {
       updatedByUid: authUid,
       updatedByName,
       updatedByEmail,
-        最後更新員工: updatedByName,
-        最後更新員工Uid: authUid,
-        最後更新員工Email: updatedByEmail,
+      最後更新員工: updatedByName,
+      最後更新員工Uid: authUid,
+      最後更新員工Email: updatedByEmail,
     },
     { merge: true },
   );
@@ -9475,6 +9992,9 @@ async function runPayrollCalculation(yyyyMM) {
   const mm = yyyyMM.slice(4, 6);
   const monthPrefix = `${yyyy}-${mm}`;
   const monthLabel = `${yyyy}年${parseInt(mm, 10)}月`;
+  const daysInMonth = new Date(Number(yyyy), Number(mm), 0).getDate();
+  const monthStart = `${yyyy}-${mm}-01`;
+  const monthEnd = `${yyyy}-${mm}-${String(daysInMonth).padStart(2, "0")}`;
 
   const db = admin.firestore();
 
@@ -9583,6 +10103,34 @@ async function runPayrollCalculation(yyyyMM) {
         seg.start && seg.end && seg.start < windowEnd && seg.end > windowStart,
     );
   }
+  function calcOtIntersectionHours(ot, attendanceByDate) {
+    const otDate = String(ot && ot.date ? ot.date : "").trim();
+    const otStart = normalizeTimeStr(ot && ot.startTime);
+    const otEnd = normalizeTimeStr(ot && ot.endTime);
+    if (!otDate || !otStart || !otEnd) {
+      return Number(ot && ot.hours) || 0;
+    }
+    const otStartMins = timeStrToMins(otStart);
+    const otEndMins = timeStrToMins(otEnd);
+    if (otEndMins <= otStartMins) return 0;
+
+    const att = attendanceByDate.get(otDate);
+    if (!att) return 0;
+
+    const workSegments = getWorkSegmentsFromAttendance(att).filter(
+      (seg) => seg.start && seg.end,
+    );
+    let overlapMins = 0;
+    for (const seg of workSegments) {
+      const segStart = timeStrToMins(seg.start);
+      const segEnd = timeStrToMins(seg.end);
+      if (segEnd <= segStart) continue;
+      const start = Math.max(otStartMins, segStart);
+      const end = Math.min(otEndMins, segEnd);
+      if (end > start) overlapMins += end - start;
+    }
+    return Math.round((overlapMins / 60) * 10) / 10;
+  }
   // 依扣薪單位計算扣薪金額
   function calcDeductionAmt(deductMins, hourlyRate) {
     if (deductMins <= 0) return 0;
@@ -9593,6 +10141,17 @@ async function runPayrollCalculation(yyyyMM) {
     } else {
       return (deductMins / 60) * hourlyRate;
     }
+  }
+  function normalizeDateStr(value) {
+    if (!value) return null;
+    const s = String(value).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  }
+  function daysBetweenInclusive(startDate, endDate) {
+    if (!startDate || !endDate || endDate < startDate) return 0;
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+    return Math.floor((end - start) / 86400000) + 1;
   }
 
   const workStartMins = toMins(workStart);
@@ -9646,20 +10205,33 @@ async function runPayrollCalculation(yyyyMM) {
     // Base hourly rate (for OT and leave deduction)
     const base = Number(s.baseSalary) || 0;
     const salType = s.salaryType || "月薪";
+    const empStartDate = normalizeDateStr(s.startDate);
+    const empEndDate = normalizeDateStr(
+      s.endDate || s.leaveDate || s.resignDate || s.terminationDate,
+    );
 
-    // 新進員工未滿月：按到職日比例計算底薪（月薪制才適用）
+    // 不在職於該月份：跳過本月計薪
+    if (
+      (empStartDate && empStartDate > monthEnd) ||
+      (empEndDate && empEndDate < monthStart)
+    ) {
+      logger.info(
+        `payroll: skip ${empNo} ${s.name || ""} ${yyyyMM}, out of employment range`,
+      );
+      continue;
+    }
+
+    const employmentStart =
+      empStartDate && empStartDate > monthStart ? empStartDate : monthStart;
+    const employmentEnd =
+      empEndDate && empEndDate < monthEnd ? empEndDate : monthEnd;
+
+    // 月薪制：按當月在職天數比例計算底薪（含月中到職/離職）
     let effectiveBase = base;
     let attendanceDays = 0;
-    if (salType === "月薪" && s.startDate) {
-      const startDateStr = String(s.startDate).slice(0, 10); // "YYYY-MM-DD"
-      const startYYYYMM = startDateStr.slice(0, 7).replace("-", ""); // "YYYYMM"
-      if (startYYYYMM === yyyyMM) {
-        // 到職日在當月內 → 按比例
-        const daysInMonth = new Date(Number(yyyy), Number(mm), 0).getDate();
-        const startDay = parseInt(startDateStr.slice(8, 10), 10);
-        const workedDays = daysInMonth - startDay + 1;
-        effectiveBase = Math.round((base * workedDays) / daysInMonth);
-      }
+    if (salType === "月薪") {
+      const employedDays = daysBetweenInclusive(employmentStart, employmentEnd);
+      effectiveBase = Math.round((base * employedDays) / daysInMonth);
     }
 
     let baseHourlyRate;
@@ -9672,12 +10244,49 @@ async function runPayrollCalculation(yyyyMM) {
       baseHourlyRate = base / 8;
     }
 
+    // 當月打卡資料（供加班交集計算與伙食/遲到早退）
+    let attendanceRecordsThisMonth = [];
+    if (userUid) {
+      const attSnap = await db
+        .collection("attendance")
+        .where("uid", "==", userUid)
+        .get();
+      attendanceRecordsThisMonth = attSnap.docs
+        .map((d) => d.data())
+        .filter((r) => {
+          const d = normalizeDateStr(r.date);
+          return d && d >= employmentStart && d <= employmentEnd;
+        });
+    }
+    const attendanceByDate = new Map(
+      attendanceRecordsThisMonth.map((r) => [String(r.date || ""), r]),
+    );
+
+    // 在職區間內的加班/請假資料
+    otRecords = otRecords.filter((r) => {
+      const d = normalizeDateStr(r.date);
+      return d && d >= employmentStart && d <= employmentEnd;
+    });
+    leaveRecords = leaveRecords.filter((lv) => {
+      const start = normalizeDateStr(lv.startDate);
+      let end = normalizeDateStr(lv.endDate);
+      if (!start) return false;
+      if (!end) {
+        const daysN =
+          lv.unit === "小時" ? 1 : Math.max(1, Number(lv.days) || 1);
+        const d = new Date(`${start}T00:00:00`);
+        d.setDate(d.getDate() + (daysN - 1));
+        end = d.toISOString().slice(0, 10);
+      }
+      return start <= employmentEnd && end >= employmentStart;
+    });
+
     // OT pay (勞基法第24條)
     let otPay = 0;
     let otHours = 0;
     const otDetail = [];
     for (const ot of otRecords) {
-      const h = Number(ot.hours) || 0;
+      const h = Math.max(0, calcOtIntersectionHours(ot, attendanceByDate));
       otHours += h;
       let pay;
       if (h <= 2) {
@@ -9696,8 +10305,14 @@ async function runPayrollCalculation(yyyyMM) {
     let otHoursOfficial = 0;
     const otDetailOfficial = [];
     for (const ot of otRecords) {
+      const actualIntersectionH = Math.max(
+        0,
+        calcOtIntersectionHours(ot, attendanceByDate),
+      );
       const hRaw =
-        Number(ot.officialHours != null ? ot.officialHours : ot.hours) || 0;
+        Number(
+          ot.officialHours != null ? ot.officialHours : actualIntersectionH,
+        ) || 0;
       const hOff = Math.min(
         hRaw,
         Math.max(0, OT_MONTHLY_CAP - otHoursOfficial),
@@ -9759,18 +10374,9 @@ async function runPayrollCalculation(yyyyMM) {
     let absentDays = 0;
     const absentDetail = [];
     if (userUid) {
-      const attSnap = await db
-        .collection("attendance")
-        .where("uid", "==", userUid)
-        .get();
-      const attRecords = attSnap.docs
-        .map((d) => d.data())
-        .filter(
-          (r) =>
-            String(r.date || "").startsWith(monthPrefix) &&
-            r.punchIn &&
-            r.punchOut,
-        );
+      const attRecords = attendanceRecordsThisMonth.filter(
+        (r) => r.punchIn && r.punchOut,
+      );
       attendanceDays = new Set(
         attRecords.map((r) => String(r.date || "").slice(0, 10)),
       ).size;
@@ -9835,9 +10441,6 @@ async function runPayrollCalculation(yyyyMM) {
           .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
           .filter(Boolean),
       );
-      const empStartDate = s.startDate
-        ? String(s.startDate).slice(0, 10)
-        : null;
       // 展開核准請假涵蓋的日期
       const leaveCoveredDates = new Set();
       for (const lv of leaveRecords) {
@@ -9853,8 +10456,7 @@ async function runPayrollCalculation(yyyyMM) {
       }
       // 有打卡（至少有 punchIn）的日期
       const punchedDates = new Set(
-        attSnap.docs
-          .map((d) => d.data())
+        attendanceRecordsThisMonth
           .filter(
             (r) => String(r.date || "").startsWith(monthPrefix) && r.punchIn,
           )
@@ -9866,7 +10468,8 @@ async function runPayrollCalculation(yyyyMM) {
       for (let day = 1; day <= daysInMonthN; day++) {
         const dateStr = `${yyyy}-${mm}-${String(day).padStart(2, "0")}`;
         if (dateStr > todayStr) continue; // 未來日期不計
-        if (empStartDate && dateStr < empStartDate) continue; // 到職前
+        if (dateStr < employmentStart) continue; // 到職前
+        if (dateStr > employmentEnd) continue; // 離職後
         const dow = new Date(dateStr + "T00:00:00").getDay();
         const isMakeup = makeupWorkdaySet.has(dateStr);
         if ((dow === 0 || dow === 6) && !isMakeup) continue; // 週末（非補班）
@@ -9912,6 +10515,8 @@ async function runPayrollCalculation(yyyyMM) {
     const electricFee = Math.max(0, Number(s.electricFee) || 0);
     const foreignMedical = Math.max(0, Number(s.foreignMedical) || 0);
     const foreignService = Math.max(0, Number(s.foreignService) || 0);
+    const otherDeduction = Math.max(0, Number(s.otherDeduction) || 0);
+    const otherDeductionNote = String(s.otherDeductionNote || "").trim();
 
     // Use docKey/docId to read existing payroll for preserved lunchFee
     const docKey = userUid || `empNo_${String(empNo)}`;
@@ -9999,6 +10604,7 @@ async function runPayrollCalculation(yyyyMM) {
         electricFee -
         foreignMedical -
         foreignService -
+        otherDeduction -
         loanPrincipal -
         loanInterest,
     );
@@ -10021,6 +10627,7 @@ async function runPayrollCalculation(yyyyMM) {
         electricFee -
         foreignMedical -
         foreignService -
+        otherDeduction -
         loanPrincipal -
         loanInterest -
         absentDeduction,
@@ -10042,6 +10649,8 @@ async function runPayrollCalculation(yyyyMM) {
         dept: s.dept || "",
         yyyyMM,
         monthLabel,
+        employmentStart,
+        employmentEnd,
         salaryType: salType,
         baseSalary: effectiveBase,
         baseSalaryFull: base,
@@ -10077,6 +10686,8 @@ async function runPayrollCalculation(yyyyMM) {
         electricFee,
         foreignMedical,
         foreignService,
+        otherDeduction,
+        otherDeductionNote,
         loanPrincipal,
         loanInterest,
         laborInsuranceSalaryBase,

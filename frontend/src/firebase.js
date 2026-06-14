@@ -1948,17 +1948,39 @@ export async function listStoveModels() {
     );
 }
 
+export async function listSinkModels() {
+  const ref = collection(db, "productModels");
+  const snap = await getDocs(query(ref, where("type", "==", "sink")));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) =>
+      String(a.model || "").localeCompare(String(b.model || ""), "zh-Hant"),
+    );
+}
+
 function normalizeModelDocId(value = "") {
   return String(value || "")
     .trim()
     .replace(/\//g, "-");
 }
 
+function currentUserIdentity() {
+  const u = auth.currentUser;
+  if (!u) return "";
+  return String(u.displayName || u.email || u.uid || "").trim();
+}
+
 export async function createStoveModel(payload = {}) {
   const model = String(payload.model || "").trim();
   if (!model) throw new Error("請輸入型號");
 
-  const uid = auth.currentUser?.uid || "system";
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const loginIdentity = currentUserIdentity();
+  const creator = String(
+    payload.createdBy || payload.createdByUid || loginIdentity,
+  ).trim();
+  if (!creator) throw new Error("找不到登入使用者，請重新登入後再試");
   const docId = normalizeModelDocId(model);
   const ref = doc(db, "productModels", docId);
 
@@ -1967,10 +1989,12 @@ export async function createStoveModel(payload = {}) {
     model,
     brand: String(payload.brand || "").trim(),
     sizeText: String(payload.sizeText || "").trim(),
+    createdBy: creator,
+    createdByUid: creator,
     active: payload.active !== false,
     notes: String(payload.notes || "").trim(),
     updatedAt: serverTimestamp(),
-    updatedByUid: uid,
+    updatedByUid: uid || creator,
   };
 
   const exists = await getDoc(ref);
@@ -1979,29 +2003,99 @@ export async function createStoveModel(payload = {}) {
   await setDoc(ref, {
     ...data,
     createdAt: serverTimestamp(),
-    createdByUid: uid,
+    createdByUid: creator,
   });
   return docId;
 }
 
 export async function updateStoveModel(docId, payload = {}) {
   if (!docId) throw new Error("缺少文件 ID");
-  const uid = auth.currentUser?.uid || "system";
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
   const ref = doc(db, "productModels", docId);
+  const creator = String(
+    payload.createdBy || payload.createdByUid || "",
+  ).trim();
 
   await updateDoc(ref, {
     type: "stove",
     model: String(payload.model || "").trim(),
     brand: String(payload.brand || "").trim(),
     sizeText: String(payload.sizeText || "").trim(),
+    ...(creator ? { createdBy: creator, createdByUid: creator } : {}),
     active: payload.active !== false,
     notes: String(payload.notes || "").trim(),
     updatedAt: serverTimestamp(),
-    updatedByUid: uid,
+    updatedByUid: uid || currentUserIdentity() || creator,
   });
 }
 
 export async function deleteStoveModel(docId) {
+  if (!docId) throw new Error("缺少文件 ID");
+  await deleteDoc(doc(db, "productModels", docId));
+}
+
+export async function createSinkModel(payload = {}) {
+  const model = String(payload.model || "").trim();
+  if (!model) throw new Error("請輸入型號");
+
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const loginIdentity = currentUserIdentity();
+  const creator = String(
+    payload.createdBy || payload.createdByUid || loginIdentity,
+  ).trim();
+  if (!creator) throw new Error("找不到登入使用者，請重新登入後再試");
+  const docId = `sink-${normalizeModelDocId(model)}`;
+  const ref = doc(db, "productModels", docId);
+
+  const data = {
+    type: "sink",
+    model,
+    brand: String(payload.brand || "").trim(),
+    sizeText: String(payload.sizeText || "").trim(),
+    createdBy: creator,
+    createdByUid: creator,
+    active: payload.active !== false,
+    notes: String(payload.notes || "").trim(),
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid || creator,
+  };
+
+  const exists = await getDoc(ref);
+  if (exists.exists()) throw new Error("此型號已存在");
+
+  await setDoc(ref, {
+    ...data,
+    createdAt: serverTimestamp(),
+    createdByUid: creator,
+  });
+  return docId;
+}
+
+export async function updateSinkModel(docId, payload = {}) {
+  if (!docId) throw new Error("缺少文件 ID");
+  await authReadyPromise;
+  const uid = auth.currentUser?.uid || null;
+  const ref = doc(db, "productModels", docId);
+  const creator = String(
+    payload.createdBy || payload.createdByUid || "",
+  ).trim();
+
+  await updateDoc(ref, {
+    type: "sink",
+    model: String(payload.model || "").trim(),
+    brand: String(payload.brand || "").trim(),
+    sizeText: String(payload.sizeText || "").trim(),
+    ...(creator ? { createdBy: creator, createdByUid: creator } : {}),
+    active: payload.active !== false,
+    notes: String(payload.notes || "").trim(),
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid || currentUserIdentity() || creator,
+  });
+}
+
+export async function deleteSinkModel(docId) {
   if (!docId) throw new Error("缺少文件 ID");
   await deleteDoc(doc(db, "productModels", docId));
 }
@@ -4249,6 +4343,38 @@ export async function uploadConfirmedPdf(orderId, blob) {
   return url;
 }
 
+export async function downloadConfirmedPdfComparison(orderId) {
+  await authReadyPromise;
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error("尚未登入，無法產生後端比較PDF");
+  }
+
+  const token = await user.getIdToken();
+  const url = `https://asia-east1-${firebaseConfig.projectId}.cloudfunctions.net/generateConfirmedPdfComparison?orderId=${encodeURIComponent(orderId)}&t=${Date.now()}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const contentType = String(response.headers.get("content-type") || "")
+    .toLowerCase()
+    .trim();
+  if (!response.ok) {
+    const message = String(await response.text().catch(() => "")).trim();
+    throw new Error(message || `後端比較PDF產生失敗（${response.status}）`);
+  }
+
+  if (!contentType.includes("application/pdf")) {
+    const message = String(await response.text().catch(() => "")).trim();
+    throw new Error(message || "後端回應不是 PDF（請檢查 Functions 日誌）");
+  }
+
+  return await response.blob();
+}
+
 // Re-fetch a fresh download URL (with token) for an already-uploaded confirmed PDF.
 // Useful when the URL stored in Firestore is missing the &token= parameter.
 export async function refreshConfirmedPdfDownloadUrl(orderId) {
@@ -4669,7 +4795,9 @@ function stripUndefinedDeep(value) {
 }
 
 export async function saveOrderConfirmation(orderId, layout) {
+  await authReadyPromise;
   const uid = auth.currentUser?.uid || null;
+  if (!uid) throw new Error("尚未登入，無法儲存生產確定單");
   const sanitizedLayout = stripUndefinedDeep(layout) || {};
   await setDoc(doc(db, "salesOrders", orderId, "confirmationDoc", "layout"), {
     ...sanitizedLayout,
@@ -4819,6 +4947,38 @@ export async function deleteStamp(stampId) {
     /* ignore */
   }
   await deleteDoc(ref);
+}
+
+/**
+ * Generate PDF from backend using Puppeteer
+ * @param {string} orderId - Order ID
+ * @returns {Promise<Blob>} PDF blob
+ */
+export async function generateBackendConfirmedPdf(orderId) {
+  const user = await getSignedInUser();
+  const idToken = await user.getIdToken();
+
+  const functionUrl = `https://asia-east1-jh-stone.cloudfunctions.net/generateConfirmedPdfComparison?orderId=${encodeURIComponent(orderId)}`;
+
+  try {
+    const response = await fetch(functionUrl, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/pdf",
+      },
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`後端PDF生成失敗 (${response.status}): ${errText}`);
+    }
+
+    return await response.blob();
+  } catch (error) {
+    console.error("generateBackendConfirmedPdf failed:", error);
+    throw error;
+  }
 }
 
 export async function saveStampToLibrary(stampId) {

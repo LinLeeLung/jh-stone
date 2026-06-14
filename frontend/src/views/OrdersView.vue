@@ -13,6 +13,9 @@
         <RouterLink class="btn-aux" to="/dispatch-sheet"
           >🚚 派車表單</RouterLink
         >
+        <RouterLink class="btn-aux" to="/stove-models"
+          >水槽/爐子型號</RouterLink
+        >
         <button class="btn-aux" type="button" @click="openSitePriceModal">
           工地價格
         </button>
@@ -28,12 +31,19 @@
         <input
           v-model="keyword"
           class="search-input"
-          placeholder="搜尋客戶名稱 / 訂單號碼 / 地址 / 石材"
+          :placeholder="
+            selectedCustomerForKeyword
+              ? '已鎖定客戶，可再輸入石材 / 地址片段 / 案名縮小範圍'
+              : '搜尋客戶名稱 / 訂單號碼 / 地址 / 石材'
+          "
           @focus="onKeywordFocus"
           @blur="onKeywordBlur"
           @input="onKeywordInput"
         />
-        <div v-if="showCustomerMatchList && customerMatches.length" class="customer-match-list">
+        <div
+          v-if="showCustomerMatchList && customerMatches.length"
+          class="customer-match-list"
+        >
           <button
             v-for="customer in customerMatches"
             :key="customer.id"
@@ -42,7 +52,9 @@
             @mousedown.prevent
             @click="selectCustomerForSearch(customer)"
           >
-            <span class="customer-match-code">{{ customer.code || customer.id }}</span>
+            <span class="customer-match-code">{{
+              customer.code || customer.id
+            }}</span>
             <span class="customer-match-name">{{ customer.name }}</span>
           </button>
         </div>
@@ -71,9 +83,15 @@
           {{ s.label }}
         </option>
       </select>
-      <span v-if="!loading && !searchingSelectedCustomer" class="result-count">
-        查到 {{ filtered.length }} 筆
-      </span>
+      <div v-if="!loading && !searchingSelectedCustomer" class="result-stats">
+        <span class="result-count">查到 {{ filtered.length }} 筆</span>
+        <span class="result-metric"
+          >銷售總額 {{ salesAmountTotal.toLocaleString() }}</span
+        >
+        <span class="result-metric"
+          >平均銷售額 {{ salesAmountAverage.toLocaleString() }}</span
+        >
+      </div>
     </div>
 
     <p v-if="loading" class="hint">載入中…</p>
@@ -113,6 +131,9 @@
             </th>
             <th class="sortable col-countertop" @click="setSort('countertop')">
               台面{{ sortIcon("countertop") }}
+            </th>
+            <th class="sortable col-sales" @click="setSort('salesAmount')">
+              銷售額{{ sortIcon("salesAmount") }}
             </th>
             <th class="sortable col-price" @click="setSort('total')">
               含稅金額{{ sortIcon("total") }}
@@ -155,7 +176,9 @@
                 >
               </div>
             </td>
-            <td class="col-staff">{{ fmtStaffWithMonthDay(o.templatingStaff, o.templatingDate) }}</td>
+            <td class="col-staff">
+              {{ fmtStaffWithMonthDay(o.templatingStaff, o.templatingDate) }}
+            </td>
             <td class="col-staff">{{ o.drawingStaff || "—" }}</td>
             <td class="col-date">{{ fmtDate(o.orderedAt) }}</td>
             <td class="col-date">{{ fmtDate(o.promisedAt) }}</td>
@@ -242,6 +265,12 @@
                 >{{ o.countertop.totalCm }}cm</span
               >
             </td>
+            <td class="col-sales">
+              <span v-if="getSalesAmount(o) != null" class="sales-tag">{{
+                Math.round(getSalesAmount(o)).toLocaleString()
+              }}</span>
+              <span v-else class="dim">—</span>
+            </td>
             <td class="col-price">
               <span v-if="o.total" class="price-tag">{{
                 Math.round(o.total * 1.05).toLocaleString()
@@ -290,23 +319,49 @@
           </label>
           <label>
             案名
-            <input v-model.trim="sitePriceForm.projectName" type="text" placeholder="例如：林口A5-10F" />
+            <input
+              v-model.trim="sitePriceForm.projectName"
+              type="text"
+              placeholder="例如：林口A5-10F"
+            />
           </label>
           <label>
             顏色
-            <input v-model.trim="sitePriceForm.color" type="text" placeholder="例如：雪白石" />
+            <input
+              v-model.trim="sitePriceForm.color"
+              type="text"
+              placeholder="例如：雪白石"
+            />
           </label>
           <label>
             價格
-            <input v-model.number="sitePriceForm.price" type="number" min="0" step="1" placeholder="0" />
+            <input
+              v-model.number="sitePriceForm.price"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="0"
+            />
           </label>
           <label>
             水槽價格
-            <input v-model.number="sitePriceForm.sinkPrice" type="number" min="0" step="1" placeholder="0" />
+            <input
+              v-model.number="sitePriceForm.sinkPrice"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="0"
+            />
           </label>
           <label>
             火爐價格
-            <input v-model.number="sitePriceForm.stovePrice" type="number" min="0" step="1" placeholder="0" />
+            <input
+              v-model.number="sitePriceForm.stovePrice"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="0"
+            />
           </label>
         </div>
 
@@ -315,7 +370,10 @@
             <strong>既有工地價格</strong>
             <span class="muted" v-if="sitePriceLoading">載入中...</span>
           </div>
-          <p v-if="!sitePriceLoading && !sitePriceRows.length" class="muted small">
+          <p
+            v-if="!sitePriceLoading && !sitePriceRows.length"
+            class="muted small"
+          >
             輸入客戶後可查看既有資料
           </p>
           <div v-else class="site-price-list-table">
@@ -338,8 +396,20 @@
                   <td>{{ Number(item.sinkPrice || 0).toLocaleString() }}</td>
                   <td>{{ Number(item.stovePrice || 0).toLocaleString() }}</td>
                   <td class="site-price-op">
-                    <button class="btn-mini" type="button" @click="editSitePriceEntry(item)">修改</button>
-                    <button class="btn-mini" type="button" @click="deleteSitePriceEntry(item)">刪除</button>
+                    <button
+                      class="btn-mini"
+                      type="button"
+                      @click="editSitePriceEntry(item)"
+                    >
+                      修改
+                    </button>
+                    <button
+                      class="btn-mini"
+                      type="button"
+                      @click="deleteSitePriceEntry(item)"
+                    >
+                      刪除
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -349,10 +419,30 @@
 
         <p v-if="sitePriceMsg" class="site-price-msg">{{ sitePriceMsg }}</p>
         <div class="site-price-actions">
-          <button v-if="editingSitePriceKey" class="btn-aux" type="button" @click="cancelSitePriceEdit">取消修改</button>
-          <button class="btn-aux" type="button" @click="closeSitePriceModal">關閉</button>
-          <button class="btn-primary" type="button" :disabled="sitePriceSaving" @click="saveSitePriceEntry">
-            {{ sitePriceSaving ? "儲存中..." : editingSitePriceKey ? "更新" : "儲存" }}
+          <button
+            v-if="editingSitePriceKey"
+            class="btn-aux"
+            type="button"
+            @click="cancelSitePriceEdit"
+          >
+            取消修改
+          </button>
+          <button class="btn-aux" type="button" @click="closeSitePriceModal">
+            關閉
+          </button>
+          <button
+            class="btn-primary"
+            type="button"
+            :disabled="sitePriceSaving"
+            @click="saveSitePriceEntry"
+          >
+            {{
+              sitePriceSaving
+                ? "儲存中..."
+                : editingSitePriceKey
+                  ? "更新"
+                  : "儲存"
+            }}
           </button>
         </div>
       </div>
@@ -429,17 +519,39 @@ let latestSitePriceLoad = 0;
 const allCustomerNames = ref([]);
 const customerMatches = computed(() => {
   if (selectedCustomerForKeyword.value) return [];
-  const kw = String(keyword.value || "").trim().toLowerCase();
+  const kw = String(keyword.value || "")
+    .trim()
+    .toLowerCase();
   if (kw.length < 2) return [];
   return customerDirectory.value
     .filter((customer) => customer.searchText.includes(kw))
     .slice(0, 30);
 });
 const customerKeywordOptions = computed(() => {
-  const source = Array.isArray(allCustomerNames.value) ? allCustomerNames.value : [];
-  const kw = String(sitePriceForm.value.customerName || "").trim().toLowerCase();
+  const source = Array.isArray(allCustomerNames.value)
+    ? allCustomerNames.value
+    : [];
+  const kw = String(sitePriceForm.value.customerName || "")
+    .trim()
+    .toLowerCase();
   if (!kw) return source.slice(0, 30);
-  return source.filter((name) => String(name || "").toLowerCase().includes(kw)).slice(0, 30);
+  return source
+    .filter((name) =>
+      String(name || "")
+        .toLowerCase()
+        .includes(kw),
+    )
+    .slice(0, 30);
+});
+const salesAmountTotal = computed(() =>
+  filtered.value.reduce(
+    (sum, order) => sum + (Number(getSalesAmount(order)) || 0),
+    0,
+  ),
+);
+const salesAmountAverage = computed(() => {
+  if (!filtered.value.length) return 0;
+  return Math.round(salesAmountTotal.value / filtered.value.length);
 });
 let latestFilterRun = 0;
 let latestDrawingHydration = 0;
@@ -474,7 +586,8 @@ function restoreSearchState() {
       sinkStatusFilter.value = state.sinkStatusFilter || "";
       sortCol.value = state.sortCol || "updatedAt";
       sortDir.value = state.sortDir || -1;
-      selectedCustomerForKeyword.value = state.selectedCustomerForKeyword || null;
+      selectedCustomerForKeyword.value =
+        state.selectedCustomerForKeyword || null;
       return true;
     }
   } catch (e) {
@@ -525,7 +638,9 @@ const STATUS_ORDER = [
 function sortVal(o, col) {
   switch (col) {
     case "updatedAt": {
-      const d = parseDateValue(o.confirmationUpdatedAt || o.updatedAt || o.createdAt || o.orderedAt);
+      const d = parseDateValue(
+        o.confirmationUpdatedAt || o.updatedAt || o.createdAt || o.orderedAt,
+      );
       return d ? d.getTime() : 0;
     }
     case "orderedAt": {
@@ -560,6 +675,8 @@ function sortVal(o, col) {
       return o.category ?? "";
     case "countertop":
       return o.countertop?.type ?? "";
+    case "salesAmount":
+      return Number(getSalesAmount(o) ?? -1);
     case "stones": {
       const first = Array.isArray(o.stones) && o.stones[0];
       return first ? [first.brand, first.color].filter(Boolean).join(" ") : "";
@@ -582,7 +699,9 @@ onMounted(async () => {
       isAdmin.value = userHasAnyRole(u, ["admin", "管理者"]);
       canDispatch.value = isAdmin.value || userHasAnyDept(u, ["1"]);
     }
-    const salesOrders = await listSalesOrders({ limit: loadLimit }).catch(() => []);
+    const salesOrders = await listSalesOrders({ limit: loadLimit }).catch(
+      () => [],
+    );
     rows.value = salesOrders;
     const nameSet = new Set(
       salesOrders
@@ -714,7 +833,9 @@ function orderMatchesSelectedCustomer(order, selectedCustomer = {}) {
   if (orderCustomerId && idSet.has(orderCustomerId)) return true;
 
   const targetName = normalizeCustomerKey(selectedCustomer.name);
-  const targetCode = normalizeCustomerKey(selectedCustomer.code || selectedCustomer.id);
+  const targetCode = normalizeCustomerKey(
+    selectedCustomer.code || selectedCustomer.id,
+  );
   const orderCustomerName = normalizeCustomerKey(order?.customerName);
   if (!orderCustomerName) return false;
 
@@ -759,7 +880,10 @@ async function applyFilter() {
 
   searchingSelectedCustomer.value = false;
 
-  if (selectedCustomerForKeyword.value?.ids?.length || selectedCustomerForKeyword.value?.name) {
+  if (
+    selectedCustomerForKeyword.value?.ids?.length ||
+    selectedCustomerForKeyword.value?.name
+  ) {
     searchingSelectedCustomer.value = true;
     filtered.value = [];
 
@@ -778,9 +902,9 @@ async function applyFilter() {
     ];
     if (selectedCustomerForKeyword.value?.name) {
       tasks.push(
-        listSalesOrdersByCustomerName(selectedCustomerForKeyword.value.name).catch(
-          () => [],
-        ),
+        listSalesOrdersByCustomerName(
+          selectedCustomerForKeyword.value.name,
+        ).catch(() => []),
       );
     }
 
@@ -802,7 +926,7 @@ async function applyFilter() {
       scoped.filter((order) => {
         if (st && order.status !== st) return false;
         if (sk && !hasSinkStatus(order, sk)) return false;
-        return true;
+        return matchesKeyword(order, kw);
       }),
     );
     searchingSelectedCustomer.value = false;
@@ -813,11 +937,11 @@ async function applyFilter() {
 
   if (shouldRemoteKeywordLookup(rawKeyword)) {
     const remoteMatches = await searchSalesOrdersByKeyword(rawKeyword, {
-        limit: 20,
-      }).catch((error) => {
-        console.warn("OrdersView: remote keyword lookup failed", error);
-        return [];
-      });
+      limit: 20,
+    }).catch((error) => {
+      console.warn("OrdersView: remote keyword lookup failed", error);
+      return [];
+    });
     if (filterRunId !== latestFilterRun) return;
     const filteredRemote = remoteMatches.filter((order) =>
       matchesFilters(order, kw, st, sk),
@@ -840,12 +964,6 @@ function onKeywordBlur() {
 }
 
 function onKeywordInput() {
-  if (
-    selectedCustomerForKeyword.value &&
-    String(keyword.value || "").trim() !== selectedCustomerForKeyword.value.label
-  ) {
-    selectedCustomerForKeyword.value = null;
-  }
   showCustomerMatchList.value = true;
   saveSearchState();
   void applyFilter();
@@ -867,7 +985,7 @@ function selectCustomerForSearch(customer) {
     code: customer.code,
     label,
   };
-  keyword.value = label;
+  keyword.value = "";
   showCustomerMatchList.value = false;
   saveSearchState();
   void applyFilter();
@@ -905,6 +1023,14 @@ function hasSinkStatus(order, val) {
   return sinks.some((s) => (s.arrival || "notArrived") === val);
 }
 
+function getSalesAmount(order) {
+  const amount = Number(order?.amount);
+  if (Number.isFinite(amount) && amount > 0) return amount;
+  const total = Number(order?.total);
+  if (Number.isFinite(total) && total > 0) return total;
+  return null;
+}
+
 function orderHasDrawings(order) {
   return !!(
     order?.hasDrawings ||
@@ -931,7 +1057,8 @@ function parseDateValue(val) {
   if (!val) return null;
   if (val?.toDate) return val.toDate();
   const n = Number(val);
-  if (!isNaN(n) && n > 0 && n < 100000) return new Date((n - 25569) * 86400 * 1000);
+  if (!isNaN(n) && n > 0 && n < 100000)
+    return new Date((n - 25569) * 86400 * 1000);
   if (!isNaN(n) && n >= 1000000000000) return new Date(n);
   return new Date(String(val).slice(0, 10));
 }
@@ -986,7 +1113,9 @@ async function loadSitePriceRows() {
 function editSitePriceEntry(item) {
   editingSitePriceKey.value = String(item?.entryKey || "");
   sitePriceForm.value = {
-    customerName: String(item?.customerName || sitePriceForm.value.customerName || "").trim(),
+    customerName: String(
+      item?.customerName || sitePriceForm.value.customerName || "",
+    ).trim(),
     projectName: String(item?.projectName || "").trim(),
     color: String(item?.color || "").trim(),
     price: Number(item?.price || 0),
@@ -1003,10 +1132,17 @@ function cancelSitePriceEdit() {
 }
 
 async function deleteSitePriceEntry(item) {
-  const customerName = String(sitePriceForm.value.customerName || item?.customerName || "").trim();
+  const customerName = String(
+    sitePriceForm.value.customerName || item?.customerName || "",
+  ).trim();
   const entryKey = String(item?.entryKey || "").trim();
   if (!customerName || !entryKey) return;
-  if (!confirm(`確定刪除工地案「${item?.projectName || ""} / ${item?.color || ""}」嗎？`)) return;
+  if (
+    !confirm(
+      `確定刪除工地案「${item?.projectName || ""} / ${item?.color || ""}」嗎？`,
+    )
+  )
+    return;
 
   sitePriceSaving.value = true;
   sitePriceMsg.value = "";
@@ -1060,7 +1196,9 @@ async function saveSitePriceEntry() {
       ...payload,
       entryKey: editingSitePriceKey.value || undefined,
     });
-    sitePriceMsg.value = editingSitePriceKey.value ? "已更新工地價格" : "已儲存工地價格";
+    sitePriceMsg.value = editingSitePriceKey.value
+      ? "已更新工地價格"
+      : "已儲存工地價格";
     const keepCustomerName = payload.customerName;
     editingSitePriceKey.value = "";
     resetSitePriceForm();
@@ -1110,8 +1248,16 @@ watch(
   margin-bottom: 14px;
   align-items: center;
 }
-.result-count {
+.result-stats {
   margin-left: auto;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.result-count,
+.result-metric {
   color: #334155;
   font-size: 13px;
   font-weight: 600;
@@ -1193,8 +1339,8 @@ watch(
   overflow-x: auto;
 }
 .orders-table {
-  width: max(1860px, 100%);
-  min-width: 1860px;
+  width: max(1960px, 100%);
+  min-width: 1960px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 13.5px;
@@ -1304,6 +1450,18 @@ watch(
   width: 92px;
   min-width: 92px;
   max-width: 92px;
+}
+.col-sales {
+  text-align: right;
+  white-space: nowrap;
+  width: 98px;
+  min-width: 98px;
+  max-width: 98px;
+}
+.sales-tag {
+  font-weight: 600;
+  color: #0f766e;
+  font-size: 13px;
 }
 .price-tag {
   font-weight: 600;

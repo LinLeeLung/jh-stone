@@ -3461,9 +3461,9 @@ watch(results, () => {
   inset: 0;
   background: rgba(17, 24, 39, 0.45);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  z-index: 25;
+  z-index: 1200;
   padding: 0.75rem;
 }
 
@@ -3471,7 +3471,7 @@ watch(results, () => {
   position: fixed;
   right: max(12px, env(safe-area-inset-right, 0px));
   bottom: max(12px, env(safe-area-inset-bottom, 0px));
-  z-index: 999;
+  z-index: 1205;
   padding: 0.45rem 0.9rem;
   border-radius: 999px;
   border: 1px solid #cbd5e1;
@@ -3711,7 +3711,7 @@ watch(results, () => {
     color: #111827;
     font-size: 0.86rem;
     box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
-    z-index: 30;
+    z-index: 1206;
   }
 }
 </style>

@@ -476,6 +476,18 @@
                 −{{ detailRecord.lunchFee.toLocaleString() }}
               </td>
             </tr>
+            <tr v-if="(detailRecord.otherDeduction || 0) > 0">
+              <th>
+                其他減項{{
+                  detailRecord.otherDeductionNote
+                    ? `（${detailRecord.otherDeductionNote}）`
+                    : ""
+                }}
+              </th>
+              <td class="num deduct">
+                −{{ detailRecord.otherDeduction.toLocaleString() }}
+              </td>
+            </tr>
             <tr v-if="(detailRecord.loanPrincipal || 0) > 0">
               <th>借款本金</th>
               <td class="num deduct">
@@ -867,6 +879,7 @@ function calcFirstPaymentFixedDeductions(r) {
     (Number(r.electricFee) || 0) +
     (Number(r.foreignMedical) || 0) +
     (Number(r.foreignService) || 0) +
+    (Number(r.otherDeduction) || 0) +
     (Number(r.loanPrincipal) || 0) +
     (Number(r.loanInterest) || 0)
   );
@@ -918,6 +931,7 @@ const annualColumnDefs = [
   { key: "dependentHealth", label: "健保費（眷屬）" },
   { key: "mutualAid", label: "減項互助金" },
   { key: "lunchFee", label: "便當費" },
+  { key: "otherDeduction", label: "其他減項" },
   { key: "loanPrincipal", label: "借款本金" },
   { key: "loanInterest", label: "借款利息" },
   { key: "leaveDeduction", label: "請假扣薪" },
@@ -1856,6 +1870,7 @@ function printSlip(r, mode) {
       ${deductRow('電費', r.electricFee)}
       ${deductRow('體檢費（外勞）', r.foreignMedical)}
       ${deductRow('服務費（外勞）', r.foreignService)}
+      ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : '其他減項', r.otherDeduction)}
       ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
       ${deductRow('借款本金', r.loanPrincipal)}
       ${deductRow('借款利息', r.loanInterest)}
@@ -1920,6 +1935,7 @@ function printSlip(r, mode) {
       ${deductRow('電費', r.electricFee)}
       ${deductRow('體檢費（外勞）', r.foreignMedical)}
       ${deductRow('服務費（外勞）', r.foreignService)}
+      ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : '其他減項', r.otherDeduction)}
       ${deductRow('借款本金', r.loanPrincipal)}
       ${deductRow('借款利息', r.loanInterest)}
       <tr class="total-row"><th>實領薪資</th><td class="gross">${n(r.grossPay)}</td></tr>

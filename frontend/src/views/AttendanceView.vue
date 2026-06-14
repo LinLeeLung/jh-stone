@@ -133,10 +133,14 @@
               :disabled="correctionSubmitting"
               @click="submitCorrectionRequest"
             >
-              {{ correctionSubmitting ? t("corr_submitting") : t("corr_submit") }}
+              {{
+                correctionSubmitting ? t("corr_submitting") : t("corr_submit")
+              }}
             </button>
           </div>
-          <div v-if="correctionMsg" class="correction-msg">{{ correctionMsg }}</div>
+          <div v-if="correctionMsg" class="correction-msg">
+            {{ correctionMsg }}
+          </div>
         </div>
       </div>
 
@@ -262,7 +266,12 @@
             <td>{{ r.punchOut || "—" }}</td>
             <td>{{ r.reason || "—" }}</td>
             <td>
-              <span :class="['correction-status', `status-${r.status || 'pending'}`]">
+              <span
+                :class="[
+                  'correction-status',
+                  `status-${r.status || 'pending'}`,
+                ]"
+              >
                 {{ correctionStatusText(r.status) }}
               </span>
             </td>
@@ -277,7 +286,9 @@
 
     <div v-if="isApprover" class="admin-section" style="margin-bottom: 24px">
       <h2>{{ t("corr_review_title") }}</h2>
-      <div v-if="loadingPendingCorrections" class="loading">{{ t("loading") }}</div>
+      <div v-if="loadingPendingCorrections" class="loading">
+        {{ t("loading") }}
+      </div>
       <table v-else class="att-table">
         <thead>
           <tr>
@@ -297,8 +308,16 @@
             <td>{{ r.punchOut || "—" }}</td>
             <td>{{ r.reason || "—" }}</td>
             <td>
-              <button class="btn-edit-sm" @click="approveCorrectionRequest(r)">{{ t("corr_approve") }}</button>
-              <button class="btn-cancel" style="margin-left:6px" @click="rejectCorrectionRequest(r)">{{ t("corr_reject") }}</button>
+              <button class="btn-edit-sm" @click="approveCorrectionRequest(r)">
+                {{ t("corr_approve") }}
+              </button>
+              <button
+                class="btn-cancel"
+                style="margin-left: 6px"
+                @click="rejectCorrectionRequest(r)"
+              >
+                {{ t("corr_reject") }}
+              </button>
             </td>
           </tr>
           <tr v-if="!pendingCorrectionRequests.length">
@@ -859,7 +878,10 @@ function timeStr() {
   return new Date().toLocaleTimeString("zh-TW", { hour12: false });
 }
 
-const EARLIEST_PUNCH_IN = "07:45:00";
+const EARLIEST_PUNCH_IN = "08:00:00";
+const WORK_HOURS_END = "17:00:00";
+const LUNCH_BREAK_START = "12:00:00";
+const LUNCH_BREAK_END = "13:00:00";
 
 function toSeconds(value) {
   if (!value) return null;
@@ -909,7 +931,29 @@ function normalizeWorkSegments(list) {
 
 function getWorkSegments(record) {
   const segments = normalizeWorkSegments(record?.workSegments);
-  if (segments.length) return segments;
+  if (segments.length) {
+    const hasCompletedSegment = segments.some((seg) => {
+      const start = toSeconds(seg?.start);
+      const end = toSeconds(seg?.end);
+      return start != null && end != null && end > start;
+    });
+    if (hasCompletedSegment) return segments;
+
+    // Legacy/manual records may have punchOut but keep an open work segment.
+    // Fall back to a single closed segment so hours can still be calculated.
+    const punchOut = toHMS(record?.punchOut);
+    const firstStart = segments[0]?.start;
+    const start = clampEarliestPunchIn(firstStart);
+    if (start && punchOut) {
+      const startSeconds = toSeconds(start);
+      const endSeconds = toSeconds(punchOut);
+      if (startSeconds != null && endSeconds != null && endSeconds > startSeconds) {
+        return [{ start, end: punchOut }];
+      }
+    }
+
+    return segments;
+  }
   if (record?.punchIn) {
     return [
       {
@@ -953,14 +997,36 @@ function getRecordStatus(record) {
 }
 
 function calcRecordHours(record) {
-  const totalSeconds = getWorkSegments(record).reduce((sum, seg) => {
+  const workEnd = toSeconds(WORK_HOURS_END) ?? 0;
+  const lunchStart = toSeconds(LUNCH_BREAK_START) ?? 0;
+  const lunchEnd = toSeconds(LUNCH_BREAK_END) ?? 0;
+
+  let totalSeconds = 0;
+  let lunchOverlapSeconds = 0;
+
+  getWorkSegments(record).forEach((seg) => {
     const start = toSeconds(seg.start);
     const end = toSeconds(seg.end);
-    if (start == null || end == null || end <= start) return sum;
-    return sum + (end - start);
-  }, 0);
+    if (start == null || end == null || end <= start) return;
+
+    const clippedStart = Math.max(start, toSeconds(EARLIEST_PUNCH_IN) ?? 0);
+    const clippedEnd = Math.min(end, workEnd);
+    if (clippedEnd <= clippedStart) return;
+
+    totalSeconds += clippedEnd - clippedStart;
+
+    const lunchOverlap =
+      Math.min(clippedEnd, lunchEnd) - Math.max(clippedStart, lunchStart);
+    if (lunchOverlap > 0) lunchOverlapSeconds += lunchOverlap;
+  });
+
   if (!totalSeconds) return "—";
-  return (totalSeconds / 3600).toFixed(1);
+
+  // 中午休息最多扣 1 小時，避免重疊時段被重複扣除。
+  const deductedSeconds = Math.min(lunchOverlapSeconds, 3600);
+  const payableSeconds = Math.max(0, totalSeconds - deductedSeconds);
+  if (!payableSeconds) return "—";
+  return (payableSeconds / 3600).toFixed(1);
 }
 
 function hasCompletedWorkRecord(record) {
@@ -1339,7 +1405,10 @@ async function submitCorrectionRequest() {
     await addDoc(collection(db, "attendanceCorrectionRequests"), {
       uid: currentUser.uid,
       name:
-        userDoc?.displayName || currentUser.displayName || currentUser.email || "",
+        userDoc?.displayName ||
+        currentUser.displayName ||
+        currentUser.email ||
+        "",
       email: currentUser.email || "",
       dept: myDept.value || userDoc?.dept || "",
       date,
@@ -1372,7 +1441,10 @@ async function approveCorrectionRequest(req) {
 
     const workSegments = buildManualWorkSegments(req.punchIn, req.punchOut);
     const leaveSegments = cloneSegments(existing, "leaveSegments");
-    const derived = buildAttendanceStateFromSegments(workSegments, leaveSegments);
+    const derived = buildAttendanceStateFromSegments(
+      workSegments,
+      leaveSegments,
+    );
     const afterRecord = {
       ...(existing || {}),
       uid: req.uid,
@@ -1394,7 +1466,9 @@ async function approveCorrectionRequest(req) {
       leaveSegments: derived.leaveSegments,
       auditTrail: appendAuditTrail(
         existing,
-        existing ? "manualEditByCorrectionRequest" : "manualCreateByCorrectionRequest",
+        existing
+          ? "manualEditByCorrectionRequest"
+          : "manualCreateByCorrectionRequest",
         afterRecord,
         { source: "correctionRequest", requestId: req.id },
       ),
@@ -1421,7 +1495,8 @@ async function approveCorrectionRequest(req) {
       updatedAt: new Date().toISOString(),
     });
 
-    if (isAdminOrManager.value && queryDate.value === req.date) await fetchRecords();
+    if (isAdminOrManager.value && queryDate.value === req.date)
+      await fetchRecords();
     await loadPendingCorrectionRequests();
     await loadMyCorrectionRequests();
   } catch (e) {
@@ -2873,7 +2948,10 @@ tr.no-rec td {
 }
 .correction-grid {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(
+      0,
+      1fr
+    );
   gap: 6px;
   align-items: center;
   margin-bottom: 6px;

@@ -1,5 +1,9 @@
 <template>
-  <div ref="appShellRef" class="app-shell" :class="{ 'print-layout': isPrintLayout }">
+  <div
+    ref="appShellRef"
+    class="app-shell"
+    :class="{ 'print-layout': isPrintLayout }"
+  >
     <nav v-if="!isPrintLayout" ref="navRef" class="top-nav">
       <button
         class="nav-toggle"
@@ -16,35 +20,61 @@
         <RouterLink class="nav-link" to="/about" @click="closeNav"
           >說明</RouterLink
         >
-        <RouterLink v-if="navAccess.admin" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/admin') }]" to="/admin" @click="closeNav"
+        <RouterLink
+          v-if="navAccess.admin"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/admin') },
+          ]"
+          to="/admin"
+          @click="closeNav"
           >管理介面</RouterLink
         >
-        <RouterLink v-if="navAccess.orders" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/orders') }]" to="/orders" @click="closeNav"
+        <RouterLink
+          v-if="navAccess.orders"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/orders') },
+          ]"
+          to="/orders"
+          @click="closeNav"
           >訂單</RouterLink
         >
         <RouterLink
           v-if="navAccess.receivables"
-          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/receivable-bills') }]"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/receivable-bills') },
+          ]"
           to="/receivable-bills"
           @click="closeNav"
           >應收帳</RouterLink
         >
         <RouterLink
           v-if="navAccess.production"
-          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/production') }]"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/production') },
+          ]"
           to="/production"
           @click="closeNav"
           >生產</RouterLink
         >
         <RouterLink
           v-if="navAccess.customers"
-          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/customers') }]"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/customers') },
+          ]"
           to="/customers"
           @click="closeNav"
           >客戶</RouterLink
         >
         <a
-          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/quote') }]"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/quote') },
+          ]"
           v-if="navAccess.quote"
           href="https://mystone.web.app/"
           target="_blank"
@@ -52,38 +82,82 @@
           @click="closeNav"
           >估價</a
         >
-        <RouterLink v-if="navAccess.settings" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/settings') }]" to="/settings" @click="closeNav"
+        <RouterLink
+          v-if="navAccess.settings"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/settings') },
+          ]"
+          to="/settings"
+          @click="closeNav"
           >系統設定</RouterLink
         >
         <RouterLink
           v-if="navAccess.attendance"
-          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/attendance') }]"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/attendance') },
+          ]"
           to="/attendance"
           @click="closeNav"
           >{{ t("nav_attendance") }}</RouterLink
         >
-        <RouterLink v-if="navAccess.leave" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/leave') }]" to="/leave" @click="closeNav"
+        <RouterLink
+          v-if="navAccess.leave"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/leave') },
+          ]"
+          to="/leave"
+          @click="closeNav"
           >{{ t("nav_leave") }}</RouterLink
         >
-        <RouterLink v-if="navAccess.payroll" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/payroll') }]" to="/payroll" @click="closeNav"
+        <RouterLink
+          v-if="navAccess.payroll"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/payroll') },
+          ]"
+          to="/payroll"
+          @click="closeNav"
           >{{ t("nav_payroll") }}</RouterLink
         >
-        <RouterLink v-if="navAccess.staff" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/staff') }]" to="/staff" @click="closeNav"
+        <RouterLink
+          v-if="navAccess.staff"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/staff') },
+          ]"
+          to="/staff"
+          @click="closeNav"
           >員工資料</RouterLink
         >
-        <RouterLink v-if="navAccess.employee" :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/employee') }]" to="/employee" @click="closeNav"
+        <RouterLink
+          v-if="navAccess.employee"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/employee') },
+          ]"
+          to="/employee"
+          @click="closeNav"
           >{{ t("nav_employee") }}</RouterLink
         >
         <RouterLink
           v-if="navAccess.inventory"
-          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/inventory') }]"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/inventory') },
+          ]"
           to="/inventory"
           @click="closeNav"
           >{{ t("nav_inventory") }}</RouterLink
         >
         <RouterLink
           v-if="navAccess.drawing"
-          :class="['nav-link', { 'nav-link-group-active': isNavItemActive('/drawing/straight') }]"
+          :class="[
+            'nav-link',
+            { 'nav-link-group-active': isNavItemActive('/drawing/straight') },
+          ]"
           to="/drawing/straight"
           @click="closeNav"
           >{{ t("nav_drawing") }}</RouterLink
@@ -113,7 +187,11 @@
         <label v-if="hasMultipleDepartments" class="nav-role-switcher">
           <span>部門</span>
           <select v-model="perspectiveDepartment">
-            <option v-for="dept in assignedDepartments" :key="dept" :value="dept">
+            <option
+              v-for="dept in assignedDepartments"
+              :key="dept"
+              :value="dept"
+            >
               {{ departmentLabel(dept) }}
             </option>
           </select>
@@ -196,7 +274,9 @@ const appVersion =
 const assignedRoles = computed(() => userDoc.value?.roles || []);
 const hasMultipleRoles = computed(() => assignedRoles.value.length > 1);
 const assignedDepartments = computed(() => userDoc.value?.departments || []);
-const hasMultipleDepartments = computed(() => assignedDepartments.value.length > 1);
+const hasMultipleDepartments = computed(
+  () => assignedDepartments.value.length > 1,
+);
 const perspectiveRole = computed({
   get() {
     return userDoc.value ? getCurrentPerspectiveRole(userDoc.value) : "";
@@ -221,24 +301,31 @@ const perspectiveDepartment = computed({
     userDoc.value = { ...userDoc.value };
   },
 });
-const displayRoleLabel = computed(() =>
-  perspectiveRole.value || userDoc.value?.activeRole || userDoc.value?.role || "",
+const displayRoleLabel = computed(
+  () =>
+    perspectiveRole.value ||
+    userDoc.value?.activeRole ||
+    userDoc.value?.role ||
+    "",
 );
 const isPrintLayout = computed(() => route.meta?.printLayout === true);
 function departmentLabel(value) {
-  return {
-    "1": "1 辦公室",
-    "2": "2 裝安",
-    "3": "3 廠內",
-    "4": "4 外勞",
-  }[String(value || "")] || String(value || "");
+  return (
+    {
+      1: "1 辦公室",
+      2: "2 裝安",
+      3: "3 廠內",
+      4: "4 外勞",
+    }[String(value || "")] || String(value || "")
+  );
 }
 
 function hasPerspectiveAccess(path, fallbackPermission = {}) {
   if (!userDoc.value) {
     return false;
   }
-  const permission = findPermission(routePermissions.value, path) || fallbackPermission;
+  const permission =
+    findPermission(routePermissions.value, path) || fallbackPermission;
   return canAccessPermission(userDoc.value, permission, {
     usePerspectiveRole: true,
     usePerspectiveDepartment: true,
@@ -325,15 +412,24 @@ function updateNavStickyHeight() {
   const shell = appShellRef.value;
   const nav = navRef.value;
   if (!(shell instanceof HTMLElement) || !(nav instanceof HTMLElement)) return;
-  shell.style.setProperty("--top-nav-sticky-height", `${Math.ceil(nav.offsetHeight)}px`);
+  shell.style.setProperty(
+    "--top-nav-sticky-height",
+    `${Math.ceil(nav.offsetHeight)}px`,
+  );
 }
 
 onMounted(() => {
   document.addEventListener("click", handleDocumentClick);
-  window.addEventListener("route-permissions-updated", handlePermissionsUpdated);
+  window.addEventListener(
+    "route-permissions-updated",
+    handlePermissionsUpdated,
+  );
   nextTick(() => {
     updateNavStickyHeight();
-    if (typeof ResizeObserver === "function" && navRef.value instanceof HTMLElement) {
+    if (
+      typeof ResizeObserver === "function" &&
+      navRef.value instanceof HTMLElement
+    ) {
       navResizeObserver = new ResizeObserver(() => updateNavStickyHeight());
       navResizeObserver.observe(navRef.value);
     }
@@ -342,7 +438,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener("click", handleDocumentClick);
-  window.removeEventListener("route-permissions-updated", handlePermissionsUpdated);
+  window.removeEventListener(
+    "route-permissions-updated",
+    handlePermissionsUpdated,
+  );
   navResizeObserver?.disconnect();
   navResizeObserver = null;
 });

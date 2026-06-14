@@ -282,8 +282,9 @@
             ↺
           </button>
         </template>
+
         <button
-          v-else-if="order?.status === 'confirmed'"
+          v-if="order?.status === 'confirmed' && !confirmedPdfUrl"
           class="btn-repdf"
           @click="regeneratePdf"
         >
@@ -327,20 +328,71 @@
                 <div class="fields-top">
                   <table class="fields-tbl">
                     <tr>
-                      <td class="lbl">訂單編號</td>
-                      <td class="val" colspan="3">
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('orderNoLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('orderNoLabel', 13)"
+                        @dblclick="onFieldFontDoubleClick('orderNoLabel', 13)"
+                      >
+                        訂單編號
+                      </td>
+                      <td
+                        class="val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('orderNo', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('orderNo', 13)"
+                        @dblclick="onFieldFontDoubleClick('orderNo', 13)"
+                      >
                         {{ order?.orderNo || "" }}
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">客戶名稱</td>
-                      <td class="val" colspan="3">
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('customerNameLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('customerNameLabel', 13)"
+                        @dblclick="
+                          onFieldFontDoubleClick('customerNameLabel', 13)
+                        "
+                      >
+                        客戶名稱
+                      </td>
+                      <td
+                        class="val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('customerName', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('customerName', 13)"
+                        @dblclick="onFieldFontDoubleClick('customerName', 13)"
+                      >
                         {{ order?.customerName || "" }}
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">客戶端業務</td>
-                      <td class="val" colspan="3">
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('customerContactLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('customerContactLabel', 13)"
+                        @dblclick="
+                          onFieldFontDoubleClick('customerContactLabel', 13)
+                        "
+                      >
+                        客戶端業務
+                      </td>
+                      <td
+                        class="val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('customerContact', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('customerContact', 13)"
+                        @dblclick="
+                          onFieldFontDoubleClick('customerContact', 13)
+                        "
+                      >
                         {{
                           [
                             order?.customerContact?.name,
@@ -352,90 +404,194 @@
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">圖面傳真</td>
-                      <td class="val" colspan="3">{{ customerFaxDisplay }}</td>
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('customerFaxLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('customerFaxLabel', 13)"
+                        @dblclick="
+                          onFieldFontDoubleClick('customerFaxLabel', 13)
+                        "
+                      >
+                        圖面傳真
+                      </td>
+                      <td
+                        class="val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('customerFax', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('customerFax', 13)"
+                        @dblclick="onFieldFontDoubleClick('customerFax', 13)"
+                      >
+                        {{ customerFaxDisplay }}
+                      </td>
                     </tr>
                     <tr>
-                      <td class="lbl">備　　註</td>
-                      <td class="val note-val" colspan="3">
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('orderRemarkLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('orderRemarkLabel', 13)"
+                        @dblclick="
+                          onFieldFontDoubleClick('orderRemarkLabel', 13)
+                        "
+                      >
+                        備　　註
+                      </td>
+                      <td
+                        class="val note-val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('orderRemark', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('orderRemark', 13)"
+                        @dblclick="onFieldFontDoubleClick('orderRemark', 13)"
+                      >
                         {{ orderRemarkDisplay }}
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">下　單　日</td>
-                      <td class="val" colspan="3">
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('orderedAtLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('orderedAtLabel', 13)"
+                        @dblclick="onFieldFontDoubleClick('orderedAtLabel', 13)"
+                      >
+                        下　單　日
+                      </td>
+                      <td
+                        class="val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('orderedAt', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('orderedAt', 13)"
+                        @dblclick="onFieldFontDoubleClick('orderedAt', 13)"
+                      >
                         {{ fmtDate(order?.orderedAt) }}
                       </td>
                     </tr>
                     <tr>
-                      <td class="lbl">預計交貨日</td>
-                      <td class="val" colspan="3">
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('promisedAtLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('promisedAtLabel', 13)"
+                        @dblclick="
+                          onFieldFontDoubleClick('promisedAtLabel', 13)
+                        "
+                      >
+                        預　交　日
+                      </td>
+                      <td
+                        class="val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('promisedAt', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('promisedAt', 13)"
+                        @dblclick="onFieldFontDoubleClick('promisedAt', 13)"
+                      >
                         {{ fmtDate(order?.promisedAt) }}
                       </td>
                     </tr>
+                    <tr>
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('finishDateLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('finishDateLabel', 13)"
+                        @dblclick="
+                          onFieldFontDoubleClick('finishDateLabel', 13)
+                        "
+                      >
+                        收　尾　日
+                      </td>
+                      <td
+                        class="val font-adjustable"
+                        colspan="3"
+                        :style="fieldFontStyle('finishDate', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('finishDate', 13)"
+                        @dblclick="onFieldFontDoubleClick('finishDate', 13)"
+                      >
+                        {{ fmtDate(order?.finishDate) }}
+                      </td>
+                    </tr>
                     <tr class="stone-row">
-                      <td class="lbl">{{ stoneTypeLbl }}</td>
-                      <td class="val" colspan="3">
+                      <td
+                        class="lbl font-adjustable"
+                        :style="fieldFontStyle('stoneTypeLabel', 13)"
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="onFieldFontClick('stoneTypeLabel', 13)"
+                        @dblclick="onFieldFontDoubleClick('stoneTypeLabel', 13)"
+                      >
+                        {{ stoneTypeLbl }}
+                      </td>
+                      <td
+                        class="val stone-color-cell font-adjustable"
+                        colspan="3"
+                        :style="
+                          fieldFontStyle('stoneColor', 15, 'stoneFontSize')
+                        "
+                        title="單擊放大 1 點，雙擊縮小 1 點"
+                        @click="
+                          onFieldFontClick('stoneColor', 15, 'stoneFontSize')
+                        "
+                        @dblclick="
+                          onFieldFontDoubleClick(
+                            'stoneColor',
+                            15,
+                            'stoneFontSize',
+                          )
+                        "
+                      >
                         <div v-for="(c, i) in stoneColors" :key="i">
                           {{ c }}
                         </div>
                       </td>
                     </tr>
-                    <tr class="edge-row">
-                      <td class="lbl">前沿<br />造型</td>
+                    <tr
+                      class="edge-row"
+                      :class="{ 'edge-row-collapsed': edgeRowCompact }"
+                    >
+                      <td
+                        class="lbl edge-toggle-lbl"
+                        :title="
+                          cf.edgeRowExpanded
+                            ? '點擊收合前沿造型列'
+                            : '點擊展開前沿造型列'
+                        "
+                        @click="toggleEdgeRowHeight"
+                      >
+                        前沿造型
+                        <span class="edge-toggle-caret">{{
+                          cf.edgeRowExpanded ? "▾" : "▸"
+                        }}</span>
+                      </td>
                       <td colspan="3" class="edge-cell">
                         <div class="edge-choice-list">
-                          <button
-                            type="button"
-                            class="edge-choice"
-                            :class="{ active: cf.edgeType === 'bevel' }"
-                            @click="
-                              cf.edgeType = 'bevel';
-                              markDirty();
-                            "
-                          >
-                            <span class="edge-choice-shape">△</span>
-                            <span class="edge-choice-mark"
-                              >（{{
-                                cf.edgeType === "bevel" ? "✓" : "　"
-                              }}）</span
+                          <template v-if="visibleEdgeChoices.length">
+                            <button
+                              v-for="edge in visibleEdgeChoices"
+                              :key="edge.value"
+                              type="button"
+                              class="edge-choice"
+                              :class="{ active: cf.edgeType === edge.value }"
+                              @click="setEdgeType(edge.value)"
                             >
-                            <span class="edge-choice-label">3mm斜角</span>
-                          </button>
-                          <button
-                            type="button"
-                            class="edge-choice"
-                            :class="{ active: cf.edgeType === 'round' }"
-                            @click="
-                              cf.edgeType = 'round';
-                              markDirty();
-                            "
-                          >
-                            <span class="edge-choice-shape">○</span>
-                            <span class="edge-choice-mark"
-                              >（{{
-                                cf.edgeType === "round" ? "✓" : "　"
-                              }}）</span
-                            >
-                            <span class="edge-choice-label">3mm圓角</span>
-                          </button>
-                          <button
-                            type="button"
-                            class="edge-choice"
-                            :class="{ active: cf.edgeType === 'dull' }"
-                            @click="
-                              cf.edgeType = 'dull';
-                              markDirty();
-                            "
-                          >
-                            <span class="edge-choice-shape">□</span>
-                            <span class="edge-choice-mark"
-                              >（{{
-                                cf.edgeType === "dull" ? "✓" : "　"
-                              }}）</span
-                            >
-                            <span class="edge-choice-label">1mm磨不利</span>
-                          </button>
+                              <span class="edge-choice-shape">{{
+                                edge.shape
+                              }}</span>
+                              <span class="edge-choice-mark"
+                                >（{{
+                                  cf.edgeType === edge.value ? "✓" : "　"
+                                }}）</span
+                              >
+                              <span class="edge-choice-label">{{
+                                edge.label
+                              }}</span>
+                            </button>
+                          </template>
+                          <span v-else class="edge-choice-empty">未選</span>
                         </div>
                       </td>
                     </tr>
@@ -444,30 +600,51 @@
                 <!-- fields-top -->
 
                 <!-- 水槽 -->
-                <div class="sub-section">
+                <div class="sub-section sink-section">
                   <div class="section-head">水槽</div>
                   <table class="detail-tbl">
                     <colgroup>
-                      <col style="width: 14%" />
-                      <col style="width: 32%" />
-                      <col style="width: 54%" />
+                      <col style="width: 18%" />
+                      <col style="width: 30%" />
+                      <col style="width: 52%" />
                     </colgroup>
                     <tbody>
                       <tr v-for="s in paddedSinks" :key="s._i">
                         <td>
-                          <span class="detail-cell-text">{{
-                            s.method || ""
-                          }}</span>
+                          <span
+                            class="detail-cell-text font-adjustable"
+                            :style="fieldFontStyle(`sink-method-${s._i}`, 14)"
+                            title="單擊放大 1 點，雙擊縮小 1 點"
+                            @click="onFieldFontClick(`sink-method-${s._i}`, 14)"
+                            @dblclick="
+                              onFieldFontDoubleClick(`sink-method-${s._i}`, 14)
+                            "
+                            >{{ s.method || "" }}</span
+                          >
                         </td>
                         <td>
-                          <span class="detail-cell-text">{{
-                            s.model || ""
-                          }}</span>
+                          <span
+                            class="detail-cell-text font-adjustable"
+                            :style="fieldFontStyle(`sink-model-${s._i}`, 14)"
+                            title="單擊放大 1 點，雙擊縮小 1 點"
+                            @click="onFieldFontClick(`sink-model-${s._i}`, 14)"
+                            @dblclick="
+                              onFieldFontDoubleClick(`sink-model-${s._i}`, 14)
+                            "
+                            >{{ s.model || "" }}</span
+                          >
                         </td>
                         <td>
-                          <span class="detail-cell-text">{{
-                            sinkSizeText(s)
-                          }}</span>
+                          <span
+                            class="detail-cell-text font-adjustable"
+                            :style="fieldFontStyle(`sink-size-${s._i}`, 14)"
+                            title="單擊放大 1 點，雙擊縮小 1 點"
+                            @click="onFieldFontClick(`sink-size-${s._i}`, 14)"
+                            @dblclick="
+                              onFieldFontDoubleClick(`sink-size-${s._i}`, 14)
+                            "
+                            >{{ sinkSizeText(s) }}</span
+                          >
                         </td>
                       </tr>
                     </tbody>
@@ -478,26 +655,49 @@
                   <div class="section-head">爐子</div>
                   <table class="detail-tbl">
                     <colgroup>
-                      <col style="width: 14%" />
-                      <col style="width: 32%" />
-                      <col style="width: 54%" />
+                      <col style="width: 18%" />
+                      <col style="width: 30%" />
+                      <col style="width: 52%" />
                     </colgroup>
                     <tbody>
                       <tr v-for="s in paddedStoves" :key="s._i">
                         <td>
-                          <span class="detail-cell-text">{{
-                            s.method || ""
-                          }}</span>
+                          <span
+                            class="detail-cell-text font-adjustable"
+                            :style="fieldFontStyle(`stove-method-${s._i}`, 14)"
+                            title="單擊放大 1 點，雙擊縮小 1 點"
+                            @click="
+                              onFieldFontClick(`stove-method-${s._i}`, 14)
+                            "
+                            @dblclick="
+                              onFieldFontDoubleClick(`stove-method-${s._i}`, 14)
+                            "
+                            >{{ s.method || "" }}</span
+                          >
                         </td>
                         <td>
-                          <span class="detail-cell-text">{{
-                            s.model || ""
-                          }}</span>
+                          <span
+                            class="detail-cell-text font-adjustable"
+                            :style="fieldFontStyle(`stove-model-${s._i}`, 14)"
+                            title="單擊放大 1 點，雙擊縮小 1 點"
+                            @click="onFieldFontClick(`stove-model-${s._i}`, 14)"
+                            @dblclick="
+                              onFieldFontDoubleClick(`stove-model-${s._i}`, 14)
+                            "
+                            >{{ s.model || "" }}</span
+                          >
                         </td>
                         <td>
-                          <span class="detail-cell-text">{{
-                            stoveSizeText(s)
-                          }}</span>
+                          <span
+                            class="detail-cell-text font-adjustable"
+                            :style="fieldFontStyle(`stove-size-${s._i}`, 14)"
+                            title="單擊放大 1 點，雙擊縮小 1 點"
+                            @click="onFieldFontClick(`stove-size-${s._i}`, 14)"
+                            @dblclick="
+                              onFieldFontDoubleClick(`stove-size-${s._i}`, 14)
+                            "
+                            >{{ stoveSizeText(s) }}</span
+                          >
                         </td>
                       </tr>
                     </tbody>
@@ -508,7 +708,11 @@
                     <div
                       v-for="(line, i) in faucetDisplayLines"
                       :key="`faucet-${i}`"
-                      class="faucet-line"
+                      class="faucet-line font-adjustable"
+                      :style="fieldFontStyle(`faucet-line-${i}`, 13)"
+                      title="單擊放大 1 點，雙擊縮小 1 點"
+                      @click="onFieldFontClick(`faucet-line-${i}`, 13)"
+                      @dblclick="onFieldFontDoubleClick(`faucet-line-${i}`, 13)"
                     >
                       {{ line }}
                     </div>
@@ -525,15 +729,32 @@
             <div class="install-row">
               <div class="install-main-row">
                 <span class="lbl">安裝地點</span>
-                <span class="val site-val">{{ order?.siteAddress || "" }}</span>
+                <span
+                  class="val site-val font-adjustable"
+                  :style="fieldFontStyle('siteAddress', 13)"
+                  title="單擊放大 1 點，雙擊縮小 1 點"
+                  @click="onFieldFontClick('siteAddress', 13)"
+                  @dblclick="onFieldFontDoubleClick('siteAddress', 13)"
+                  >{{ order?.siteAddress || "" }}</span
+                >
                 <span class="lbl-s">業主</span
-                ><span class="val-s owner-val">{{
-                  order?.owner?.name || ""
-                }}</span>
+                ><span
+                  class="val-s owner-val font-adjustable"
+                  :style="fieldFontStyle('ownerName', 13)"
+                  title="單擊放大 1 點，雙擊縮小 1 點"
+                  @click="onFieldFontClick('ownerName', 13)"
+                  @dblclick="onFieldFontDoubleClick('ownerName', 13)"
+                  >{{ order?.owner?.name || "" }}</span
+                >
                 <span class="lbl-s">電話</span
-                ><span class="val-s phone-val">{{
-                  order?.owner?.phone || ""
-                }}</span>
+                ><span
+                  class="val-s phone-val font-adjustable"
+                  :style="fieldFontStyle('ownerPhone', 13)"
+                  title="單擊放大 1 點，雙擊縮小 1 點"
+                  @click="onFieldFontClick('ownerPhone', 13)"
+                  @dblclick="onFieldFontDoubleClick('ownerPhone', 13)"
+                  >{{ order?.owner?.phone || "" }}</span
+                >
               </div>
               <div class="install-sticker-lines">
                 <div class="sticker-line">
@@ -581,7 +802,11 @@
                 </ol>
               </div>
               <div class="price-col">
-                <div class="price-lbl">未稅價</div>
+                <div class="price-lbl">
+                  <span>未</span>
+                  <span>稅</span>
+                  <span>價</span>
+                </div>
               </div>
               <div class="price-val-col">
                 <div
@@ -602,18 +827,25 @@
                         v-for="(ln, i) in column"
                         :key="`c${columnIndex}-${i}`"
                       >
-                        <td class="pt-desc">
-                          <div>{{ ln.desc }}</div>
-                          <div v-if="ln.formula" class="pt-formula">
-                            {{ ln.formula }}
-                          </div>
+                        <td
+                          class="pt-calc font-adjustable"
+                          :style="fieldFontStyle('priceCalc', 11)"
+                          title="單擊放大 1 點，雙擊縮小 1 點"
+                          @click="onFieldFontClick('priceCalc', 11)"
+                          @dblclick="onFieldFontDoubleClick('priceCalc', 11)"
+                        >
+                          {{ ln.calc }}
                         </td>
-                        <td class="pt-calc">{{ ln.calc }}</td>
-                        <td class="pt-amt">{{ ln.amt }}</td>
                       </tr>
                     </tbody>
                   </table>
-                  <div class="price-sum">
+                  <div
+                    class="price-sum font-adjustable"
+                    :style="fieldFontStyle('priceSum', 13)"
+                    title="單擊放大 1 點，雙擊縮小 1 點"
+                    @click="onFieldFontClick('priceSum', 13)"
+                    @dblclick="onFieldFontDoubleClick('priceSum', 13)"
+                  >
                     合計 <span>{{ priceBreakdown.total }}</span>
                   </div>
                 </div>
@@ -638,7 +870,7 @@
               max="999"
               class="elevator-input"
               @change="markDirty"
-            />
+            /><span class="elevator-suffix">-5</span>
           </div>
           <div class="vert-strip vert-r">
             <span class="vert-txt">零樹脂成分之瓷板，無板材保固。★</span>
@@ -672,7 +904,14 @@
             <div class="vert-fields">
               <div class="vf-row">
                 <span class="vf-lbl">列印</span
-                ><span class="vf-val">{{ printedByName || "" }}</span>
+                ><span
+                  class="vf-val vf-val-plain font-adjustable"
+                  :style="fieldFontStyle('printedBy', 13)"
+                  title="單擊放大 1 點，雙擊縮小 1 點"
+                  @click="onFieldFontClick('printedBy', 13)"
+                  @dblclick="onFieldFontDoubleClick('printedBy', 13)"
+                  >{{ printedByName || "" }}</span
+                >
               </div>
             </div>
           </div>
@@ -749,6 +988,8 @@
             top: ovl.y + 'px',
             fontSize: ovl.fontSize + 'px',
             color: ovl.color,
+            transform: ovl.rotation ? `rotate(${ovl.rotation}deg)` : 'none',
+            transformOrigin: 'center center',
           }"
           @mousedown.stop="startTxtOvlDrag($event, ovl)"
           @click.stop="selectTextOverlay(ovl)"
@@ -1079,6 +1320,8 @@ import {
   updateCustomerPricing,
   uploadOverlayImage,
   uploadConfirmedPdf,
+  generateBackendConfirmedPdf as generatePdfViaBackendApi,
+  downloadConfirmedPdfComparison,
   refreshConfirmedPdfDownloadUrl,
 } from "../../firebase";
 import StampPanel from "../../components/StampPanel.vue";
@@ -1137,8 +1380,8 @@ const untaxedPriceDisplay = computed(() => {
   return n > 0 ? n.toLocaleString() : "";
 });
 
-// 計價明細：讓客人看到「如何算出來的」
-// 按 (description-without-dims + unitPrice + unit) 聚合；例如「水槽下嵌（陶板） @3,500×3 = 10,500」
+// 計價明細：只保留數字的計算過程與結果
+// 按 (description-without-dims + unitPrice + unit) 聚合，避免同類項目重複列印
 const priceBreakdown = computed(() => {
   const o = order.value;
   const empty = {
@@ -1163,14 +1406,106 @@ const priceBreakdown = computed(() => {
       .replace(/\s+[A-Z]{2,}[\w\s\u4e00-\u9fff\u3000-\u303f]*$/u, "")
       .trim();
 
-  // 從描述中抽出括號內的計算式顯示為副行
+  // 從描述中抽出「第一組完整括號」內的計算式
+  // 例：L型#1（270+240-30(轉角)=480cm） 鈦鋼石...(12mm)
+  // 只取 270+240-30(轉角)=480cm，避免把後段材質括號混進來
   const extractFormula = (s) => {
     const text = String(s || "");
     const open = text.search(/[（(]/);
     if (open < 0) return "";
-    const close = Math.max(text.lastIndexOf("）"), text.lastIndexOf(")"));
-    if (close <= open) return "";
-    return text.slice(open + 1, close).trim();
+    let depth = 0;
+    for (let i = open; i < text.length; i += 1) {
+      const ch = text[i];
+      if (ch === "(" || ch === "（") depth += 1;
+      if (ch === ")" || ch === "）") {
+        depth -= 1;
+        if (depth === 0) {
+          return text.slice(open + 1, i).trim();
+        }
+      }
+    }
+    return "";
+  };
+
+  // 僅保留算式中的數字與運算符號，移除中文與其他說明文字
+  const toNumericFormula = (value) => {
+    const raw = String(value || "")
+      .replace(/[（]/g, "(")
+      .replace(/[）]/g, ")")
+      .replace(/乘以|乘/g, "×")
+      .replace(/除以|除/g, "/")
+      .replace(/加/g, "+")
+      .replace(/減|扣/g, "-")
+      .replace(/[－–—]/g, "-")
+      .replace(/[xX*＊]/g, "×")
+      .replace(/[÷／]/g, "/");
+    let cleaned = raw
+      .replace(/[^0-9.,+\-\/()%×=\s]/g, " ")
+      .replace(/\(\s*\)/g, " ")
+      .replace(/\s*([+\-×/=()])\s*/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // 括號內若為以空白分隔的數字（例如 480 10 12），視為連續扣減
+    cleaned = cleaned.replace(
+      /\((\d+(?:\.\d+)?(?:\s+\d+(?:\.\d+)?){1,})\)/g,
+      (_m, group) => {
+        const nums = String(group).trim().split(/\s+/).filter(Boolean);
+        return `(${nums.join("-")})`;
+      },
+    );
+
+    // 註記括號（例如 -10(淺深20/2)）不視為乘法，這裡不自動補隱含乘號
+
+    // 移除不成對括號，避免輸出難懂的殘缺算式
+    let openCount = 0;
+    let balanced = "";
+    for (const ch of cleaned) {
+      if (ch === "(") {
+        openCount += 1;
+        balanced += ch;
+      } else if (ch === ")") {
+        if (openCount > 0) {
+          openCount -= 1;
+          balanced += ch;
+        }
+      } else {
+        balanced += ch;
+      }
+    }
+    if (openCount > 0) {
+      for (let i = balanced.length - 1; i >= 0 && openCount > 0; i -= 1) {
+        if (balanced[i] === "(") {
+          balanced = balanced.slice(0, i) + balanced.slice(i + 1);
+          openCount -= 1;
+        }
+      }
+    }
+
+    cleaned = balanced
+      .replace(/\(\s*\)/g, " ")
+      .replace(/^[+\-×/=]+/, "")
+      .replace(/[+\-×/=]+$/, "")
+      .replace(/([+\-×/=]){2,}/g, "$1")
+      .replace(/\s*([+\-×/=])\s*/g, " $1 ")
+      .replace(/\(\s+/g, "(")
+      .replace(/\s+\)/g, ")")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return cleaned;
+  };
+
+  // 算式可讀性檢查：避免出現「4801012」這類缺少運算符的連續數字
+  const isReadableFormula = (expr) => {
+    const text = String(expr || "").trim();
+    if (!text) return false;
+    if (!/[+\-×/=]/.test(text)) return false;
+    // 連續數字中間僅有空白（沒有運算符）視為不可讀
+    if (/\d\s+\d/.test(text)) return false;
+    // 移除運算符和括號後不應殘留異常片段
+    const residue = text.replace(/[0-9.,+\-×/=()\s]/g, "");
+    return residue.length === 0;
   };
 
   const groups = new Map();
@@ -1207,14 +1542,20 @@ const priceBreakdown = computed(() => {
     const qtyStr = Number.isInteger(g.qty)
       ? g.qty
       : Math.round(g.qty * 100) / 100;
-    const calc = g.unitPrice
-      ? `@${g.unitPrice.toLocaleString()}×${qtyStr}${g.unit}`
-      : `${qtyStr}${g.unit}`;
+    const formulaExpr = toNumericFormula(g.formula);
+    const hasProcessFormula = isReadableFormula(formulaExpr);
+    const processExpr = hasProcessFormula
+      ? formulaExpr.replace(/\s+/g, "")
+      : "";
+    const unitEq = g.unitPrice
+      ? `@${g.unitPrice}*${qtyStr}=${Math.round(Number(g.amount) || 0)}`
+      : "";
+    const calc =
+      processExpr && unitEq
+        ? `${processExpr}, ${unitEq}`
+        : unitEq || processExpr;
     return {
-      desc: g.name,
-      formula: g.formula || "",
       calc,
-      amt: g.amount > 0 ? g.amount.toLocaleString() : "",
     };
   });
 
@@ -1237,11 +1578,14 @@ const confirmedPdfUrl = ref(null);
 const pdfGenerating = ref(false);
 const pdfUploading = ref(false);
 const snapshotting = ref(false);
+const exportRenderingActive = ref(false);
 const drawingBlocks = ref([]);
 const saving = ref(false);
 const saveMsg = ref("");
 const selectedBlkId = ref(null);
 const dirty = ref(false);
+let dirtyRevision = 0;
+let savedRevision = 0;
 let savePromise = null;
 const CUSTOMER_EDGE_TYPES = new Set(["round", "bevel", "dull"]);
 
@@ -1253,11 +1597,23 @@ const cf = reactive({
   elevator: "",
   faxNo: "",
   edgeType: "sharp",
+  edgeRowExpanded: true,
   cabinetReady: "", // '' | 'yes' | 'no'
   actualDelivery: "",
   price: "",
   panelType: "", // '' | 'a' | 'b' | 'c' | 'd' | 'e'
+  stoneFontSize: 15,
+  fieldFontSizes: {},
 });
+
+const FIELD_FONT_SIZE_MIN = 9;
+const FIELD_FONT_SIZE_MAX = 24;
+const fieldFontClickTimers = new Map();
+const EDGE_CHOICES = [
+  { value: "bevel", shape: "△", label: "3mm斜角" },
+  { value: "round", shape: "○", label: "3mm圓角" },
+  { value: "dull", shape: "□", label: "1mm磨不利" },
+];
 
 const cabinetReadyVertText = computed(() => {
   const yesMark = cf.cabinetReady === "yes" ? "☑" : "□";
@@ -1265,12 +1621,32 @@ const cabinetReadyVertText = computed(() => {
   return splitVert(`桶身${yesMark}是${noMark}否裝`);
 });
 
+const edgeRowCompact = computed(
+  () => exportRenderingActive.value || !cf.edgeRowExpanded,
+);
+
 function normalizePreferredEdgeType(value) {
   const normalized = String(value || "").trim();
   return CUSTOMER_EDGE_TYPES.has(normalized) ? normalized : "";
 }
 
+function toggleEdgeRowHeight() {
+  cf.edgeRowExpanded = !cf.edgeRowExpanded;
+  markDirty();
+}
+
+function setEdgeType(value) {
+  if (cf.edgeType === value) return;
+  cf.edgeType = value;
+  markDirty();
+}
+
 // ── Computed ────────────────────────────────────────────────────────
+const visibleEdgeChoices = computed(() => {
+  if (!edgeRowCompact.value) return EDGE_CHOICES;
+  return EDGE_CHOICES.filter((edge) => edge.value === cf.edgeType);
+});
+
 const stoneTypeLbl = computed(() => {
   if (!order.value?.stones?.length) return "石材";
   const s = order.value.stones[0];
@@ -1500,6 +1876,7 @@ async function renderConfirmedCanvas(
     removeContainer: true,
   };
 
+  exportRenderingActive.value = true;
   el.classList.add("export-rendering");
   if (ENABLE_EXPORT_READABLE_STYLE) {
     el.classList.add("export-readable");
@@ -1535,6 +1912,7 @@ async function renderConfirmedCanvas(
       foreignObjectRendering: false,
     });
   } finally {
+    exportRenderingActive.value = false;
     el.classList.remove("export-rendering");
     if (ENABLE_EXPORT_READABLE_STYLE) {
       el.classList.remove("export-readable");
@@ -1595,7 +1973,9 @@ function resetMeasurementScale() {
   markDirty();
 }
 function rotateSelectedBlock() {
-  const blk = drawingBlocks.value.find((b) => b.drawingId === selectedBlkId.value);
+  const blk = drawingBlocks.value.find(
+    (b) => b.drawingId === selectedBlkId.value,
+  );
   if (!blk) return;
   blk.rotation = ((blk.rotation || 0) - 90) % 360;
   markAnnotationDirty();
@@ -1635,11 +2015,62 @@ function drawMeasurementLabel(ctx, start, end, color) {
   ctx.restore();
 }
 function markDirty() {
+  dirtyRevision += 1;
   dirty.value = true;
 }
 function markAnnotationDirty() {
+  dirtyRevision += 1;
   dirty.value = true;
   _historyNeedsRecord = true;
+}
+function getFieldFontSize(key, fallback = 13, legacyKey = "") {
+  const stored = Number(cf.fieldFontSizes?.[key]);
+  const legacy = legacyKey ? Number(cf[legacyKey]) : NaN;
+  const size = Number.isFinite(stored)
+    ? stored
+    : Number.isFinite(legacy)
+      ? legacy
+      : fallback;
+  return Math.min(FIELD_FONT_SIZE_MAX, Math.max(FIELD_FONT_SIZE_MIN, size));
+}
+function fieldFontStyle(key, fallback = 13, legacyKey = "") {
+  return {
+    fontSize: `${getFieldFontSize(key, fallback, legacyKey)}px`,
+  };
+}
+function adjustFieldFontSize(key, fallback = 13, delta = 1, legacyKey = "") {
+  const current = getFieldFontSize(key, fallback, legacyKey);
+  const next = Math.min(
+    FIELD_FONT_SIZE_MAX,
+    Math.max(FIELD_FONT_SIZE_MIN, current + delta),
+  );
+  if (next === current) return;
+  const sizes = {
+    ...(cf.fieldFontSizes && typeof cf.fieldFontSizes === "object"
+      ? cf.fieldFontSizes
+      : {}),
+    [key]: next,
+  };
+  cf.fieldFontSizes = sizes;
+  if (legacyKey) cf[legacyKey] = next;
+  markDirty();
+}
+function onFieldFontClick(key, fallback = 13, legacyKey = "") {
+  const timer = fieldFontClickTimers.get(key);
+  if (timer) clearTimeout(timer);
+  const nextTimer = window.setTimeout(() => {
+    fieldFontClickTimers.delete(key);
+    adjustFieldFontSize(key, fallback, 1, legacyKey);
+  }, 220);
+  fieldFontClickTimers.set(key, nextTimer);
+}
+function onFieldFontDoubleClick(key, fallback = 13, legacyKey = "") {
+  const timer = fieldFontClickTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    fieldFontClickTimers.delete(key);
+  }
+  adjustFieldFontSize(key, fallback, -1, legacyKey);
 }
 function captureAnnotationSnapshot() {
   return {
@@ -1648,6 +2079,7 @@ function captureAnnotationSnapshot() {
       x: blk.x,
       y: blk.y,
       scale: blk.scale,
+      rotation: Number(blk.rotation || 0),
     })),
     overlayImgs: overlayImgs.value.map((img) => ({ ...img })),
     textOverlays: textOverlays.value.map((ovl) => ({ ...ovl })),
@@ -1685,6 +2117,7 @@ function applyAnnotationSnapshot(snapshot) {
     blk.x = saved.x;
     blk.y = saved.y;
     blk.scale = saved.scale;
+    blk.rotation = Number(saved.rotation || 0);
   });
   const canvas = annotCanvasRef.value;
   if (canvas) {
@@ -1729,7 +2162,7 @@ function undoAnnotationHistory() {
   applyAnnotationSnapshot(
     annotationHistory.value[annotationHistoryIndex.value],
   );
-  dirty.value = true;
+  markDirty();
 }
 function splitVert(str) {
   return [...str].map((c) => `<div class="vc">${c}</div>`).join("");
@@ -2372,6 +2805,15 @@ function commitText() {
         existing.text = text;
         existing.fontSize = tb.fontSize;
         existing.color = drawColor.value;
+        // Auto-rotate if text is numeric
+        const numericOnly = text.replace(/[\s\n\r.,\-/]/g, "");
+        if (
+          !existing.rotation &&
+          numericOnly.length > 0 &&
+          /^\d+$/.test(numericOnly)
+        ) {
+          existing.rotation = 90;
+        }
         drawTool.value = null;
         selectTextOverlay(existing);
       } else {
@@ -2386,6 +2828,12 @@ function commitText() {
   } else if (text) {
     // 確認後轉為可拖移文字疊層，不燒入 canvas
     const HANDLE_H = 24; // 拖移 handle 高度
+    let rotation = 0;
+    // Auto-rotate if text is numeric
+    const numericOnly = text.replace(/[\s\n\r.,\-/]/g, "");
+    if (numericOnly.length > 0 && /^\d+$/.test(numericOnly)) {
+      rotation = 90;
+    }
     const newTextOverlay = {
       id: Date.now(),
       x: tb.x,
@@ -2393,6 +2841,7 @@ function commitText() {
       text,
       fontSize: tb.fontSize,
       color: drawColor.value,
+      rotation,
     };
     textOverlays.value.push(newTextOverlay);
     drawTool.value = null;
@@ -2956,7 +3405,22 @@ async function loadAll() {
     if (Array.isArray(conf?.overlayImgs))
       overlayImgs.value = conf.overlayImgs.map((i) => ({ ...i }));
     if (Array.isArray(conf?.textOverlays))
-      textOverlays.value = conf.textOverlays.map((o) => ({ ...o }));
+      textOverlays.value = conf.textOverlays.map((o) => {
+        const ovl = { ...o };
+        // Auto-rotate dimension labels (like "380", "240") 90 degrees clockwise for vertical display
+        const text = String(o.text || "").trim();
+        // Check if text is primarily numeric (remove all non-digit, whitespace, and common separators)
+        const numericOnly = text.replace(/[\s\n\r.,\-/]/g, "");
+        if (
+          !o.rotation &&
+          numericOnly.length > 0 &&
+          /^\d+$/.test(numericOnly)
+        ) {
+          console.log(`[Auto-rotate] "${text}" -> rotation 90°`);
+          ovl.rotation = 90;
+        }
+        return ovl;
+      });
     if (Array.isArray(conf?.shapeOverlays))
       shapeOverlays.value = conf.shapeOverlays.map((o) => ({ ...o }));
     if (Array.isArray(conf?.stampOverlays))
@@ -2991,6 +3455,7 @@ async function loadAll() {
         x: saved.x !== undefined ? saved.x : 0,
         y: saved.y !== undefined ? saved.y : 0,
         scale,
+        rotation: Number(saved.rotation || 0),
         _hasSavedPos: saved.x !== undefined,
         overlayImages: Array.isArray(d.state?.overlayImages)
           ? d.state.overlayImages.map((i) => ({ ...i }))
@@ -3055,6 +3520,8 @@ async function loadAll() {
     if (ord?.status === "confirmed" && !ord?.confirmedPdfUrl) {
       setTimeout(() => generateConfirmedPdf(), 800);
     }
+    dirty.value = false;
+    savedRevision = dirtyRevision;
     resetAnnotationHistory();
   } catch (e) {
     console.error("loadAll error", e);
@@ -3174,7 +3641,8 @@ async function generateConfirmedPdf() {
   if (pdfGenerating.value || confirmedPdfUrl.value) return;
   pdfGenerating.value = true;
   try {
-    const blob = await buildConfirmedPdfBlob({ enforceSizeLimit: true });
+    // Use backend PDF generation instead of frontend canvas
+    const blob = await generatePdfViaBackendApi(orderId.value);
     const url = await uploadConfirmedPdf(orderId.value, blob);
     confirmedPdfUrl.value = url;
     const actualSize = Number(blob.size || 0);
@@ -3204,6 +3672,7 @@ async function persistConfirmation({
   if (savePromise) return savePromise;
 
   savePromise = (async () => {
+    const revisionAtStart = dirtyRevision;
     if (_pendingOverlayUploads.size)
       await Promise.allSettled([..._pendingOverlayUploads.values()]);
     saving.value = true;
@@ -3211,11 +3680,16 @@ async function persistConfirmation({
       const annotCanvas = annotCanvasRef.value
         ? annotCanvasRef.value.toDataURL("image/png")
         : null;
-      await saveOrderConfirmation(orderId.value, {
+      const payload = {
         drawingBlocks: Object.fromEntries(
           drawingBlocks.value.map((b) => [
             b.drawingId,
-            { x: b.x, y: b.y, scale: b.scale },
+            {
+              x: b.x,
+              y: b.y,
+              scale: b.scale,
+              rotation: Number(b.rotation || 0),
+            },
           ]),
         ),
         cf: { ...cf },
@@ -3225,7 +3699,30 @@ async function persistConfirmation({
         stampOverlays: stampOverlays.value.map((o) => ({ ...o })),
         measurementScale: measurementScale.value,
         annotCanvas,
-      });
+      };
+
+      const isDocTooLargeError = (err) => {
+        const code = String(err?.code || "").toLowerCase();
+        const msg = String(err?.message || "").toLowerCase();
+        return (
+          code.includes("resource-exhausted") ||
+          msg.includes("document too large") ||
+          msg.includes("maximum size") ||
+          msg.includes("size")
+        );
+      };
+
+      try {
+        await saveOrderConfirmation(orderId.value, payload);
+      } catch (saveErr) {
+        if (!annotCanvas || !isDocTooLargeError(saveErr)) throw saveErr;
+        await saveOrderConfirmation(orderId.value, {
+          ...payload,
+          annotCanvas: null,
+        });
+        setTransientMsg("⚠ 手繪畫布過大，已略過畫布儲存；其餘內容已儲存", 3500);
+      }
+
       const preferredEdgeType = normalizePreferredEdgeType(cf.edgeType);
       if (order.value?.customerId && preferredEdgeType) {
         await updateCustomerPricing(order.value.customerId, {
@@ -3233,7 +3730,8 @@ async function persistConfirmation({
           preferredConfirmationEdgeType: preferredEdgeType,
         });
       }
-      dirty.value = false;
+      savedRevision = Math.max(savedRevision, revisionAtStart);
+      dirty.value = dirtyRevision > savedRevision;
       if (showSuccess) {
         saveMsg.value = "✓ 已儲存";
         setTimeout(() => {
@@ -3242,7 +3740,8 @@ async function persistConfirmation({
       }
       return true;
     } catch (e) {
-      if (showFailure) saveMsg.value = "儲存失敗";
+      if (showFailure)
+        saveMsg.value = `儲存失敗：${e?.message || e || "未知錯誤"}`;
       throw e;
     } finally {
       saving.value = false;
@@ -3255,7 +3754,9 @@ async function persistConfirmation({
 
 async function doSave() {
   try {
-    await persistConfirmation();
+    do {
+      await persistConfirmation();
+    } while (dirty.value);
   } catch (_) {}
 }
 
@@ -3285,7 +3786,8 @@ async function doPrint() {
       '<title>生產確定單 PDF</title><p style="font-family:sans-serif;padding:16px">PDF 產生中…</p>',
     );
     win.document.close();
-    const blob = await buildConfirmedPdfBlob({ enforceSizeLimit: false });
+    // Use backend PDF generation instead of frontend canvas
+    const blob = await generatePdfViaBackendApi(orderId.value);
     const url = URL.createObjectURL(blob);
     win.location.replace(url);
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -3603,6 +4105,35 @@ onBeforeRouteLeave(async () => {
 .btn-repdf:hover {
   background: #064e3b;
 }
+.btn-backend-pdf {
+  font-size: 12px;
+  color: #fff;
+  background: #0f766e;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-backend-pdf:hover {
+  background: #115e59;
+}
+.btn-backend-pdf:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.btn-backend-pdf-link {
+  font-size: 12px;
+  color: #67e8f9;
+  text-decoration: none;
+  border: 1px solid #67e8f9;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.btn-backend-pdf-link:hover {
+  background: #164e63;
+}
 .btn-upload-pdf {
   font-size: 12px;
   color: #fff;
@@ -3643,7 +4174,7 @@ onBeforeRouteLeave(async () => {
   overflow: hidden;
   flex-shrink: 0;
   --sheet-grid-border: #000;
-  --sheet-grid-width: 0.8px;
+  --sheet-grid-width: 1px;
 }
 
 /* Unified thinner sheet lines (preview + print) */
@@ -3752,6 +4283,10 @@ onBeforeRouteLeave(async () => {
   text-align: center;
   appearance: textfield;
 }
+.elevator-suffix {
+  white-space: nowrap;
+  font-size: 13px;
+}
 .elevator-input::-webkit-outer-spin-button,
 .elevator-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -3842,6 +4377,12 @@ onBeforeRouteLeave(async () => {
   border-bottom: 1px solid var(--sheet-grid-border);
   color: #000;
 }
+.vf-val-plain {
+  border: none !important;
+  border-bottom: none !important;
+  border-width: 0 !important;
+  box-shadow: none !important;
+}
 
 /* ══ 主內容 ══ */
 .main-area {
@@ -3863,6 +4404,7 @@ onBeforeRouteLeave(async () => {
 
 /* ══ 左欄位 ══ */
 .left-col {
+  position: relative;
   width: 224px;
   flex-shrink: 0;
   border-right: 1px solid var(--sheet-grid-border);
@@ -3882,6 +4424,9 @@ onBeforeRouteLeave(async () => {
   border-top: 1px solid var(--sheet-grid-border);
   flex-shrink: 0;
   overflow: visible;
+}
+.fields-top + .sub-section {
+  border-top: none;
 }
 .fields-top > .sub-section:last-child {
   position: relative;
@@ -3905,8 +4450,12 @@ onBeforeRouteLeave(async () => {
 .stove-section .section-head {
   border-bottom: 1px solid var(--sheet-grid-border);
 }
+.sink-section .detail-tbl {
+  font-size: 14px;
+}
 .stove-section .detail-tbl {
   border-bottom: 1px solid var(--sheet-grid-border);
+  font-size: 14px;
 }
 .stove-section .detail-tbl tbody tr:last-child td {
   border-bottom: 1px solid var(--sheet-grid-border);
@@ -3943,15 +4492,22 @@ onBeforeRouteLeave(async () => {
 
 .fields-tbl {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   flex-shrink: 0;
+  position: relative;
 }
 .fields-tbl td {
-  border: 1px solid var(--sheet-grid-border);
+  border: none;
+  border-right: var(--sheet-grid-width) solid var(--sheet-grid-border);
+  border-bottom: var(--sheet-grid-width) solid var(--sheet-grid-border);
   padding: 0 4px 3px;
   height: 26px;
   vertical-align: middle;
   line-height: 1.1;
+}
+.fields-tbl tr:first-child td {
+  border-top: var(--sheet-grid-width) solid var(--sheet-grid-border);
 }
 .fields-tbl .lbl,
 .fields-tbl .val {
@@ -3966,17 +4522,48 @@ onBeforeRouteLeave(async () => {
   text-align: left;
   padding-left: 8px;
 }
+.fields-tbl td:first-child {
+  border-left: var(--sheet-grid-width) solid var(--sheet-grid-border);
+}
+.fields-tbl td.lbl {
+  border-top: inherit;
+  border-bottom: inherit;
+}
 .fields-tbl tr.edge-row td {
   height: 84px;
   padding-top: 0;
   padding-bottom: 0;
   vertical-align: middle;
 }
+.fields-tbl tr.edge-row.edge-row-collapsed td {
+  height: 34px;
+}
 .fields-tbl tr.stone-row td {
   height: 31px;
 }
+.fields-tbl tr.stone-row .val {
+  font-size: 15px;
+}
+.font-adjustable,
+.stone-color-cell {
+  cursor: pointer;
+  user-select: none;
+}
 .fields-tbl tr.edge-row .lbl {
   top: 0;
+}
+.fields-tbl tr.edge-row > td:first-child {
+  border-left: var(--sheet-grid-width) solid var(--sheet-grid-border) !important;
+}
+.edge-toggle-lbl {
+  cursor: pointer;
+  user-select: none;
+}
+.edge-toggle-caret {
+  display: block;
+  font-size: 10px;
+  line-height: 1;
+  margin-top: 2px;
 }
 .lbl {
   background: #fff;
@@ -4036,6 +4623,11 @@ onBeforeRouteLeave(async () => {
   display: flex;
   align-items: center;
   vertical-align: middle;
+  transition: height 0.18s ease;
+}
+.fields-tbl tr.edge-row.edge-row-collapsed .edge-cell {
+  height: 34px;
+  padding: 0 6px;
 }
 .edge-choice-list {
   display: flex;
@@ -4044,6 +4636,14 @@ onBeforeRouteLeave(async () => {
   gap: 2px;
   width: 100%;
   transform: translateY(-4px);
+  transition: transform 0.18s ease;
+}
+.fields-tbl tr.edge-row.edge-row-collapsed .edge-choice-list {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  transform: none;
 }
 .edge-choice {
   display: grid;
@@ -4059,19 +4659,44 @@ onBeforeRouteLeave(async () => {
   color: #111;
   justify-items: start;
 }
+.fields-tbl tr.edge-row.edge-row-collapsed .edge-choice {
+  grid-template-columns: 12px auto auto;
+  gap: 2px;
+  min-height: 18px;
+  flex: 1 1 0;
+}
 .edge-choice-shape {
   width: 16px;
   text-align: center;
   font-size: 15px;
   line-height: 1;
 }
+.fields-tbl tr.edge-row.edge-row-collapsed .edge-choice-shape {
+  width: 12px;
+  font-size: 12px;
+}
 .edge-choice-mark {
   font-size: 13px;
   line-height: 1;
 }
+.fields-tbl tr.edge-row.edge-row-collapsed .edge-choice-mark {
+  font-size: 11px;
+}
 .edge-choice-label {
   font-size: 14px;
   line-height: 1.1;
+}
+.fields-tbl tr.edge-row.edge-row-collapsed .edge-choice-label {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.edge-choice-empty {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
 }
 .edge-choice.active .edge-choice-label {
   font-weight: 700;
@@ -4362,8 +4987,16 @@ onBeforeRouteLeave(async () => {
 }
 .price-lbl {
   font-weight: 600;
-  writing-mode: vertical-rl;
-  letter-spacing: 1px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+.price-lbl span {
+  display: block;
 }
 .price-val-col {
   flex: 1;
@@ -4371,7 +5004,7 @@ onBeforeRouteLeave(async () => {
   align-items: stretch;
   justify-content: center;
   border-right: 1px solid var(--sheet-grid-border);
-  padding: 2px 4px 10px;
+  padding: 3px 6px 8px;
   overflow: hidden;
 }
 .price-val {
@@ -4384,10 +5017,10 @@ onBeforeRouteLeave(async () => {
 .price-grid {
   width: 100%;
   display: grid;
-  column-gap: 6px;
+  column-gap: 10px;
   row-gap: 0;
   align-items: start;
-  padding: 1px 2px 2px;
+  padding: 1px 3px 2px;
 }
 .price-grid--cols-2 {
   grid-template-columns: 1fr 1fr;
@@ -4399,13 +5032,13 @@ onBeforeRouteLeave(async () => {
   grid-template-columns: 1fr 1fr 1fr 1fr;
 }
 .price-grid--dense {
-  column-gap: 6px;
+  column-gap: 8px;
 }
 .price-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
-  line-height: 1.15;
+  font-size: 11px;
+  line-height: 1.22;
   table-layout: fixed;
 }
 .price-table td {
@@ -4416,41 +5049,24 @@ onBeforeRouteLeave(async () => {
 .price-table tr:last-child td {
   border-bottom: none;
 }
-.price-table .pt-desc {
-  text-align: left;
-  white-space: normal;
-  word-break: break-word;
-  width: 40%;
-}
-.price-table .pt-formula {
-  font-size: 10px;
-  color: #777;
-  line-height: 1.15;
-  word-break: break-all;
-}
 .price-table .pt-calc {
   text-align: right;
   color: #555;
   white-space: normal;
-  word-break: break-word;
-  width: 38%;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  width: 100%;
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
-}
-.price-table .pt-amt {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  width: 22%;
-  font-weight: 600;
+  font-size: 10.5px;
+  line-height: 1.22;
 }
 .price-sum {
   border-top: 1px solid #c0392b;
-  margin-top: 2px;
-  padding: 1px 4px 2px 0;
+  margin-top: 3px;
+  padding: 1px 2px 2px 0;
   text-align: center;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.1;
   color: #c0392b;
   position: relative;
@@ -4461,7 +5077,7 @@ onBeforeRouteLeave(async () => {
 }
 .price-sum span {
   margin-left: 4px;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   letter-spacing: 1px;
 }
@@ -4527,6 +5143,9 @@ onBeforeRouteLeave(async () => {
 }
 .a4-page.export-readable .fields-tbl tr.stone-row td {
   height: 37px;
+}
+.a4-page.export-readable .fields-tbl tr.stone-row .val {
+  font-size: 16px;
 }
 .a4-page.export-readable .lbl,
 .a4-page.export-readable .val {
@@ -4598,7 +5217,6 @@ onBeforeRouteLeave(async () => {
   overflow: visible !important;
   text-overflow: clip !important;
 }
-
 /* Export-only fine-tune for print/PDF alignment */
 .detail-cell-text {
   display: inline-block;
@@ -4620,17 +5238,49 @@ onBeforeRouteLeave(async () => {
 .a4-page.export-rendering .fields-tbl tr.stone-row td {
   height: 41px;
 }
+.a4-page.export-rendering .fields-tbl tr.stone-row .val {
+  font-size: 16px;
+}
 .a4-page.export-rendering .fields-tbl .lbl,
 .a4-page.export-rendering .fields-tbl .val {
   top: -3px;
 }
+.a4-page.export-rendering .fields-tbl tr:first-child td.val {
+  top: -6px;
+}
+.a4-page.export-rendering .fields-tbl tr:first-child td,
 .a4-page.export-rendering .fields-tbl tr.edge-row td {
-  height: 88px;
+  border-bottom: none !important;
+}
+.a4-page.export-rendering .fields-tbl tr.edge-row td {
+  height: 33px;
   vertical-align: middle;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.a4-page.export-rendering .fields-tbl tr.edge-row .lbl,
+.a4-page.export-rendering .fields-tbl tr.edge-row .val {
+  top: -3px;
+}
+.a4-page.export-rendering .edge-cell {
+  height: 33px !important;
+  padding: 0 4px !important;
+  border-top: none !important;
+}
+.a4-page.export-rendering .edge-toggle-lbl {
+  font-size: 15px;
+  line-height: 1.05;
+}
+.a4-page.export-rendering .edge-toggle-caret {
+  display: none;
 }
 .a4-page.export-rendering .fields-tbl td.val {
   padding-top: 0;
   padding-bottom: 4px;
+}
+.a4-page.export-rendering .fields-tbl tr.edge-row td.val {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 .a4-page.export-rendering .detail-tbl,
 .a4-page.export-rendering .detail-tbl th {
@@ -4641,10 +5291,27 @@ onBeforeRouteLeave(async () => {
 }
 .a4-page.export-rendering .edge-choice-mark,
 .a4-page.export-rendering .edge-choice-label {
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.05;
 }
 .a4-page.export-rendering .edge-choice-list {
-  transform: translateY(-11px);
+  transform: none;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.a4-page.export-rendering .edge-choice {
+  grid-template-columns: 12px auto auto;
+  gap: 2px;
+  min-height: 22px;
+}
+.a4-page.export-rendering .edge-choice-shape {
+  width: 12px;
+  font-size: 15px;
+}
+.a4-page.export-rendering .edge-choice-empty {
+  font-size: 15px;
 }
 
 /* ══ 繪圖區塊 ══ */
