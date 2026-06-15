@@ -963,6 +963,28 @@ function calcPartialMonthDeduction(r) {
   return 0;
 }
 
+function calcFirstPaymentPartialMonthDeduction(r) {
+  if (!r || String(r.salaryType || "") !== "月薪") return 0;
+
+  const explicit = Number(r.partialMonthDeductionFirst);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return Math.round(explicit);
+  }
+
+  const noWorkDays = Number(r.partialMonthNoWorkDays);
+  const laborBase = Number(r.laborInsuranceSalaryBase);
+  if (
+    Number.isFinite(noWorkDays) &&
+    noWorkDays > 0 &&
+    Number.isFinite(laborBase) &&
+    laborBase > 0
+  ) {
+    return Math.round((laborBase / 30) * noWorkDays);
+  }
+
+  return calcPartialMonthDeduction(r);
+}
+
 function calcPartialMonthNoWorkDays(r) {
   if (!r || String(r.salaryType || "") !== "月薪") return 0;
 
@@ -1933,7 +1955,7 @@ function printSlip(r, mode) {
       ${deductRow('體檢費（外勞）', r.foreignMedical)}
       ${deductRow('服務費（外勞）', r.foreignService)}
       ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : '其他減項', r.otherDeduction)}
-      ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ''}
+      ${calcFirstPaymentPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcFirstPaymentPartialMonthDeduction(r))}</td></tr>` : ''}
       ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
       ${deductRow('借款本金', r.loanPrincipal)}
       ${deductRow('借款利息', r.loanInterest)}

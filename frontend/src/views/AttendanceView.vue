@@ -423,7 +423,7 @@
             <select v-model="laborEmployee" @change="fetchLaborReport">
               <option value="">全部員工</option>
               <option v-for="s in laborStaffList" :key="s.uid" :value="s.uid">
-                {{ s.name }}
+                {{ s.empNo ? `${s.empNo} ` : "" }}{{ s.name }}
               </option>
             </select>
           </label>
@@ -435,7 +435,7 @@
       <div v-else class="labor-report">
         <div v-for="emp in laborData" :key="emp.uid" class="labor-emp-block">
           <div class="labor-emp-title">
-            <strong>{{ emp.name }}</strong>
+            <strong>{{ emp.empNo ? `${emp.empNo} ` : "" }}{{ emp.name }}</strong>
             &emsp;{{ laborMonth }} 出勤記錄
           </div>
           <table class="labor-table">
@@ -2264,6 +2264,40 @@ const loadingLabor = ref(false);
 const laborData = ref([]);
 const laborStaffList = ref([]);
 
+function laborEmpNo(source = {}) {
+  const candidates = [
+    source.empNo,
+    source.employeeNo,
+    source.staffNo,
+    source.staffId,
+    source.employeeId,
+    source.code,
+  ];
+  for (const v of candidates) {
+    const text = String(v || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function compareLaborEmployee(a, b) {
+  const empA = laborEmpNo(a);
+  const empB = laborEmpNo(b);
+  if (empA && empB) {
+    const cmp = empA.localeCompare(empB, "zh-Hant", {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (cmp !== 0) return cmp;
+  } else if (empA || empB) {
+    return empA ? -1 : 1;
+  }
+
+  const nameA = String(a.name || a.displayName || "");
+  const nameB = String(b.name || b.displayName || "");
+  return nameA.localeCompare(nameB, "zh-Hant");
+}
+
 const laborDays = computed(() => {
   const [y, m] = laborMonth.value.split("-").map(Number);
   const count = new Date(y, m, 0).getDate();
@@ -2286,7 +2320,7 @@ async function fetchLaborReport() {
   loadingLabor.value = true;
   try {
     const m = laborMonth.value;
-    const [snaps, allUsers] = await Promise.all([
+    const [snaps, allUsers, staffSnap] = await Promise.all([
       getDocs(
         query(
           collection(db, "attendance"),
@@ -2295,30 +2329,80 @@ async function fetchLaborReport() {
         ),
       ),
       fetchAllUsers(),
+      getDocs(collection(db, "staff")),
     ]);
-    const nameMap = Object.fromEntries(
-      allUsers.filter((u) => u.displayName).map((u) => [u.id, u.displayName]),
+
+    const staffRows = staffSnap.docs.map((d) => d.data() || {});
+    const staffByEmail = Object.fromEntries(
+      staffRows
+        .filter((s) => s.email)
+        .map((s) => [
+          String(s.email).trim().toLowerCase(),
+          { empNo: laborEmpNo(s), name: String(s.name || "").trim() },
+        ]),
+    );
+    const staffByName = Object.fromEntries(
+      staffRows
+        .filter((s) => s.name)
+        .map((s) => [
+          String(s.name).trim(),
+          { empNo: laborEmpNo(s), name: String(s.name || "").trim() },
+        ]),
+    );
+
+    const userMap = Object.fromEntries(
+      allUsers.map((u) => [
+        u.id,
+        {
+          name: u.displayName || u.name || u.id,
+          empNo:
+            laborEmpNo(u) ||
+            staffByEmail[String(u.email || "").trim().toLowerCase()]?.empNo ||
+            staffByName[String(u.displayName || u.name || "").trim()]?.empNo ||
+            "",
+        },
+      ]),
     );
     laborStaffList.value = allUsers
       .filter((u) => u.displayName)
-      .map((u) => ({ uid: u.id, name: u.displayName }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .map((u) => ({
+        uid: u.id,
+        name: u.displayName,
+        empNo:
+          userMap[u.id]?.empNo ||
+          staffByEmail[String(u.email || "").trim().toLowerCase()]?.empNo ||
+          "",
+      }))
+      .sort(compareLaborEmployee);
     const byUid = {};
     for (const d of snaps.docs) {
       const r = d.data();
       const uid = r.uid || r.email;
       if (!byUid[uid]) {
+        const user = r.uid ? userMap[r.uid] : null;
+        const staffByRecordEmail = staffByEmail[
+          String(r.email || "").trim().toLowerCase()
+        ];
+        const staffByRecordName = staffByName[String(r.name || "").trim()];
         byUid[uid] = {
           uid,
-          name: (r.uid && nameMap[r.uid]) || r.name || uid,
+          name:
+            user?.name ||
+            staffByRecordName?.name ||
+            staffByRecordEmail?.name ||
+            r.name ||
+            uid,
+          empNo:
+            user?.empNo ||
+            staffByRecordEmail?.empNo ||
+            staffByRecordName?.empNo ||
+            laborEmpNo(r),
           byDate: {},
         };
       }
       byUid[uid].byDate[r.date] = r;
     }
-    let result = Object.values(byUid).sort((a, b) =>
-      (a.name || "").localeCompare(b.name || ""),
-    );
+    let result = Object.values(byUid).sort(compareLaborEmployee);
     if (laborEmployee.value) {
       result = result.filter((e) => e.uid === laborEmployee.value);
     }
@@ -2331,7 +2415,82 @@ async function fetchLaborReport() {
 }
 
 function printLabor() {
-  window.print();
+  const reportEl = document.querySelector(".labor-report");
+  if (!reportEl) return;
+
+  const html = `<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>${laborMonth.value} 月出勤報表</title>
+    <style>
+      body {
+        font-family: "Noto Sans TC", Arial, sans-serif;
+        font-size: 12px;
+        margin: 16px;
+        color: #1f2937;
+      }
+      .labor-emp-block {
+        margin-bottom: 24px;
+        page-break-after: always;
+      }
+      .labor-emp-block:last-child {
+        page-break-after: auto;
+      }
+      .labor-emp-title {
+        font-size: 16px;
+        font-weight: 700;
+        padding: 6px 0;
+        border-bottom: 2px solid #333;
+        margin-bottom: 6px;
+      }
+      .labor-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .labor-table th {
+        background: #ececec;
+        border: 1px solid #bdbdbd;
+        padding: 6px 8px;
+        text-align: center;
+      }
+      .labor-table td {
+        border: 1px solid #bdbdbd;
+        padding: 5px 8px;
+        text-align: center;
+      }
+      .labor-table tr.weekend td {
+        background: #f5f5f5;
+        color: #888;
+      }
+      .labor-table tr.no-rec td {
+        color: #b3b3b3;
+      }
+      .labor-sign-row {
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 10mm;
+      }
+    </style>
+  </head>
+  <body>
+    ${reportEl.innerHTML}
+  </body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=1100,height=900");
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+    win.onafterprint = () => win.close();
+  };
 }
 </script>
 

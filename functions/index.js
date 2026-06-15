@@ -10621,6 +10621,11 @@ async function runPayrollCalculation(yyyyMM) {
       0,
       Number(s.laborInsuranceSalary) || 0,
     );
+    // 5 日薪資的未上班扣款改以投保薪資（日薪基準 30 天）計算
+    const partialMonthDeductionFirst =
+      salType === "月薪" && partialMonthNoWorkDays > 0
+        ? Math.round((laborInsuranceSalaryBase / 30) * partialMonthNoWorkDays)
+        : 0;
     const firstPayment = Math.max(
       0,
       laborInsuranceSalaryBase +
@@ -10638,13 +10643,13 @@ async function runPayrollCalculation(yyyyMM) {
         otherDeduction -
         loanPrincipal -
         loanInterest -
-        partialMonthDeduction -
+        partialMonthDeductionFirst -
         absentDeduction,
     );
-    // 申報所得 = 投保薪資 - 曠職扣款 - 遲到/早退扣款
+    // 申報所得 = 投保薪資 - 曠職扣款 - 遲到/早退扣款 - 未上班扣薪
     const reportedIncome = Math.max(
       0,
-      laborInsuranceSalaryBase - absentDeduction - lateEarlyDeduction,
+      laborInsuranceSalaryBase - absentDeduction - lateEarlyDeduction - partialMonthDeductionFirst,
     );
     const secondPayment = grossPay - firstPayment;
 
@@ -10682,6 +10687,7 @@ async function runPayrollCalculation(yyyyMM) {
         attendanceDays,
         partialMonthNoWorkDays,
         partialMonthDeduction,
+        partialMonthDeductionFirst,
         lateEarlyDeduction,
         lateEarlyDetail,
         absentDeduction,
