@@ -536,6 +536,13 @@
           class="number"
           @change="redraw"
         />公分
+        枱面厚度<input
+          type="number"
+          v-model.number="counterThick"
+          step="0.1"
+          class="number"
+          @change="redraw"
+        />公分
       </div>
       <div class="row">
         <button @click="redraw">重繪</button>
@@ -634,6 +641,7 @@ const rightEndDepth = ref(null);
 const backOption = ref("後靠牆");
 const backstop = ref(false);
 const backHeight = ref(4);
+const counterThick = ref(4);
 
 // ─── 繪圖座標常數 ────────────────────────────────────────
 // L 型佈局：
@@ -670,6 +678,7 @@ function getSnapshot() {
     backOption: backOption.value,
     backstop: backstop.value,
     backHeight: backHeight.value,
+    counterThick: counterThick.value,
     svgContent: draw ? draw.svg() : "",
   };
 }
@@ -710,6 +719,7 @@ function restoreSnapshot(snap) {
   if (snap.backOption != null) backOption.value = snap.backOption;
   if (snap.backstop != null) backstop.value = snap.backstop;
   if (snap.backHeight != null) backHeight.value = snap.backHeight;
+  if (snap.counterThick != null) counterThick.value = snap.counterThick;
   if (snap.leftSideLeg && typeof snap.leftSideLeg === "object") {
     Object.assign(leftSideLeg, snap.leftSideLeg);
   }

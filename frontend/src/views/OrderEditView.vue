@@ -281,7 +281,6 @@
                 </td>
                 <td>
                   <div class="pricing-row-actions">
-                    <button class="btn-mini" type="button" @click="recalcPricingRowAmount(row)">套公式</button>
                     <button class="btn-mini" type="button" @click="removePricingItem(idx)">刪除</button>
                   </div>
                 </td>
@@ -714,8 +713,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import {
   listCustomers,
   listProductModels,
@@ -881,6 +880,8 @@ const isEdit = computed(() => !!route.params.id);
 const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
+const savedFormSignature = ref("");
+const formReady = ref(false);
 
 const customers = ref([]);
 const sinkModels = ref([]);
@@ -977,6 +978,24 @@ const form = ref({
   depthStandard: 60,
   depthProportional: true,
 });
+
+function buildFormSignature() {
+  return JSON.stringify(toPayload());
+}
+
+function refreshSavedFormSignature() {
+  savedFormSignature.value = buildFormSignature();
+}
+
+const hasUnsavedChanges = computed(
+  () => formReady.value && !loading.value && buildFormSignature() !== savedFormSignature.value,
+);
+
+function handleBeforeUnload(event) {
+  if (!hasUnsavedChanges.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
 
 const filteredCustomers = computed(() => {
   const kw = customerKeyword.value.trim().toLowerCase();
@@ -1099,28 +1118,37 @@ function sumPositiveList(values) {
   return Math.round(total * 100) / 100;
 }
 
-function calcDepthFactor(actualDepth, standard, proportional) {
+function calcDepthFactor(actualDepth, standard, proportional, backHeight = 4, frontHeight = 4) {
   if (!proportional) return 1;
   const d = parseLoosePositive(actualDepth);
-  const s = parseLoosePositive(standard) || 60;
-  return d > s ? Math.round((d / s) * 1000) / 1000 : 1;
+  const threshold = parseLoosePositive(standard) || 60;
+  const base = 60;
+  if (!d) return 1;
+  const back = parseLoosePositive(backHeight) || 4;
+  const front = (frontHeight != null && Number.isFinite(Number(frontHeight))) ? Math.max(Number(frontHeight), 0) : 4;
+  const adjustedDepth = Math.max(front + back + d - 8, 0);
+  if (adjustedDepth <= threshold) return 1;
+  return Math.round((adjustedDepth / base) * 1000) / 1000;
 }
 
 function getDrawingLengthByType(type, state, depthOpts) {
   const normalized = normalizeDrawingType(type);
   const std = parseLoosePositive(depthOpts?.standard) || 60;
   const prop = depthOpts?.proportional !== false;
+  const back = parseLoosePositive(state?.backHeight ?? 4) || 4;
+  const rawThick = state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
+  const front = rawThick <= 1.5 ? 0 : rawThick || 4;
   if (normalized === "straight") {
     const rawLen = sumPositiveList(state?.cabins || []);
-    const f = calcDepthFactor(state?.depthVal ?? 60, std, prop);
+    const f = calcDepthFactor(state?.depthVal ?? 60, std, prop, back, front);
     return Math.round(rawLen * f);
   }
   if (normalized === "l-shape") {
     const left = sumPositiveList(state?.leftCabins || []);
     const right = sumPositiveList(state?.rightCabins || []);
     const corner = Math.min(parseLoosePositive(state?.leftDepth ?? 0), parseLoosePositive(state?.rightDepth ?? 0)) / 2;
-    const fl = calcDepthFactor(state?.leftDepth ?? 60, std, prop);
-    const fr = calcDepthFactor(state?.rightDepth ?? 60, std, prop);
+    const fl = calcDepthFactor(state?.leftDepth ?? 60, std, prop, back, front);
+    const fr = calcDepthFactor(state?.rightDepth ?? 60, std, prop, back, front);
     return Math.round(left * fl + right * fr - corner);
   }
   if (normalized === "m-shape") {
@@ -1130,42 +1158,51 @@ function getDrawingLengthByType(type, state, depthOpts) {
     const midDepth = parseLoosePositive(state?.midDepth ?? 0);
     const leftCorner = Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0)) / 2;
     const rightCorner = Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0)) / 2;
-    const fm = calcDepthFactor(state?.midDepth ?? 60, std, prop);
-    const fl = calcDepthFactor(state?.leftArmDepth ?? 60, std, prop);
-    const fr = calcDepthFactor(state?.rightArmDepth ?? 60, std, prop);
+    const fm = calcDepthFactor(state?.midDepth ?? 60, std, prop, back, front);
+    const fl = calcDepthFactor(state?.leftArmDepth ?? 60, std, prop, back, front);
+    const fr = calcDepthFactor(state?.rightArmDepth ?? 60, std, prop, back, front);
     return Math.round(mid * fm + left * fl + right * fr - leftCorner - rightCorner);
   }
   if (normalized === "island") {
     const rawLen = deriveIslandTotalLengthFromState(state);
-    const f = calcDepthFactor(state?.form?.depth ?? 60, std, prop);
+    const f = calcDepthFactor(state?.form?.depth ?? 60, std, prop, back, front);
     return Math.round(rawLen * f);
   }
   return 0;
 }
 
-function depthScaledTerm(length, actualDepth, standard, proportional) {
+function depthScaledTerm(length, actualDepth, standard, proportional, backHeight = 4, frontHeight = 4) {
   const len = parseLoosePositive(length);
   if (!len) return "0";
-  const s = parseLoosePositive(standard) || 60;
+  const threshold = parseLoosePositive(standard) || 60;
+  const base = 60;
   const d = parseLoosePositive(actualDepth);
-  if (!proportional || !d || d <= s) return formatCmNumber(len);
-  return `${formatCmNumber(len)}×(${formatCmNumber(d)}/${formatCmNumber(s)})`;
+  const back = parseLoosePositive(backHeight) || 4;
+  const front = (frontHeight != null && Number.isFinite(Number(frontHeight))) ? Math.max(Number(frontHeight), 0) : 4;
+  if (!proportional || !d) return formatCmNumber(len);
+  const totalUse = front + back + d;
+  const adjustedDepth = Math.max(totalUse - 8, 0);
+  if (adjustedDepth <= threshold) return formatCmNumber(len);
+  return `${formatCmNumber(len)}×((${formatCmNumber(totalUse)}-8)/${formatCmNumber(base)})`;
 }
 
 function getDrawingLengthFormula(type, state, depthOpts) {
   const normalized = normalizeDrawingType(type);
   const std = parseLoosePositive(depthOpts?.standard) || 60;
   const prop = depthOpts?.proportional !== false;
+  const back = parseLoosePositive(state?.backHeight ?? 4) || 4;
+  const rawThick = state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
+  const front = rawThick <= 1.5 ? 0 : rawThick || 4;
   if (normalized === "straight") {
     const rawLen = sumPositiveList(state?.cabins || []);
-    return depthScaledTerm(rawLen, state?.depthVal ?? 60, std, prop);
+    return depthScaledTerm(rawLen, state?.depthVal ?? 60, std, prop, back, front);
   }
   if (normalized === "l-shape") {
     const left = sumPositiveList(state?.leftCabins || []);
     const right = sumPositiveList(state?.rightCabins || []);
     const shallow = Math.min(parseLoosePositive(state?.leftDepth ?? 0), parseLoosePositive(state?.rightDepth ?? 0));
-    const leftExpr = depthScaledTerm(left, state?.leftDepth ?? 60, std, prop);
-    const rightExpr = depthScaledTerm(right, state?.rightDepth ?? 60, std, prop);
+    const leftExpr = depthScaledTerm(left, state?.leftDepth ?? 60, std, prop, back, front);
+    const rightExpr = depthScaledTerm(right, state?.rightDepth ?? 60, std, prop, back, front);
     return `${leftExpr}+${rightExpr}-${formatCmNumber(shallow / 2)}(轉角)`;
   }
   if (normalized === "m-shape") {
@@ -1175,9 +1212,9 @@ function getDrawingLengthFormula(type, state, depthOpts) {
     const midDepth = parseLoosePositive(state?.midDepth ?? 0);
     const leftShallow = Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0));
     const rightShallow = Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0));
-    const midExpr = depthScaledTerm(mid, state?.midDepth ?? 60, std, prop);
-    const leftExpr = depthScaledTerm(left, state?.leftArmDepth ?? 60, std, prop);
-    const rightExpr = depthScaledTerm(right, state?.rightArmDepth ?? 60, std, prop);
+    const midExpr = depthScaledTerm(mid, state?.midDepth ?? 60, std, prop, back, front);
+    const leftExpr = depthScaledTerm(left, state?.leftArmDepth ?? 60, std, prop, back, front);
+    const rightExpr = depthScaledTerm(right, state?.rightArmDepth ?? 60, std, prop, back, front);
     return `${midExpr}+${leftExpr}+${rightExpr}-(${formatCmNumber(leftShallow)}/2+${formatCmNumber(rightShallow)}/2)`;
   }
   if (normalized === "island") {
@@ -1192,7 +1229,10 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       .map((v) => formatCmNumber(v));
     const base = parts.join("+") || formatCmNumber(rawLen);
     const d = state?.form?.depth ?? 60;
-    return depthScaledTerm(rawLen, d, std, prop).includes("×") ? `(${base})×(${formatCmNumber(parseLoosePositive(d) || 60)}/${formatCmNumber(std)})` : base;
+    const islandExpr = depthScaledTerm(rawLen, d, std, prop, back, front);
+    if (!islandExpr.includes("×")) return base;
+    const totalUse = formatCmNumber((parseLoosePositive(front) || 4) + (parseLoosePositive(back) || 4) + (parseLoosePositive(d) || 60));
+    return `(${base})×((${totalUse}-8)/60)`;
   }
   return "";
 }
@@ -1731,10 +1771,14 @@ function toPayload() {
   };
 }
 
-async function onSave() {
+async function onSave({
+  showSuccess = true,
+  showFailure = true,
+  redirectAfterCreate = true,
+} = {}) {
   if (!form.value.customerId) {
-    alert("請先選擇客戶");
-    return;
+    if (showFailure) alert("請先選擇客戶");
+    return false;
   }
   saving.value = true;
   try {
@@ -1742,11 +1786,13 @@ async function onSave() {
     const payload = toPayload();
     if (isEdit.value) {
       await updateSalesOrder(route.params.id, payload);
-      alert("已更新");
+      if (showSuccess) alert("已更新");
     } else {
       const id = await createSalesOrder(payload);
-      alert(`已建立訂單 (id: ${id})`);
-      router.replace({ name: "order-edit", params: { id } });
+      if (showSuccess) alert(`已建立訂單 (id: ${id})`);
+      if (redirectAfterCreate) {
+        router.replace({ name: "order-edit", params: { id } });
+      }
     }
 
     if (form.value.customerId && Number(form.value.pricePerCm) > 0) {
@@ -1792,9 +1838,12 @@ async function onSave() {
         }
       }
     }
+    refreshSavedFormSignature();
+    return true;
   } catch (e) {
     console.error(e);
-    alert("儲存失敗：" + (e?.message || e));
+    if (showFailure) alert("儲存失敗：" + (e?.message || e));
+    return false;
   } finally {
     saving.value = false;
   }
@@ -1802,6 +1851,7 @@ async function onSave() {
 
 async function loadAll() {
   loading.value = true;
+  formReady.value = false;
   error.value = "";
   try {
     const uid = auth.currentUser?.uid;
@@ -1899,6 +1949,8 @@ async function loadAll() {
       designFiles.value = df;
       samplePhotos.value = sp;
     }
+    refreshSavedFormSignature();
+    formReady.value = true;
   } catch (e) {
     console.error(e);
     error.value = "載入失敗：" + (e?.message || e);
@@ -1907,7 +1959,23 @@ async function loadAll() {
   }
 }
 
-onMounted(loadAll);
+onMounted(() => {
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  void loadAll();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("beforeunload", handleBeforeUnload);
+});
+
+onBeforeRouteLeave(async () => {
+  if (!isEdit.value || !formReady.value || !hasUnsavedChanges.value) return true;
+  return await onSave({
+    showSuccess: false,
+    showFailure: true,
+    redirectAfterCreate: false,
+  });
+});
 </script>
 
 <style scoped>

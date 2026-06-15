@@ -394,7 +394,7 @@
 
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, nextTick, watch } from "vue";
-import { useRoute, useRouter, RouterLink } from "vue-router";
+import { onBeforeRouteLeave, useRoute, useRouter, RouterLink } from "vue-router";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import {
@@ -458,6 +458,8 @@ const pdfRenderError = ref("");
 const pdfRendering = ref(false);
 const pdfPageCount = ref(0);
 const imageRenderError = ref("");
+const savedReviewStateSignature = ref("");
+const reviewStateReady = ref(false);
 
 const isDrawing = ref(false);
 const hasInk = ref(false);
@@ -603,6 +605,55 @@ function buildChecklistPayload() {
       checked: !!item?.checked,
     }))
     .filter((item) => item.text);
+}
+
+function normalizeReviewObjectForSignature(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  return {
+    type: String(obj.type || ""),
+    text: String(obj.text || "").trim(),
+    color: String(obj.color || ""),
+    fontSize: Number(obj.fontSize || 0),
+    background: !!obj.background,
+    strokeWidth: Number(obj.strokeWidth || 0),
+    xPct: Number(obj.xPct || 0),
+    yPct: Number(obj.yPct || 0),
+    wPct: Number(obj.wPct || 0),
+    hPct: Number(obj.hPct || 0),
+  };
+}
+
+function buildReviewStateSignature() {
+  return JSON.stringify({
+    checklist: checklistItems.value.map((item) => ({
+      id: String(item?.id || ""),
+      text: String(item?.text || "").trim(),
+      checked: !!item?.checked,
+    })),
+    objects: annotationObjects.value.map((obj) => ({
+      id: String(obj?.id || ""),
+      ...normalizeReviewObjectForSignature(obj),
+    })),
+    ink: !!hasInk.value,
+    draftText: String(textDraft.value || "").trim(),
+    draftObject: normalizeReviewObjectForSignature(objectDraft.value),
+    draftShape: !!shapeStartPoint.value,
+    drawing: !!isDrawing.value,
+  });
+}
+
+function refreshSavedReviewStateSignature() {
+  savedReviewStateSignature.value = buildReviewStateSignature();
+}
+
+const hasUnsavedReviewChanges = computed(
+  () => buildReviewStateSignature() !== savedReviewStateSignature.value,
+);
+
+function handleBeforeUnload(event) {
+  if (!reviewStateReady.value || !hasUnsavedReviewChanges.value) return;
+  event.preventDefault();
+  event.returnValue = "";
 }
 
 const latestDesignFile = computed(() => {
@@ -801,6 +852,7 @@ function onBaseImageError() {
 
 async function loadAll() {
   if (!orderId.value) return;
+  reviewStateReady.value = false;
   imageRenderError.value = "";
   pdfRenderError.value = "";
   const [ord, files, reviews, reviewPdfs, reviewOverlays, sharedTemplate] =
@@ -840,6 +892,8 @@ async function loadAll() {
   }
   syncCanvasSize();
   await applyLatestOverlayToCanvas();
+  refreshSavedReviewStateSignature();
+  reviewStateReady.value = true;
 }
 
 function syncCanvasSize() {
@@ -1547,19 +1601,32 @@ async function saveReview() {
     saveMsg.value = sharedTemplateSaved
       ? "✅ 已儲存，共用檢核項目與本單勾選已更新。"
       : "⚠️ 本單勾選已儲存，但共用檢核項目更新失敗（可能權限不足）。";
+    refreshSavedReviewStateSignature();
+    return true;
   } catch (error) {
     saveMsg.value = `❌ 儲存失敗：${error?.message || error}`;
+    return false;
   } finally {
     saving.value = false;
   }
 }
 
+onBeforeRouteLeave(async () => {
+  if (!reviewStateReady.value) return true;
+  if (!hasUnsavedReviewChanges.value) return true;
+  const shouldSave = window.confirm("尚有未儲存的註記，是否先儲存再離開？");
+  if (!shouldSave) return true;
+  return await saveReview();
+});
+
 onMounted(async () => {
   window.addEventListener("resize", syncCanvasSize);
+  window.addEventListener("beforeunload", handleBeforeUnload);
   await loadAll();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", syncCanvasSize);
+  window.removeEventListener("beforeunload", handleBeforeUnload);
 });
 
 watch(showOverlay, () => {

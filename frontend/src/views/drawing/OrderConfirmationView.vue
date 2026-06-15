@@ -270,6 +270,14 @@
         >
           ↺ 轉 90°
         </button>
+        <button
+          v-show="selectedTextId !== null"
+          class="btn-draw"
+          @click="rotateSelectedText"
+          title="選中的文字切換 0° / 90°"
+        >
+          ↺ 文字轉向
+        </button>
         <button class="btn-print" @click="doPrint" title="列印或輸出 PDF">
           🖨️ 列印 / PDF
         </button>
@@ -2048,6 +2056,13 @@ function rotateSelectedBlock() {
   markAnnotationDirty();
   recordAnnotationHistory();
 }
+function rotateSelectedText() {
+  const ovl = textOverlays.value.find((o) => o.id === selectedTextId.value);
+  if (!ovl) return;
+  ovl.rotation = ovl.rotation ? 0 : 90;
+  markAnnotationDirty();
+  recordAnnotationHistory();
+}
 function getMeasurementLabelPos(start, end) {
   return {
     x: (start.x + end.x) / 2,
@@ -2953,15 +2968,6 @@ function commitText() {
         existing.text = text;
         existing.fontSize = tb.fontSize;
         existing.color = drawColor.value;
-        // Auto-rotate if text is numeric
-        const numericOnly = text.replace(/[\s\n\r.,\-/]/g, "");
-        if (
-          !existing.rotation &&
-          numericOnly.length > 0 &&
-          /^\d+$/.test(numericOnly)
-        ) {
-          existing.rotation = 90;
-        }
         drawTool.value = null;
         selectTextOverlay(existing);
       } else {
@@ -2976,12 +2982,7 @@ function commitText() {
   } else if (text) {
     // 確認後轉為可拖移文字疊層，不燒入 canvas
     const HANDLE_H = 24; // 拖移 handle 高度
-    let rotation = 0;
-    // Auto-rotate if text is numeric
-    const numericOnly = text.replace(/[\s\n\r.,\-/]/g, "");
-    if (numericOnly.length > 0 && /^\d+$/.test(numericOnly)) {
-      rotation = 90;
-    }
+    const rotation = 0;
     const newTextOverlay = {
       id: Date.now(),
       x: tb.x,
@@ -3553,22 +3554,7 @@ async function loadAll() {
     if (Array.isArray(conf?.overlayImgs))
       overlayImgs.value = conf.overlayImgs.map((i) => ({ ...i }));
     if (Array.isArray(conf?.textOverlays))
-      textOverlays.value = conf.textOverlays.map((o) => {
-        const ovl = { ...o };
-        // Auto-rotate dimension labels (like "380", "240") 90 degrees clockwise for vertical display
-        const text = String(o.text || "").trim();
-        // Check if text is primarily numeric (remove all non-digit, whitespace, and common separators)
-        const numericOnly = text.replace(/[\s\n\r.,\-/]/g, "");
-        if (
-          !o.rotation &&
-          numericOnly.length > 0 &&
-          /^\d+$/.test(numericOnly)
-        ) {
-          console.log(`[Auto-rotate] "${text}" -> rotation 90°`);
-          ovl.rotation = 90;
-        }
-        return ovl;
-      });
+      textOverlays.value = conf.textOverlays.map((o) => ({ ...o }));
     if (Array.isArray(conf?.shapeOverlays))
       shapeOverlays.value = conf.shapeOverlays.map((o) => ({ ...o }));
     if (Array.isArray(conf?.stampOverlays))

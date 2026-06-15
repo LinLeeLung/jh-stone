@@ -5336,6 +5336,8 @@ export async function updateCustomerPricing(
     stovePrices,
     specialPrices,
     defaultPricePerCm,
+    depthStandard,
+    depthProportional,
     skipOversizeScaling,
     preferredConfirmationEdgeType,
   } = {},
@@ -5353,6 +5355,11 @@ export async function updateCustomerPricing(
     stovePrices: { ...(cur.stovePrices || {}), ...(stovePrices || {}) },
     specialPrices: { ...(cur.specialPrices || {}), ...(specialPrices || {}) },
     defaultPricePerCm: defaultPricePerCm ?? cur.defaultPricePerCm ?? null,
+    depthStandard: depthStandard ?? cur.depthStandard ?? 60,
+    depthProportional:
+      depthProportional === undefined
+        ? (cur.depthProportional ?? true)
+        : depthProportional !== false,
     skipOversizeScaling:
       skipOversizeScaling === undefined
         ? (cur.skipOversizeScaling ?? false)
