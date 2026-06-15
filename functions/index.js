@@ -10226,17 +10226,24 @@ async function runPayrollCalculation(yyyyMM) {
     const employmentEnd =
       empEndDate && empEndDate < monthEnd ? empEndDate : monthEnd;
 
-    // 月薪制：按當月在職天數比例計算底薪（含月中到職/離職）
+    // 月薪制：底薪維持月薪，未上班天數扣薪另列（含月中到職/離職）
     let effectiveBase = base;
+    let partialMonthNoWorkDays = 0;
+    let partialMonthDeduction = 0;
     let attendanceDays = 0;
     if (salType === "月薪") {
       const employedDays = daysBetweenInclusive(employmentStart, employmentEnd);
-      effectiveBase = Math.round((base * employedDays) / daysInMonth);
+      partialMonthNoWorkDays = Math.max(0, daysInMonth - employedDays);
+      if (partialMonthNoWorkDays > 0) {
+        // 月薪日薪基準採 30 天，利於人資核算
+        partialMonthDeduction = Math.round((base / 30) * partialMonthNoWorkDays);
+      }
+      effectiveBase = base;
     }
 
     let baseHourlyRate;
     if (salType === "月薪") {
-      baseHourlyRate = effectiveBase / 240; // 30 天 × 8 小時
+      baseHourlyRate = base / 240; // 30 天 × 8 小時
     } else if (salType === "時薪") {
       baseHourlyRate = base;
     } else {
@@ -10591,6 +10598,7 @@ async function runPayrollCalculation(yyyyMM) {
         bonusTotal +
         otPay +
         mealAllowance -
+        partialMonthDeduction -
         leaveDeduction -
         lateEarlyDeduction -
         absentDeduction -
@@ -10630,6 +10638,7 @@ async function runPayrollCalculation(yyyyMM) {
         otherDeduction -
         loanPrincipal -
         loanInterest -
+        partialMonthDeduction -
         absentDeduction,
     );
     // 申報所得 = 投保薪資 - 曠職扣款 - 遲到/早退扣款
@@ -10671,6 +10680,8 @@ async function runPayrollCalculation(yyyyMM) {
         leaveDetail,
         leaveDeduction,
         attendanceDays,
+        partialMonthNoWorkDays,
+        partialMonthDeduction,
         lateEarlyDeduction,
         lateEarlyDetail,
         absentDeduction,

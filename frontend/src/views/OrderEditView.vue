@@ -88,8 +88,18 @@
         </div>
 
         <div class="row">
+          <label>打版日</label>
+          <input v-model="form.templatingDate" type="date" />
+        </div>
+
+        <div class="row">
           <label>預交日</label>
           <input v-model="form.promisedAt" type="date" />
+        </div>
+
+        <div class="row">
+          <label>收尾日</label>
+          <input v-model="form.finishingDate" type="date" />
         </div>
 
         <div class="row">
@@ -173,6 +183,221 @@
           <button class="btn-del" @click="form.stones.splice(i, 1)">×</button>
         </div>
         <p v-if="!form.stones.length" class="muted small">尚未加入石材</p>
+      </section>
+
+      <!-- 計價（由繪圖帶入） -->
+      <section class="card full">
+        <header class="card-head">
+          <h3>計價（由繪圖帶入）</h3>
+          <div class="pricing-toolbar">
+            <button class="btn-mini" type="button" @click="addPricingItem">+ 新增項目</button>
+            <button class="btn-mini" type="button" @click="recalcPricingTotals">重算合計</button>
+            <button
+              v-if="isEdit"
+              class="btn-mini"
+              type="button"
+              :disabled="loadingPricingImport"
+              @click="importPricingFromDrawing"
+            >
+              {{ loadingPricingImport ? "帶入中..." : "一鍵帶入繪圖資料" }}
+            </button>
+            <RouterLink
+              v-if="isEdit"
+              class="btn-mini"
+              :to="`/orders/${route.params.id}/drawing`"
+              >前往繪圖更新</RouterLink
+            >
+          </div>
+        </header>
+
+        <div class="pricing-wrap">
+          <div v-if="customerPricing" class="pricing-history">
+            <div class="pricing-history-head">
+              <span>客戶歷史單價</span>
+              <span v-if="customerPricing.defaultPricePerCm" class="muted small"
+                >預設 {{ customerPricing.defaultPricePerCm.toLocaleString() }} /cm</span
+              >
+            </div>
+            <div v-if="suggestedPrices.length" class="pricing-suggestions">
+              <div v-for="s in suggestedPrices" :key="s.key" class="pricing-sugg-item">
+                <span class="muted small">{{ s.label }}</span>
+                <strong>{{ s.price.toLocaleString() }} /cm</strong>
+                <button class="btn-mini" type="button" @click="form.pricePerCm = s.price">套用</button>
+              </div>
+            </div>
+          </div>
+
+          <table class="pricing-table">
+            <thead>
+              <tr>
+                <th>項目</th>
+                <th class="num">數量</th>
+                <th>單位</th>
+                <th class="num">單價</th>
+                <th>計算式</th>
+                <th class="num">金額</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, idx) in editablePricingRows" :key="`p-${idx}`">
+                <td>
+                  <input
+                    v-model="row.description"
+                    class="pricing-input"
+                    type="text"
+                    placeholder="項目名稱"
+                    @input="syncPricingName(row)"
+                  />
+                </td>
+                <td class="num">
+                  <input
+                    v-model.number="row.qty"
+                    class="pricing-input num"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    @input="recalcPricingRowAmount(row)"
+                  />
+                </td>
+                <td>
+                  <input v-model="row.unit" class="pricing-input" type="text" placeholder="單位" />
+                </td>
+                <td class="num">
+                  <input
+                    v-model.number="row.unitPrice"
+                    class="pricing-input num"
+                    type="number"
+                    min="0"
+                    step="1"
+                    @input="recalcPricingRowAmount(row)"
+                  />
+                </td>
+                <td class="pricing-formula">
+                  {{ formatPricingFormula(row) }}
+                </td>
+                <td class="num">
+                  <input v-model.number="row.amount" class="pricing-input num" type="number" min="0" step="1" />
+                </td>
+                <td>
+                  <div class="pricing-row-actions">
+                    <button class="btn-mini" type="button" @click="recalcPricingRowAmount(row)">套公式</button>
+                    <button class="btn-mini" type="button" @click="removePricingItem(idx)">刪除</button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!editablePricingRows.length">
+                <td colspan="7" class="muted small">尚未有計價項目，請按「新增項目」或「一鍵帶入繪圖資料」。</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="pricing-summary">
+            <span>小計：{{ fmtCurrency(pricingSubtotal) }}</span>
+            <span>稅額：{{ fmtCurrency(pricingTaxAmount) }}</span>
+            <span class="total">含稅總計：{{ fmtCurrency(pricingGrandTotal) }}</span>
+          </div>
+
+          <div class="pricing-calculation" style="margin-top:12px;padding:12px;background:#f5f5f5;border-radius:4px;font-size:12px;color:#555;line-height:1.6">
+            <div v-if="pricingFormulaDisplay" style="display:flex;flex-direction:column;gap:8px">
+              <!-- 台面小計 -->
+              <div v-if="pricingFormulaDisplay.mainItems.length" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <span><strong>台面：</strong></span>
+                <span v-for="(item, idx) in pricingFormulaDisplay.mainItems" :key="idx" style="display:flex;gap:4px;align-items:center">
+                  <span v-if="idx > 0">+</span>
+                  <span>{{ formatPricingFormula(item) }}</span>
+                </span>
+                <span style="color:#999">=</span>
+                <span><strong>{{ fmtCurrency(pricingFormulaDisplay.mainSubtotal) }}</strong></span>
+              </div>
+              
+              <!-- 開孔小計 -->
+              <div v-if="pricingFormulaDisplay.cutoutItems.length" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <span><strong>開孔：</strong></span>
+                <span v-for="(item, idx) in pricingFormulaDisplay.cutoutItems" :key="idx" style="display:flex;gap:4px;align-items:center">
+                  <span v-if="idx > 0">+</span>
+                  <span>{{ formatPricingFormula(item) }}</span>
+                </span>
+                <span style="color:#999">=</span>
+                <span><strong>{{ fmtCurrency(pricingFormulaDisplay.cutoutSubtotal) }}</strong></span>
+              </div>
+              
+              <!-- 小計 -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid #ddd">
+                <span v-if="pricingFormulaDisplay.mainItems.length && pricingFormulaDisplay.cutoutItems.length">
+                  {{ fmtCurrency(pricingFormulaDisplay.mainSubtotal) }} + {{ fmtCurrency(pricingFormulaDisplay.cutoutSubtotal) }} =
+                </span>
+                <span><strong style="color:#000;font-size:13px">小計：{{ fmtCurrency(pricingFormulaDisplay.subtotal) }}</strong></span>
+              </div>
+              
+              <!-- 稅額 -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <span>{{ fmtCurrency(pricingFormulaDisplay.subtotal) }} × {{ (pricingFormulaDisplay.taxRate * 100).toFixed(0) }}% =</span>
+                <span><strong style="color:#000;font-size:13px">稅額：{{ fmtCurrency(pricingFormulaDisplay.taxAmount) }}</strong></span>
+              </div>
+              
+              <!-- 含稅總計 -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid #ddd">
+                <span>{{ fmtCurrency(pricingFormulaDisplay.subtotal) }} + {{ fmtCurrency(pricingFormulaDisplay.taxAmount) }} =</span>
+                <span style="font-weight:600;color:#d9534f;font-size:14px">含稅總計：{{ fmtCurrency(pricingFormulaDisplay.grandTotal) }}</span>
+              </div>
+            </div>
+            <div v-else style="color:#999;font-style:italic">
+              尚無計價項目
+            </div>
+          </div>
+
+          <div class="pricing-edit-grid">
+            <div class="row">
+              <label>深度標準 (cm)</label>
+              <div class="inline">
+                <select v-model.number="form.depthStandard" style="width:80px">
+                  <option :value="60">60</option>
+                  <option :value="65">65</option>
+                </select>
+                <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#555;font-weight:normal">
+                  <input type="checkbox" v-model="form.depthProportional" style="width:auto;height:auto" />
+                  超深比例換算
+                </label>
+              </div>
+            </div>
+            <div class="row">
+              <label>單價 / cm</label>
+              <div class="inline">
+                <input v-model.number="form.pricePerCm" type="number" min="0" style="width: 120px" />
+                <button
+                  v-if="customerPricing?.defaultPricePerCm"
+                  class="btn-mini"
+                  type="button"
+                  @click="form.pricePerCm = customerPricing.defaultPricePerCm"
+                >
+                  帶入預設
+                </button>
+              </div>
+            </div>
+            <div class="row">
+              <label>未稅總價</label>
+              <div class="inline">
+                <input v-model.number="form.total" type="number" min="0" style="width: 140px" />
+                <button
+                  v-if="form.pricePerCm && form.countertop?.totalCm"
+                  class="btn-mini"
+                  type="button"
+                  @click="form.total = Math.round(form.pricePerCm * form.countertop.totalCm)"
+                >
+                  以長度計算
+                </button>
+              </div>
+            </div>
+            <div class="row">
+              <label>訂金</label>
+              <input v-model.number="form.depositPaid" type="number" min="0" style="width: 140px" />
+            </div>
+            <div class="row">
+              <label>付款備註</label>
+              <input v-model="form.paymentNotes" type="text" placeholder="例如：尾款貨到收現" />
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- 附件（原始圖檔 / 打板照）-->
@@ -334,6 +559,9 @@
             </label>
             <button class="btn-del" @click="form.sinks.splice(i, 1)">×</button>
           </div>
+          <div class="sink-row-note">
+            <input v-model="s.note" type="text" placeholder="備註" />
+          </div>
           <div class="sink-row-status">
             <span class="lbl">水槽狀態：</span>
             <label
@@ -424,10 +652,6 @@
       <section class="card">
         <h3>生產指令</h3>
         <div class="row">
-          <label>打板日</label>
-          <input v-model="form.templatingDate" type="date" />
-        </div>
-        <div class="row">
           <label>打板人員</label>
           <select v-model="form.templatingStaff">
             <option value="">-- 選擇 --</option>
@@ -508,6 +732,9 @@ import {
   deleteOrderAttachment,
   listStaffByDept,
   sendConfirmation,
+  getCustomerPricing,
+  updateCustomerPricing,
+  listOrderDrawings,
 } from "../firebase";
 import IssuanceDialog from "../components/IssuanceDialog.vue";
 import { SINK_STATUS_LIST } from "../utils/sinkStatus";
@@ -521,6 +748,8 @@ import {
 } from "../utils/orderOptions";
 
 const userRole = ref("");
+const customerPricing = ref(null);
+const loadingPricingImport = ref(false);
 
 // ─── 發單作業 ────────────────────────────────────────────────
 const orderStatus = ref("");
@@ -696,6 +925,7 @@ function newSink() {
     method: "",
     arrival: "notArrived",
     hasAccessory: false,
+    note: "",
   };
 }
 function newStove() {
@@ -728,6 +958,7 @@ const form = ref({
   openEdges: { left: false, right: false },
   extraMm: null,
   templatingDate: "",
+  finishingDate: "",
   templatingStaff: "",
   drawingStaff: "",
   installStaff: [],
@@ -735,6 +966,16 @@ const form = ref({
   sinkReceivedAt: "",
   specialNotes: "",
   isTestData: false,
+  pricePerCm: null,
+  subtotal: null,
+  total: null,
+  grandTotal: null,
+  taxRate: 0.05,
+  depositPaid: null,
+  paymentNotes: "",
+  lineItems: [],
+  depthStandard: 60,
+  depthProportional: true,
 });
 
 const filteredCustomers = computed(() => {
@@ -747,7 +988,545 @@ const filteredCustomers = computed(() => {
   );
 });
 
-function pickCustomer(c) {
+const suggestedPrices = computed(() => {
+  if (!customerPricing.value) return [];
+  const result = [];
+  const prices = customerPricing.value.stonePrices || {};
+  for (const s of form.value.stones || []) {
+    const key = [s.brand, s.color].filter(Boolean).join("/");
+    if (key && prices[key] != null) {
+      result.push({
+        key,
+        label: `${s.brand} ${s.color}`.trim(),
+        price: Number(prices[key]) || 0,
+      });
+    }
+  }
+  return result;
+});
+
+function toNum(val) {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizePricingItem(row = {}) {
+  const description = String(row?.description || row?.name || "").trim();
+  const qty = toNum(row?.qty);
+  const unitPrice = toNum(row?.unitPrice);
+  const existingAmount = Number(row?.amount);
+  const amount = Number.isFinite(existingAmount)
+    ? existingAmount
+    : Math.round(qty * unitPrice);
+  return {
+    ...row,
+    description,
+    name: description,
+    qty,
+    unit: String(row?.unit || "").trim(),
+    unitPrice,
+    amount,
+  };
+}
+
+function normalizePricingItems(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => normalizePricingItem(row));
+}
+
+function fillMissingUnitPrices(rows, defaultPrice) {
+  if (!Array.isArray(rows) || !defaultPrice) return rows;
+  return rows.map((row) => {
+    if (row.unitPrice === 0 || !row.unitPrice) {
+      return { ...row, unitPrice: defaultPrice, amount: Math.round((row.qty || 0) * defaultPrice) };
+    }
+    return row;
+  });
+}
+
+function parseLoosePositive(val) {
+  const n = Number(val);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+const DRAWING_TYPE_ALIASES = {
+  straight: ["straight", "one", "一字", "一字型", "直線", "直線型"],
+  "l-shape": ["l-shape", "l", "l型", "l 型", "L", "L型", "L 型"],
+  "m-shape": ["m-shape", "m", "m型", "m 型", "M", "M型", "M 型"],
+  island: ["island", "中島", "島", "中岛"],
+};
+
+const DRAWING_TYPE_LABELS = {
+  straight: "一字型",
+  "l-shape": "L型",
+  "m-shape": "M型",
+  island: "中島",
+};
+
+function normalizeDrawingType(type) {
+  const raw = String(type || "").trim();
+  if (!raw) return "straight";
+  const rawLower = raw.toLowerCase();
+  for (const [normalized, aliases] of Object.entries(DRAWING_TYPE_ALIASES)) {
+    if (aliases.some((alias) => alias.toLowerCase() === rawLower)) {
+      return normalized;
+    }
+  }
+  return rawLower;
+}
+
+function isIslandDrawing(type) {
+  return normalizeDrawingType(type) === "island";
+}
+
+function getDrawingTypeLabel(type) {
+  const normalized = normalizeDrawingType(type);
+  return DRAWING_TYPE_LABELS[normalized] || String(type || "").trim() || "繪圖";
+}
+
+function formatCmNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  const rounded = Math.round(n * 100) / 100;
+  return String(rounded)
+    .replace(/\.0+$/, "")
+    .replace(/(\.\d*[1-9])0+$/, "$1");
+}
+
+function sumPositiveList(values) {
+  if (!Array.isArray(values)) return 0;
+  const total = values.reduce((sum, value) => sum + parseLoosePositive(value), 0);
+  return Math.round(total * 100) / 100;
+}
+
+function calcDepthFactor(actualDepth, standard, proportional) {
+  if (!proportional) return 1;
+  const d = parseLoosePositive(actualDepth);
+  const s = parseLoosePositive(standard) || 60;
+  return d > s ? Math.round((d / s) * 1000) / 1000 : 1;
+}
+
+function getDrawingLengthByType(type, state, depthOpts) {
+  const normalized = normalizeDrawingType(type);
+  const std = parseLoosePositive(depthOpts?.standard) || 60;
+  const prop = depthOpts?.proportional !== false;
+  if (normalized === "straight") {
+    const rawLen = sumPositiveList(state?.cabins || []);
+    const f = calcDepthFactor(state?.depthVal ?? 60, std, prop);
+    return Math.round(rawLen * f);
+  }
+  if (normalized === "l-shape") {
+    const left = sumPositiveList(state?.leftCabins || []);
+    const right = sumPositiveList(state?.rightCabins || []);
+    const corner = Math.min(parseLoosePositive(state?.leftDepth ?? 0), parseLoosePositive(state?.rightDepth ?? 0)) / 2;
+    const fl = calcDepthFactor(state?.leftDepth ?? 60, std, prop);
+    const fr = calcDepthFactor(state?.rightDepth ?? 60, std, prop);
+    return Math.round(left * fl + right * fr - corner);
+  }
+  if (normalized === "m-shape") {
+    const mid = sumPositiveList(state?.midCabins || []);
+    const left = sumPositiveList(state?.leftArmCabins || []);
+    const right = sumPositiveList(state?.rightArmCabins || []);
+    const midDepth = parseLoosePositive(state?.midDepth ?? 0);
+    const leftCorner = Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0)) / 2;
+    const rightCorner = Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0)) / 2;
+    const fm = calcDepthFactor(state?.midDepth ?? 60, std, prop);
+    const fl = calcDepthFactor(state?.leftArmDepth ?? 60, std, prop);
+    const fr = calcDepthFactor(state?.rightArmDepth ?? 60, std, prop);
+    return Math.round(mid * fm + left * fl + right * fr - leftCorner - rightCorner);
+  }
+  if (normalized === "island") {
+    const rawLen = deriveIslandTotalLengthFromState(state);
+    const f = calcDepthFactor(state?.form?.depth ?? 60, std, prop);
+    return Math.round(rawLen * f);
+  }
+  return 0;
+}
+
+function depthScaledTerm(length, actualDepth, standard, proportional) {
+  const len = parseLoosePositive(length);
+  if (!len) return "0";
+  const s = parseLoosePositive(standard) || 60;
+  const d = parseLoosePositive(actualDepth);
+  if (!proportional || !d || d <= s) return formatCmNumber(len);
+  return `${formatCmNumber(len)}×(${formatCmNumber(d)}/${formatCmNumber(s)})`;
+}
+
+function getDrawingLengthFormula(type, state, depthOpts) {
+  const normalized = normalizeDrawingType(type);
+  const std = parseLoosePositive(depthOpts?.standard) || 60;
+  const prop = depthOpts?.proportional !== false;
+  if (normalized === "straight") {
+    const rawLen = sumPositiveList(state?.cabins || []);
+    return depthScaledTerm(rawLen, state?.depthVal ?? 60, std, prop);
+  }
+  if (normalized === "l-shape") {
+    const left = sumPositiveList(state?.leftCabins || []);
+    const right = sumPositiveList(state?.rightCabins || []);
+    const shallow = Math.min(parseLoosePositive(state?.leftDepth ?? 0), parseLoosePositive(state?.rightDepth ?? 0));
+    const leftExpr = depthScaledTerm(left, state?.leftDepth ?? 60, std, prop);
+    const rightExpr = depthScaledTerm(right, state?.rightDepth ?? 60, std, prop);
+    return `${leftExpr}+${rightExpr}-${formatCmNumber(shallow / 2)}(轉角)`;
+  }
+  if (normalized === "m-shape") {
+    const mid = sumPositiveList(state?.midCabins || []);
+    const left = sumPositiveList(state?.leftArmCabins || []);
+    const right = sumPositiveList(state?.rightArmCabins || []);
+    const midDepth = parseLoosePositive(state?.midDepth ?? 0);
+    const leftShallow = Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0));
+    const rightShallow = Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0));
+    const midExpr = depthScaledTerm(mid, state?.midDepth ?? 60, std, prop);
+    const leftExpr = depthScaledTerm(left, state?.leftArmDepth ?? 60, std, prop);
+    const rightExpr = depthScaledTerm(right, state?.rightArmDepth ?? 60, std, prop);
+    return `${midExpr}+${leftExpr}+${rightExpr}-(${formatCmNumber(leftShallow)}/2+${formatCmNumber(rightShallow)}/2)`;
+  }
+  if (normalized === "island") {
+    const f = state?.form || {};
+    const rawLen = [f.plusLeft, f.box1, f.box2, f.box3, f.box4, f.box5, f.box6, f.box7, f.plusRight, f.frontWrap, f.backWrap]
+      .map((v) => parseLoosePositive(v))
+      .filter((v) => v > 0)
+      .reduce((sum, v) => sum + v, 0);
+    const parts = [f.plusLeft, f.box1, f.box2, f.box3, f.box4, f.box5, f.box6, f.box7, f.plusRight, f.frontWrap, f.backWrap]
+      .map((v) => parseLoosePositive(v))
+      .filter((v) => v > 0)
+      .map((v) => formatCmNumber(v));
+    const base = parts.join("+") || formatCmNumber(rawLen);
+    const d = state?.form?.depth ?? 60;
+    return depthScaledTerm(rawLen, d, std, prop).includes("×") ? `(${base})×(${formatCmNumber(parseLoosePositive(d) || 60)}/${formatCmNumber(std)})` : base;
+  }
+  return "";
+}
+
+function getDrawingCutoutItems(type, state) {
+  const normalized = normalizeDrawingType(type);
+  if (normalized === "straight") {
+    return [state?.sink1, state?.sink2, state?.stove1, state?.stove2].filter(Boolean);
+  }
+  if (normalized === "l-shape") {
+    return [
+      ...(Array.isArray(state?.leftSinks) ? state.leftSinks : []),
+      ...(Array.isArray(state?.leftStoves) ? state.leftStoves : []),
+      ...(Array.isArray(state?.rightSinks) ? state.rightSinks : []),
+      ...(Array.isArray(state?.rightStoves) ? state.rightStoves : []),
+    ];
+  }
+  if (normalized === "m-shape") {
+    return [
+      ...(Array.isArray(state?.midSinks) ? state.midSinks : []),
+      ...(Array.isArray(state?.midStoves) ? state.midStoves : []),
+      ...(Array.isArray(state?.leftArmSinks) ? state.leftArmSinks : []),
+      ...(Array.isArray(state?.leftArmStoves) ? state.leftArmStoves : []),
+      ...(Array.isArray(state?.rightArmSinks) ? state.rightArmSinks : []),
+      ...(Array.isArray(state?.rightArmStoves) ? state.rightArmStoves : []),
+    ];
+  }
+  if (normalized === "island") {
+    return [
+      ...(Array.isArray(state?.sinks) ? state.sinks : []),
+      ...(Array.isArray(state?.stoves) ? state.stoves : []),
+    ];
+  }
+  return [];
+}
+
+function deriveIslandTotalLengthFromState(state) {
+  const f = state?.form || {};
+  const parts = [
+    f.plusLeft,
+    f.box1,
+    f.box2,
+    f.box3,
+    f.box4,
+    f.box5,
+    f.box6,
+    f.box7,
+    f.plusRight,
+    f.frontWrap,
+    f.backWrap,
+  ];
+  const total = parts.reduce((sum, val) => sum + parseLoosePositive(val), 0);
+  return Math.round(total * 100) / 100;
+}
+
+function buildCutoutLineItemsFromState(type, state, materialType) {
+  const label = getDrawingTypeLabel(type);
+  const items = getDrawingCutoutItems(type, state);
+  const rows = [];
+
+  // 推斷預設工法：陶板→上掛，其他→下嵌
+  const mt = String(materialType || "").toLowerCase();
+  const defaultSinkMethod = (mt === "porcelain") ? "上掛" : "下嵌";
+  const defaultStoveMethod = (mt === "porcelain") ? "上掛" : "下嵌";
+
+  items.forEach((item, index) => {
+    if (!item?.enabled) return;
+    const isStove = Object.prototype.hasOwnProperty.call(item, "stoveLength");
+    const len = parseLoosePositive(isStove ? item?.stoveLength : item?.sinkLength);
+    const dep = parseLoosePositive(isStove ? item?.stoveDepth : item?.sinkDepth);
+    const sizeText = len && dep ? ` ${len}x${dep}cm` : "";
+    const method = String(item?.method || "").trim() || (isStove ? defaultStoveMethod : defaultSinkMethod);
+    const baseLabel = isStove ? "爐具開孔" : "水槽開孔";
+    rows.push(
+      normalizePricingItem({
+        description: `${label}${baseLabel}${index + 1}（${method}）${sizeText}`,
+        qty: 1,
+        unit: "孔",
+        unitPrice: 0,
+        amount: 0,
+      }),
+    );
+  });
+
+  return rows;
+}
+
+function buildLineItemsFromDrawingState(drawings, orderData) {
+  const list = Array.isArray(drawings) ? drawings : [];
+
+  // 若某種圖面 state 已帶 lineItems，直接優先使用
+  for (const d of list) {
+    const rows = normalizePricingItems(d?.state?.lineItems || []);
+    if (rows.length) return rows;
+  }
+
+  const rows = [];
+  const typeCounts = new Map();
+  const stoneText = Array.isArray(orderData?.stones) && orderData.stones.length
+    ? `${orderData.stones[0]?.brand || ""} ${orderData.stones[0]?.color || ""}`.trim()
+    : "";
+  const unitPrice = Number(orderData?.pricePerCm) || Number(customerPricing.value?.defaultPricePerCm) || 0;
+
+  const depthOpts = { standard: orderData?.depthStandard ?? form.value?.depthStandard ?? 60, proportional: orderData?.depthProportional !== false && form.value?.depthProportional !== false };
+
+  for (const drawing of list) {
+    if (!drawing?.state) continue;
+    const label = getDrawingTypeLabel(drawing?.type);
+    const normalizedType = normalizeDrawingType(drawing?.type);
+    const seq = (typeCounts.get(normalizedType) || 0) + 1;
+    typeCounts.set(normalizedType, seq);
+    const totalLength = getDrawingLengthByType(drawing?.type, drawing.state, depthOpts);
+    if (totalLength > 0) {
+      const formula = getDrawingLengthFormula(drawing?.type, drawing.state, depthOpts);
+      rows.push(
+        normalizePricingItem({
+          description: `${label}#${seq}（${formula}=${formatCmNumber(totalLength)}cm）${stoneText ? ` ${stoneText}` : ""}`,
+          qty: totalLength,
+          unit: "cm",
+          unitPrice,
+          amount: Math.round(totalLength * unitPrice),
+        }),
+      );
+    }
+
+    rows.push(...buildCutoutLineItemsFromState(drawing?.type, drawing.state, orderData?.stones?.[0]?.materialType));
+  }
+
+  return rows;
+}
+
+const editablePricingRows = computed(() => {
+  if (!Array.isArray(form.value.lineItems)) form.value.lineItems = [];
+  return form.value.lineItems;
+});
+
+const pricingRows = computed(() => {
+  const rows = Array.isArray(form.value?.lineItems) ? form.value.lineItems : [];
+  return rows
+    .map((row) => ({
+      description: String(row?.description || row?.name || "").trim(),
+      qty: toNum(row?.qty),
+      unit: String(row?.unit || "").trim(),
+      unitPrice: toNum(row?.unitPrice),
+      amount: toNum(row?.amount),
+    }))
+    .filter((row) => row.description || row.amount || row.unitPrice || row.qty);
+});
+
+const pricingSubtotal = computed(() => {
+  if (pricingRows.value.length) {
+    return pricingRows.value.reduce((sum, row) => sum + toNum(row.amount), 0);
+  }
+  const explicit = Number(form.value?.subtotal);
+  return Number.isFinite(explicit) ? explicit : 0;
+});
+
+const pricingGrandTotal = computed(() => {
+  if (pricingRows.value.length) {
+    const taxRate = Number(form.value?.taxRate);
+    const rate = Number.isFinite(taxRate) ? taxRate : 0.05;
+    return Math.round(pricingSubtotal.value * (1 + rate));
+  }
+  const explicit = Number(form.value?.grandTotal);
+  if (Number.isFinite(explicit)) return explicit;
+  const fallbackTotal = Number(form.value?.total);
+  if (Number.isFinite(fallbackTotal)) return fallbackTotal;
+  const taxRate = Number(form.value?.taxRate);
+  const rate = Number.isFinite(taxRate) ? taxRate : 0.05;
+  return Math.round(pricingSubtotal.value * (1 + rate));
+});
+
+const pricingTaxAmount = computed(() => {
+  const diff = pricingGrandTotal.value - pricingSubtotal.value;
+  return diff > 0 ? diff : 0;
+});
+
+const pricingFormulaDisplay = computed(() => {
+  const rows = pricingRows.value;
+  if (!rows.length) return null;
+  
+  const mainItems = rows.filter(r => String(r.unit || "").trim() === "cm");
+  const cutoutItems = rows.filter(r => String(r.unit || "").trim() !== "cm");
+  
+  const mainSubtotal = mainItems.reduce((sum, r) => sum + toNum(r.amount), 0);
+  const cutoutSubtotal = cutoutItems.reduce((sum, r) => sum + toNum(r.amount), 0);
+  const taxRate = Number(form.value?.taxRate) || 0.05;
+  
+  return {
+    mainItems,
+    cutoutItems,
+    mainSubtotal,
+    cutoutSubtotal,
+    subtotal: pricingSubtotal.value,
+    taxRate,
+    taxAmount: pricingTaxAmount.value,
+    grandTotal: pricingGrandTotal.value,
+  };
+});
+
+function fmtCurrency(val) {
+  const n = toNum(val);
+  return n.toLocaleString("zh-TW");
+}
+
+function syncPricingName(row) {
+  if (!row || typeof row !== "object") return;
+  row.description = String(row.description || "").trim();
+  row.name = row.description;
+}
+
+function recalcPricingRowAmount(row) {
+  if (!row || typeof row !== "object") return;
+  row.qty = toNum(row.qty);
+  row.unitPrice = toNum(row.unitPrice);
+  row.amount = Math.round(row.qty * row.unitPrice);
+  syncPricingName(row);
+}
+
+function formatPricingFormula(row) {
+  if (!row || typeof row !== "object") return "";
+  const qty = toNum(row.qty);
+  const unitPrice = toNum(row.unitPrice);
+  const amount = toNum(row.amount);
+  const unit = String(row.unit || "").trim();
+  if (!qty && !unitPrice && !amount) return "";
+  const qtyText = Number.isInteger(qty) ? qty : Math.round(qty * 100) / 100;
+  const unitText = unit || "";
+  return `${qtyText}${unitText ? unitText : ""} × ${fmtCurrency(unitPrice)} = ${fmtCurrency(amount)}`;
+}
+
+function addPricingItem() {
+  if (!Array.isArray(form.value.lineItems)) form.value.lineItems = [];
+  form.value.lineItems.push(
+    normalizePricingItem({ description: "", qty: 1, unit: "式", unitPrice: 0, amount: 0 }),
+  );
+}
+
+function removePricingItem(index) {
+  if (!Array.isArray(form.value.lineItems)) return;
+  form.value.lineItems.splice(index, 1);
+}
+
+function recalcPricingTotals() {
+  const subtotal = pricingRows.value.reduce((sum, row) => sum + toNum(row.amount), 0);
+  const taxRate = Number(form.value.taxRate);
+  const rate = Number.isFinite(taxRate) ? taxRate : 0.05;
+  form.value.subtotal = subtotal;
+  form.value.total = subtotal;
+  form.value.grandTotal = Math.round(subtotal * (1 + rate));
+}
+
+function formatPricingRowPreview(row, idx) {
+  const item = normalizePricingItem(row);
+  const desc = item.description || `項目${idx + 1}`;
+  const qtyText = Number.isFinite(Number(item.qty)) ? Number(item.qty).toLocaleString("zh-TW") : "0";
+  const unitText = item.unit || "式";
+  const unitPriceText = Number(item.unitPrice || 0).toLocaleString("zh-TW");
+  const amountText = Number(item.amount || 0).toLocaleString("zh-TW");
+  return `${idx + 1}. ${desc}｜${qtyText}${unitText} x ${unitPriceText} = ${amountText}`;
+}
+
+function buildPricingImportPreviewText(rows) {
+  if (!Array.isArray(rows) || !rows.length) return "（無可帶入項目）";
+  const lines = rows.slice(0, 20).map((row, idx) => formatPricingRowPreview(row, idx));
+  if (rows.length > 20) {
+    lines.push(`...其餘 ${rows.length - 20} 項省略`);
+  }
+  return lines.join("\n");
+}
+
+async function importPricingFromDrawing() {
+  if (!isEdit.value) return;
+  loadingPricingImport.value = true;
+  try {
+    const latest = await getSalesOrder(route.params.id);
+    const drawings = await listOrderDrawings(route.params.id);
+    let rows = buildLineItemsFromDrawingState(drawings, latest);
+    if (!rows.length) {
+      rows = normalizePricingItems(latest?.lineItems || []);
+    }
+
+    if (!rows.length) {
+      alert("找不到可帶入的繪圖計價資料（中島圖若只有尺寸，請先設定單價 /cm）");
+      return;
+    }
+
+    const previewText = buildPricingImportPreviewText(rows);
+    const ok = confirm(
+      `要以目前「繪圖頁已儲存」的計價資料覆蓋此區內容嗎？\n\n帶入明細：\n${previewText}`,
+    );
+    if (!ok) return;
+
+    // 從舊的 lineItems 中恢復已有的價格
+    const oldItems = form.value.lineItems || [];
+    rows = rows.map((newRow) => {
+      // 先嘗試用 description 匹配
+      const matchedOld = oldItems.find(
+        (old) => String(old.description || "").trim() === String(newRow.description || "").trim()
+      );
+      if (matchedOld && Number(matchedOld.unitPrice) > 0) {
+        return {
+          ...newRow,
+          unitPrice: Number(matchedOld.unitPrice),
+          amount: Math.round((newRow.qty || 0) * Number(matchedOld.unitPrice)),
+        };
+      }
+      return newRow;
+    });
+
+    form.value.lineItems = rows;
+
+    const taxRate = Number(latest?.taxRate);
+    if (Number.isFinite(taxRate)) form.value.taxRate = taxRate;
+    if (Number.isFinite(Number(latest?.pricePerCm))) form.value.pricePerCm = Number(latest.pricePerCm);
+
+    if (Number.isFinite(Number(latest?.subtotal))) form.value.subtotal = Number(latest.subtotal);
+    if (Number.isFinite(Number(latest?.total))) form.value.total = Number(latest.total);
+    if (Number.isFinite(Number(latest?.grandTotal))) form.value.grandTotal = Number(latest.grandTotal);
+
+    if (!Number.isFinite(Number(form.value.subtotal)) || !Number.isFinite(Number(form.value.grandTotal)) || rows.length) {
+      recalcPricingTotals();
+    }
+
+    alert(`已帶入繪圖計價資料（共 ${rows.length} 項）`);
+  } catch (e) {
+    console.error(e);
+    alert("帶入失敗：" + (e?.message || e));
+  } finally {
+    loadingPricingImport.value = false;
+  }
+}
+
+async function pickCustomer(c) {
   form.value.customerId = c.code || c.id;
   form.value.customerName = c.name || "";
   if (c.phone && !form.value.customerContact.phone) {
@@ -755,6 +1534,14 @@ function pickCustomer(c) {
   }
   customerKeyword.value = `${c.code || ""} ${c.name || ""}`.trim();
   showCustomerList.value = false;
+  customerPricing.value = await getCustomerPricing(form.value.customerId);
+  if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {
+    form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
+    // 補充 lineItems 中為 0 的 unitPrice
+    form.value.lineItems = fillMissingUnitPrices(form.value.lineItems, customerPricing.value.defaultPricePerCm);
+  }
+  if (customerPricing.value?.depthStandard) form.value.depthStandard = Number(customerPricing.value.depthStandard);
+  if (customerPricing.value?.depthProportional !== undefined) form.value.depthProportional = customerPricing.value.depthProportional;
 }
 
 function toggleSpecialMethod(name, checked) {
@@ -891,6 +1678,10 @@ function toDateInputStr(val) {
 function toPayload() {
   const f = form.value;
   const trimDate = (v) => (v && String(v).trim()) || null;
+  const numOrNull = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
   return {
     customerId: f.customerId || "",
     customerName: f.customerName || "",
@@ -909,6 +1700,7 @@ function toPayload() {
     openEdges: { ...f.openEdges },
     extraMm: f.extraMm || null,
     templatingDate: trimDate(f.templatingDate),
+    finishingDate: trimDate(f.finishingDate),
     templatingStaff: f.templatingStaff || "",
     drawingStaff: f.drawingStaff || "",
     installStaff: Array.isArray(f.installStaff) ? f.installStaff : (f.installStaff ? [f.installStaff] : []),
@@ -916,6 +1708,26 @@ function toPayload() {
     sinkReceivedAt: trimDate(f.sinkReceivedAt),
     specialNotes: f.specialNotes || "",
     isTestData: f.isTestData === true,
+    pricePerCm: numOrNull(f.pricePerCm),
+    subtotal: numOrNull(f.subtotal),
+    total: numOrNull(f.total),
+    grandTotal: numOrNull(f.grandTotal),
+    taxRate: numOrNull(f.taxRate),
+    depositPaid: numOrNull(f.depositPaid),
+    paymentNotes: f.paymentNotes || "",
+    depthStandard: numOrNull(f.depthStandard) ?? 60,
+    depthProportional: f.depthProportional !== false,
+    lineItems: Array.isArray(f.lineItems)
+      ? f.lineItems.map((li) => ({
+          ...li,
+          description: String(li?.description || li?.name || "").trim(),
+          name: String(li?.description || li?.name || "").trim(),
+          unit: String(li?.unit || "").trim(),
+          qty: numOrNull(li?.qty),
+          unitPrice: numOrNull(li?.unitPrice),
+          amount: numOrNull(li?.amount),
+        }))
+      : [],
   };
 }
 
@@ -926,6 +1738,7 @@ async function onSave() {
   }
   saving.value = true;
   try {
+    form.value.lineItems = normalizePricingItems(form.value.lineItems);
     const payload = toPayload();
     if (isEdit.value) {
       await updateSalesOrder(route.params.id, payload);
@@ -934,6 +1747,50 @@ async function onSave() {
       const id = await createSalesOrder(payload);
       alert(`已建立訂單 (id: ${id})`);
       router.replace({ name: "order-edit", params: { id } });
+    }
+
+    if (form.value.customerId && Number(form.value.pricePerCm) > 0) {
+      const stonePrices = {};
+      for (const s of form.value.stones || []) {
+        const key = [s.brand, s.color].filter(Boolean).join("/");
+        if (key) stonePrices[key] = Number(form.value.pricePerCm);
+      }
+      // 收集 lineItems 中所有非 0 的 unitPrice 用來記錄歷史價格
+      const usedPrices = new Set();
+      for (const item of form.value.lineItems || []) {
+        if (Number(item.unitPrice) > 0) {
+          usedPrices.add(Number(item.unitPrice));
+        }
+      }
+      const mainPrice = usedPrices.size === 1 ? Array.from(usedPrices)[0] : Number(form.value.pricePerCm);
+      await updateCustomerPricing(form.value.customerId, {
+        customerName: form.value.customerName,
+        stonePrices,
+        defaultPricePerCm: mainPrice,
+        depthStandard: Number(form.value.depthStandard) || 60,
+        depthProportional: form.value.depthProportional !== false,
+      });
+      customerPricing.value = await getCustomerPricing(form.value.customerId);
+    } else if (form.value.customerId && form.value.lineItems?.length) {
+      // 即使 pricePerCm 為 0，也嘗試從 lineItems 中提取並保存價格歷史
+      const usedPrices = new Set();
+      for (const item of form.value.lineItems || []) {
+        if (Number(item.unitPrice) > 0) {
+          usedPrices.add(Number(item.unitPrice));
+        }
+      }
+      if (usedPrices.size > 0) {
+        const mainPrice = usedPrices.size === 1 ? Array.from(usedPrices)[0] : 0;
+        if (mainPrice > 0) {
+          await updateCustomerPricing(form.value.customerId, {
+            customerName: form.value.customerName,
+            defaultPricePerCm: mainPrice,
+            depthStandard: Number(form.value.depthStandard) || 60,
+            depthProportional: form.value.depthProportional !== false,
+          });
+          customerPricing.value = await getCustomerPricing(form.value.customerId);
+        }
+      }
     }
   } catch (e) {
     console.error(e);
@@ -994,8 +1851,13 @@ async function loadAll() {
           countertop: { ...form.value.countertop, ...(doc.countertop || {}) },
           openEdges: { ...form.value.openEdges, ...(doc.openEdges || {}) },
           stones: doc.stones || [],
-          sinks: doc.sinks || [],
+          sinks: (doc.sinks || []).map((s) => ({
+            ...newSink(),
+            ...s,
+            note: String(s?.note || s?.deliveryNote || "").trim(),
+          })),
           stoves: doc.stoves || [],
+          lineItems: normalizePricingItems(doc.lineItems || []),
           specialMethods: Array.isArray(doc.specialMethods)
             ? doc.specialMethods
             : [],
@@ -1008,6 +1870,24 @@ async function loadAll() {
         // 統一將 promisedAt 轉成 YYYY-MM-DD（相容 Excel 序號、毫秒時間戳）
         if (form.value.promisedAt) {
           form.value.promisedAt = toDateInputStr(form.value.promisedAt);
+        }
+        if (form.value.templatingDate) {
+          form.value.templatingDate = toDateInputStr(form.value.templatingDate);
+        }
+        if (form.value.finishingDate) {
+          form.value.finishingDate = toDateInputStr(form.value.finishingDate);
+        }
+        if (form.value.customerId) {
+          customerPricing.value = await getCustomerPricing(form.value.customerId);
+          if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {
+            form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
+          }
+          // 補充 lineItems 中為 0 的 unitPrice
+          if (customerPricing.value?.defaultPricePerCm && form.value.lineItems?.length) {
+            form.value.lineItems = fillMissingUnitPrices(form.value.lineItems, customerPricing.value.defaultPricePerCm);
+          }
+          if (customerPricing.value?.depthStandard && !doc.depthStandard) form.value.depthStandard = Number(customerPricing.value.depthStandard);
+          if (customerPricing.value?.depthProportional !== undefined && doc.depthProportional === undefined) form.value.depthProportional = customerPricing.value.depthProportional;
         }
       }
     }
@@ -1040,11 +1920,26 @@ onMounted(loadAll);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: sticky;
+  top: 76px;
+  z-index: 20;
+  background: #fff;
+  padding: 10px 0;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   margin-bottom: 16px;
 }
 .header-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.pricing-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .btn-primary {
   padding: 8px 16px;
@@ -1198,6 +2093,17 @@ onMounted(loadAll);
   flex-wrap: wrap;
   padding-top: 4px;
   border-top: 1px dashed #eee;
+}
+.sink-row-note {
+  margin-bottom: 6px;
+}
+.sink-row-note input {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 12px;
+  box-sizing: border-box;
 }
 .sink-row-status .lbl {
   font-size: 12px;
@@ -1407,5 +2313,93 @@ onMounted(loadAll);
   font-size: 28px;
   cursor: pointer;
   line-height: 1;
+}
+.pricing-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pricing-history {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.pricing-history-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.pricing-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pricing-sugg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.pricing-table th,
+.pricing-table td {
+  border-bottom: 1px solid #eceff3;
+  padding: 6px 8px;
+  text-align: left;
+}
+.pricing-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.pricing-input.num {
+  text-align: right;
+}
+.pricing-formula {
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pricing-table th {
+  color: #475569;
+  background: #f8fafc;
+  font-weight: 600;
+}
+.pricing-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pricing-row-actions {
+  display: flex;
+  gap: 6px;
+}
+.pricing-summary {
+  display: flex;
+  gap: 18px;
+  justify-content: flex-end;
+  font-size: 13px;
+  color: #334155;
+}
+.pricing-summary .total {
+  font-weight: 700;
+  color: #0f172a;
+}
+.pricing-edit-grid {
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 8px;
 }
 </style>

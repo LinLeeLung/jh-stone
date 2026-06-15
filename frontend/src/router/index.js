@@ -21,6 +21,7 @@ import OrderImportView from "../views/OrderImportView.vue";
 import DispatchView from "../views/DispatchView.vue";
 import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
 import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
+import OrderOriginalReviewView from "../views/drawing/OrderOriginalReviewView.vue";
 import CustomerMgmtView from "../views/CustomerMgmtView.vue";
 import QuotePageView from "../views/QuotePageView.vue";
 import { auth } from "../firebase";
@@ -210,6 +211,12 @@ const router = createRouter({
       name: "order-confirmation",
       component: OrderConfirmationView,
       meta: { roles: ["admin", "管理者"], depts: ["1"], title: "生產確定單" },
+    },
+    {
+      path: "/orders/:id/original-review",
+      name: "order-original-review",
+      component: OrderOriginalReviewView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "原圖對圖註記" },
     },
   ],
 });

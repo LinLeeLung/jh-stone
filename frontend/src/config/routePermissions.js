@@ -77,3 +77,41 @@ export function findPermission(permissions, realPath) {
   // 再嘗試 :param 樣式
   return permissions.find((p) => p.path.includes(':') && pathToRegex(p.path).test(realPath));
 }
+
+/**
+ * 將 Firestore 覆寫設定合併到預設權限。
+ * 覆寫資料同 path 會取代欄位；新增 path 會附加到結果。
+ * @param {RoutePermDef[]} defaults
+ * @param {RoutePermDef[]} overrides
+ * @returns {RoutePermDef[]}
+ */
+export function mergeRoutePermissions(defaults, overrides) {
+  const base = Array.isArray(defaults) ? defaults : [];
+  const patch = Array.isArray(overrides) ? overrides : [];
+
+  const byPath = new Map(
+    base
+      .filter((item) => item && typeof item.path === 'string')
+      .map((item) => [item.path, { ...item }]),
+  );
+
+  for (const item of patch) {
+    if (!item || typeof item.path !== 'string') continue;
+    const prev = byPath.get(item.path) || { path: item.path };
+    const merged = {
+      ...prev,
+      ...item,
+    };
+
+    if (Array.isArray(merged.roles)) {
+      merged.roles = [...new Set(merged.roles.map((v) => String(v)).filter(Boolean))];
+    }
+    if (Array.isArray(merged.depts)) {
+      merged.depts = [...new Set(merged.depts.map((v) => String(v)).filter(Boolean))];
+    }
+
+    byPath.set(item.path, merged);
+  }
+
+  return [...byPath.values()];
+}

@@ -21,6 +21,33 @@
       <span class="toolbar-title">📋 生產確定單</span>
       <div class="toolbar-right">
         <span class="hint">{{ toolbarHint }}</span>
+        <div class="font-presets">
+          <span class="font-presets-label">字體預設</span>
+          <div
+            v-for="slot in FONT_PRESET_SLOTS"
+            :key="`font-preset-${slot}`"
+            class="font-preset-item"
+          >
+            <button
+              class="btn-draw btn-preset"
+              :title="`套用設定${slot}`"
+              @click="applyFontPreset(slot)"
+            >
+              套{{ slot }}
+            </button>
+            <button
+              class="btn-draw btn-preset-save"
+              :title="
+                fontPresetSavedAt[slot]
+                  ? `覆蓋設定${slot}（${fontPresetSavedAt[slot]}）`
+                  : `儲存為設定${slot}`
+              "
+              @click="saveFontPreset(slot)"
+            >
+              存{{ slot }}
+            </button>
+          </div>
+        </div>
         <!-- 手繪工具 -->
         <button
           class="btn-draw"
@@ -850,6 +877,17 @@
                   </div>
                 </div>
                 <span v-else class="price-val">{{ untaxedPriceDisplay }}</span>
+                <!-- 計算公式 -->
+                <div v-if="priceFormulaDisplay && !priceBreakdown.lines.length" class="price-formula-display" style="margin-top: 8px; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 12px; color: #555; line-height: 1.6;">
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                    <span>{{ priceFormulaDisplay.subtotal.toLocaleString() }}</span>
+                    <span>+</span>
+                    <span>{{ priceFormulaDisplay.taxAmount.toLocaleString() }}</span>
+                    <span>=</span>
+                    <span style="font-weight: 600; color: #000; font-size: 13px;">{{ priceFormulaDisplay.grandTotal.toLocaleString() }}</span>
+                    <span style="color: #999; font-size: 11px;">（稅率 {{ (priceFormulaDisplay.taxRate * 100).toFixed(0) }}%）</span>
+                  </div>
+                </div>
               </div>
               <div class="sig-col">
                 <div class="sig-box">
@@ -1380,6 +1418,32 @@ const untaxedPriceDisplay = computed(() => {
   return n > 0 ? n.toLocaleString() : "";
 });
 
+// 計算公式顯示：小計 + 稅額 = 含稅總計
+const priceFormulaDisplay = computed(() => {
+  const o = order.value;
+  if (!o) return null;
+  
+  // 計算未稅小計
+  let subtotal = o.subtotal;
+  if (subtotal == null) subtotal = o.total;
+  if (subtotal == null && Array.isArray(o.lineItems) && o.lineItems.length) {
+    subtotal = o.lineItems.reduce((s, li) => s + (Number(li.amount) || 0), 0);
+  }
+  if (subtotal == null) subtotal = 0;
+  subtotal = Number(subtotal) || 0;
+  
+  const taxRate = Number(o.taxRate) || 0.05;
+  const taxAmount = Math.round(subtotal * taxRate);
+  const grandTotal = subtotal + taxAmount;
+  
+  return {
+    subtotal,
+    taxRate,
+    taxAmount,
+    grandTotal,
+  };
+});
+
 // 計價明細：只保留數字的計算過程與結果
 // 按 (description-without-dims + unitPrice + unit) 聚合，避免同類項目重複列印
 const priceBreakdown = computed(() => {
@@ -1608,6 +1672,9 @@ const cf = reactive({
 
 const FIELD_FONT_SIZE_MIN = 9;
 const FIELD_FONT_SIZE_MAX = 24;
+const FONT_PRESET_SLOTS = [1, 2, 3];
+const fontPresetUserUid = ref("");
+const fontPresetSavedAt = reactive({ 1: "", 2: "", 3: "" });
 const fieldFontClickTimers = new Map();
 const EDGE_CHOICES = [
   { value: "bevel", shape: "△", label: "3mm斜角" },
@@ -2072,6 +2139,87 @@ function onFieldFontDoubleClick(key, fallback = 13, legacyKey = "") {
   }
   adjustFieldFontSize(key, fallback, -1, legacyKey);
 }
+
+function getFontPresetStorageKey(slot) {
+  const uid =
+    String(fontPresetUserUid.value || auth.currentUser?.uid || "guest").trim() ||
+    "guest";
+  return `order-confirmation-font-preset-${uid}-${slot}`;
+}
+
+function clampFieldFontSize(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(FIELD_FONT_SIZE_MAX, Math.max(FIELD_FONT_SIZE_MIN, n));
+}
+
+function sanitizeFieldFontSizes(source) {
+  if (!source || typeof source !== "object") return {};
+  const out = {};
+  for (const [key, value] of Object.entries(source)) {
+    const size = clampFieldFontSize(value);
+    if (size !== null) out[key] = size;
+  }
+  return out;
+}
+
+function formatPresetSavedAt(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${y}/${m}/${day} ${hh}:${mm}`;
+}
+
+function readFontPreset(slot) {
+  try {
+    const raw = localStorage.getItem(getFontPresetStorageKey(slot));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function refreshFontPresetStatus() {
+  for (const slot of FONT_PRESET_SLOTS) {
+    const preset = readFontPreset(slot);
+    fontPresetSavedAt[slot] = formatPresetSavedAt(preset?.savedAt || "");
+  }
+}
+
+function saveFontPreset(slot) {
+  try {
+    const payload = {
+      savedAt: new Date().toISOString(),
+      stoneFontSize: clampFieldFontSize(cf.stoneFontSize) || 15,
+      fieldFontSizes: sanitizeFieldFontSizes(cf.fieldFontSizes),
+    };
+    localStorage.setItem(getFontPresetStorageKey(slot), JSON.stringify(payload));
+    refreshFontPresetStatus();
+    setTransientMsg(`✅ 已儲存字體設定 ${slot}`);
+  } catch {
+    setTransientMsg("❌ 儲存字體設定失敗");
+  }
+}
+
+function applyFontPreset(slot) {
+  const preset = readFontPreset(slot);
+  if (!preset) {
+    setTransientMsg(`⚠ 設定 ${slot} 尚未儲存`);
+    return;
+  }
+  cf.fieldFontSizes = sanitizeFieldFontSizes(preset.fieldFontSizes);
+  const stoneSize = clampFieldFontSize(preset.stoneFontSize);
+  if (stoneSize !== null) cf.stoneFontSize = stoneSize;
+  markDirty();
+  setTransientMsg(`✅ 已套用字體設定 ${slot}`);
+}
+
 function captureAnnotationSnapshot() {
   return {
     drawingBlocks: drawingBlocks.value.map((blk) => ({
@@ -3466,6 +3614,8 @@ async function loadAll() {
     await authReadyPromise;
     const currentUser = auth.currentUser;
     if (currentUser?.uid) {
+      fontPresetUserUid.value = currentUser.uid;
+      refreshFontPresetStatus();
       try {
         const userDoc = await getUserByUid(currentUser.uid);
         printedByName.value =
@@ -3479,6 +3629,8 @@ async function loadAll() {
           currentUser.displayName || currentUser.email || currentUser.uid;
       }
     } else {
+      fontPresetUserUid.value = "";
+      refreshFontPresetStatus();
       printedByName.value = "";
     }
 
@@ -3872,6 +4024,30 @@ onBeforeRouteLeave(async () => {
 .hint {
   font-size: 11px;
   color: #94a3b8;
+}
+.font-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #0f172a;
+}
+.font-presets-label {
+  font-size: 11px;
+  color: #cbd5e1;
+  margin-right: 2px;
+}
+.font-preset-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.btn-preset,
+.btn-preset-save {
+  padding: 3px 7px;
+  font-size: 11px;
 }
 .measure-scale-badge {
   padding: 4px 8px;

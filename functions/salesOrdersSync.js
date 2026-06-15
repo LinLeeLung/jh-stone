@@ -66,6 +66,17 @@ function pickFirst(src, keys) {
   return "";
 }
 
+function parseLooseNumber(input) {
+  if (input === null || input === undefined) return null;
+  if (typeof input === "number") return Number.isFinite(input) ? input : null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/[^\d.-]/g, "");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
  * 將任意格式的日期字串標準化為 YYYY-MM-DD;失敗回 null
  * 接受: 2025-12-31 / 2025/12/31 / 20251231 / 114-12-31 (民國) / Date 物件
@@ -150,6 +161,18 @@ function buildMirrorPayload(orderId, orderData) {
   const rawStatus = String(pickFirst(d, ["status", "狀態", "施工狀態"]) || "").trim();
   const status = mapStatus(rawStatus, promisedAt);
   const companyId = String(pickFirst(d, ["companyId", "customerCompanyId"]) || "").trim();
+  const totalRaw = pickFirst(d, [
+    "銷售額",
+    "金額",
+    "總金額",
+    "總價",
+    "含稅總額",
+    "total",
+    "totalAmount",
+    "grandTotal",
+    "amountTotal",
+  ]);
+  const total = parseLooseNumber(totalRaw);
 
   // 推導 createdAt:優先用來源 createdAt → 中文建單日 → promisedAt → null
   const sourceCreatedAt =
@@ -170,6 +193,7 @@ function buildMirrorPayload(orderId, orderData) {
     siteAddress: siteAddress || "",
     orderedAt: orderedAt || null,
     promisedAt: promisedAt || null,
+    total,
     status,
 
     // 追溯原始字串值,方便日後修正映射
@@ -247,7 +271,8 @@ const onLegacyOrderWritten = onDocumentWritten(
       // 略過完全沒變動的寫入 (避免自家鏡像 trigger 自己;但這 trigger 只看 Orders,不會自觸發)
       if (before) {
         const sameRelevant = ["status", "狀態", "施工狀態", "installDate", "安裝日", "customerName", "客戶名稱",
-          "orderNumber", "訂單號碼", "installAddress", "安裝地點", "contactPhone", "電話"]
+          "orderNumber", "訂單號碼", "installAddress", "安裝地點", "contactPhone", "電話",
+          "銷售額", "金額", "總金額", "總價", "total", "totalAmount", "grandTotal", "amountTotal"]
             .every((k) => JSON.stringify(before[k] || null) === JSON.stringify(after[k] || null));
         if (sameRelevant) {
           logger.debug(`[salesOrdersSync] skip (no relevant field changed)`, {orderId});

@@ -967,6 +967,21 @@ const myName = ref("");
 const myDept = ref("");
 const myStaffRole = ref(""); // 員工 / 主管 / HR
 const deptMap = { 1: "辦公室", 2: "安裝", 3: "廠內", 4: "外勞" };
+const deptCodeMap = { 辦公室: "1", 安裝: "2", 廠內: "3", 外勞: "4" };
+
+function normalizeDept(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (deptMap[raw]) return raw;
+  return deptCodeMap[raw] || raw;
+}
+
+function sameDept(a, b) {
+  const left = normalizeDept(a);
+  const right = normalizeDept(b);
+  return !!left && !!right && left === right;
+}
+
 function deptLabel(v) {
   return deptMap[String(v)] || v || "—";
 }
@@ -1988,8 +2003,8 @@ async function loadPending() {
 
     if (isDeptHead.value && myDept.value) {
       // 主管只看同部門 stage 1；stage 2 由 HR 處理
-      lv1 = lv1.filter((r) => r.dept === myDept.value);
-      ov1 = ov1.filter((r) => r.dept === myDept.value);
+      lv1 = lv1.filter((r) => sameDept(r.dept, myDept.value));
+      ov1 = ov1.filter((r) => sameDept(r.dept, myDept.value));
       lv2 = [];
       ov2 = [];
     }

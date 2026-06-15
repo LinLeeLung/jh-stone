@@ -677,6 +677,21 @@ import {
 // ── 待審狀態 ()(主管/HR/管理者) ──────────────────────────
 const myStaffRole = ref("");
 const myDept = ref("");
+const deptNameToCode = { 辦公室: "1", 安裝: "2", 廠內: "3", 外勞: "4" };
+
+function normalizeDept(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^[1-4]$/.test(raw)) return raw;
+  return deptNameToCode[raw] || raw;
+}
+
+function sameDept(a, b) {
+  const left = normalizeDept(a);
+  const right = normalizeDept(b);
+  return !!left && !!right && left === right;
+}
+
 const pendingLeaveCount = ref(0);
 const pendingOTCount = ref(0);
 const isApprover = computed(
@@ -878,7 +893,8 @@ function timeStr() {
   return new Date().toLocaleTimeString("zh-TW", { hour12: false });
 }
 
-const EARLIEST_PUNCH_IN = "08:00:00";
+const EARLIEST_PUNCH_IN = "07:45:00";
+const WORK_HOURS_START = "08:00:00";
 const WORK_HOURS_END = "17:00:00";
 const LUNCH_BREAK_START = "12:00:00";
 const LUNCH_BREAK_END = "13:00:00";
@@ -1009,7 +1025,7 @@ function calcRecordHours(record) {
     const end = toSeconds(seg.end);
     if (start == null || end == null || end <= start) return;
 
-    const clippedStart = Math.max(start, toSeconds(EARLIEST_PUNCH_IN) ?? 0);
+    const clippedStart = Math.max(start, toSeconds(WORK_HOURS_START) ?? 0);
     const clippedEnd = Math.min(end, workEnd);
     if (clippedEnd <= clippedStart) return;
 
@@ -1370,7 +1386,7 @@ async function loadPendingCorrectionRequests() {
     );
     let rows = snaps.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (isDeptHead.value && myDept.value) {
-      rows = rows.filter((r) => r.dept === myDept.value);
+      rows = rows.filter((r) => sameDept(r.dept, myDept.value));
     }
     pendingCorrectionRequests.value = rows.sort((a, b) =>
       `${a.date || ""}${a.createdAt || ""}`.localeCompare(
@@ -1671,8 +1687,8 @@ async function loadPendingCounts() {
     let ot2 = oa.docs.map((d) => d.data());
     if (isDeptHead.value && myDept.value) {
       // 部門主管只看同部門 stage1，stage2 由 HR 處理
-      leave1 = leave1.filter((r) => r.dept === myDept.value);
-      ot1 = ot1.filter((r) => r.dept === myDept.value);
+      leave1 = leave1.filter((r) => sameDept(r.dept, myDept.value));
+      ot1 = ot1.filter((r) => sameDept(r.dept, myDept.value));
       leave2 = [];
       ot2 = [];
     }

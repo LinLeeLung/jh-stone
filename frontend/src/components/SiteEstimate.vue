@@ -113,6 +113,46 @@
           </option>
         </select>
       </div>
+
+      <div class="mb-4 p-3 bg-white rounded border">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold text-gray-700">該客戶歷史訂單</h3>
+          <span v-if="loadingCustomerOrders" class="text-xs text-gray-500">查詢中...</span>
+        </div>
+        <p v-if="customerOrdersError" class="text-xs text-red-600 mb-2">
+          {{ customerOrdersError }}
+        </p>
+        <p
+          v-if="!loadingCustomerOrders && !customerOrders.length"
+          class="text-xs text-gray-500"
+        >
+          尚未查到此客戶訂單。
+        </p>
+        <div v-else class="max-h-40 overflow-auto border rounded">
+          <table class="w-full text-xs">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="text-left p-2">訂單號</th>
+                <th class="text-left p-2">客戶</th>
+                <th class="text-left p-2">地址</th>
+                <th class="text-left p-2">更新</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="o in customerOrders"
+                :key="o.id"
+                class="border-t"
+              >
+                <td class="p-2">{{ o.orderNo || "—" }}</td>
+                <td class="p-2">{{ o.customerName || "—" }}</td>
+                <td class="p-2">{{ o.siteAddress || "—" }}</td>
+                <td class="p-2">{{ fmtOrderDate(o.updatedAt || o.createdAt) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div
         class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 bg-white rounded border"
       >
@@ -611,7 +651,7 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from "vue";
 import axios from "axios";
-import { auth, db, storage } from "@/firebase";
+import { auth, db, storage, listSalesOrdersByCustomerName } from "@/firebase";
 import {
   collection,
   doc,
@@ -637,6 +677,9 @@ const STORAGE_DIR = "siteQuotes";
 const cuskeyword = ref("");
 const customers = ref([]);
 const selectedCustomer = ref(null);
+const customerOrders = ref([]);
+const loadingCustomerOrders = ref(false);
+const customerOrdersError = ref("");
 
 const filterCustomers = computed(() => {
   return [
@@ -660,12 +703,43 @@ const fetchCustomers = async () => {
   }
 };
 
+async function fetchCustomerOrdersByName(name) {
+  const clean = String(name || "").trim();
+  if (!clean || clean === "請選擇客戶") {
+    customerOrders.value = [];
+    customerOrdersError.value = "";
+    return;
+  }
+
+  loadingCustomerOrders.value = true;
+  customerOrdersError.value = "";
+  try {
+    customerOrders.value = await listSalesOrdersByCustomerName(clean);
+  } catch (error) {
+    customerOrders.value = [];
+    customerOrdersError.value = `查詢失敗：${error?.message || error}`;
+  } finally {
+    loadingCustomerOrders.value = false;
+  }
+}
+
+function fmtOrderDate(val) {
+  if (!val) return "—";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("zh-TW");
+}
+
 const fillSiteDetails = () => {
   if (selectedCustomer.value && selectedCustomer.value.name !== "請選擇客戶") {
     info.customer = selectedCustomer.value.name || "";
     info.tel = selectedCustomer.value.tel || "";
     info.fax = selectedCustomer.value.fax || "";
     info.contacter = selectedCustomer.value.contacter || "";
+    void fetchCustomerOrdersByName(selectedCustomer.value.name);
+  } else {
+    customerOrders.value = [];
+    customerOrdersError.value = "";
   }
 };
 

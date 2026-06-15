@@ -306,6 +306,10 @@
                 >
                   {{ eraserMode ? "橡皮擦中" : "橡皮擦" }}
                 </button>
+                <label class="muted text-bg-toggle">
+                  <input v-model="showOverlay" type="checkbox" />
+                  顯示註記層
+                </label>
               </div>
               <div class="tool-group">
                 <label class="muted">筆粗 {{ brushSize }}</label>
@@ -389,7 +393,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref, nextTick } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, nextTick, watch } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -435,6 +439,7 @@ const designFiles = ref([]);
 const reviewFiles = ref([]);
 const reviewPdfFiles = ref([]);
 const reviewOverlayFiles = ref([]);
+const showOverlay = ref(true);
 const checklistItems = ref([]);
 const sharedChecklistTemplateItems = ref([]);
 const newChecklistText = ref("");
@@ -491,6 +496,11 @@ const objectLayerInteractive = computed(
 
 function isEditedDesignFileName(name) {
   return /-edited-\d{8}-\d{6}\.pdf$/i.test(String(name || ""));
+}
+
+function isPreviewableDesignFileName(name) {
+  const lower = String(name || "").toLowerCase();
+  return /\.(png|jpe?g|webp|gif|bmp|pdf)$/i.test(lower);
 }
 
 function newChecklistId() {
@@ -597,8 +607,16 @@ function buildChecklistPayload() {
 
 const latestDesignFile = computed(() => {
   const files = Array.isArray(designFiles.value) ? designFiles.value : [];
-  const original = files.find((f) => !isEditedDesignFileName(f?.name));
-  return original || files[0] || null;
+  const originals = files.filter((f) => !isEditedDesignFileName(f?.name));
+  const previewableOriginal = originals.find((f) =>
+    isPreviewableDesignFileName(f?.name),
+  );
+  if (previewableOriginal) return previewableOriginal;
+
+  const previewableAny = files.find((f) => isPreviewableDesignFileName(f?.name));
+  if (previewableAny) return previewableAny;
+
+  return originals[0] || files[0] || null;
 });
 const latestReviewImageUrl = computed(() => {
   if (order.value?.latestDesignReviewImageUrl)
@@ -1354,7 +1372,7 @@ async function applyLatestOverlayToCanvas() {
   if (!canvas || !ctx) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!overlayUrl) return;
+  if (!showOverlay.value || !overlayUrl) return;
 
   const rect = canvas.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
@@ -1542,6 +1560,10 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", syncCanvasSize);
+});
+
+watch(showOverlay, () => {
+  void applyLatestOverlayToCanvas();
 });
 </script>
 

@@ -88,6 +88,7 @@
             <th>加班費</th>
             <th>伙食費</th>
             <th>請假扣薪</th>
+            <th>未上班扣薪</th>
             <th class="lunch-col">便當費</th>
             <th>5日發薪</th>
             <th>10日發薪</th>
@@ -102,7 +103,7 @@
             <td>{{ r.empNo }}</td>
             <td>{{ r.name }}</td>
             <td>{{ r.dept || "—" }}</td>
-            <td class="num">{{ maskSensitive(r, r.baseSalary?.toLocaleString() || "—") }}</td>
+            <td class="num">{{ maskSensitive(r, displayBaseSalary(r)?.toLocaleString() || "—") }}</td>
             <td class="num">
               {{ maskSensitive(r, r.bonusTotal > 0 ? "+" + r.bonusTotal.toLocaleString() : "—") }}
             </td>
@@ -120,6 +121,13 @@
               {{ maskSensitive(r,
                 r.leaveDeduction > 0
                   ? "−" + r.leaveDeduction.toLocaleString()
+                  : "—",
+              ) }}
+            </td>
+            <td class="num deduct">
+              {{ maskSensitive(r,
+                calcPartialMonthDeduction(r) > 0
+                  ? "−" + calcPartialMonthDeduction(r).toLocaleString()
                   : "—",
               ) }}
             </td>
@@ -310,7 +318,7 @@
             <tr class="sep">
               <th>底薪</th>
               <td class="num">
-                {{ detailRecord.baseSalary?.toLocaleString() }}
+                {{ displayBaseSalary(detailRecord)?.toLocaleString() }}
               </td>
             </tr>
             <tr v-if="detailRecord.bonusTotal > 0">
@@ -363,6 +371,12 @@
               <th>請假扣薪合計</th>
               <td class="num deduct">
                 −{{ detailRecord.leaveDeduction.toLocaleString() }}
+              </td>
+            </tr>
+            <tr v-if="calcPartialMonthDeduction(detailRecord) > 0">
+              <th>未上班扣薪（{{ calcPartialMonthNoWorkDays(detailRecord) }}天）</th>
+              <td class="num deduct">
+                −{{ calcPartialMonthDeduction(detailRecord).toLocaleString() }}
               </td>
             </tr>
             <template
@@ -916,6 +930,54 @@ function calcReportedIncome(r) {
       (Number(r.absentDeduction) || 0) -
       (Number(r.lateEarlyDeduction) || 0),
   );
+}
+
+function displayBaseSalary(r) {
+  if (!r) return 0;
+  if (String(r.salaryType || "") === "月薪") {
+    return Number(r.baseSalaryFull ?? r.baseSalary) || 0;
+  }
+  return Number(r.baseSalary) || 0;
+}
+
+function calcPartialMonthDeduction(r) {
+  if (!r || String(r.salaryType || "") !== "月薪") return 0;
+
+  const explicit = Number(r.partialMonthDeduction);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return Math.round(explicit);
+  }
+
+  const fullBase = Number(r.baseSalaryFull);
+  const actualBase = Number(r.baseSalary);
+  if (
+    Number.isFinite(fullBase) &&
+    fullBase > 0 &&
+    Number.isFinite(actualBase) &&
+    actualBase >= 0 &&
+    actualBase < fullBase
+  ) {
+    return Math.round(fullBase - actualBase);
+  }
+
+  return 0;
+}
+
+function calcPartialMonthNoWorkDays(r) {
+  if (!r || String(r.salaryType || "") !== "月薪") return 0;
+
+  const explicitDays = Number(r.partialMonthNoWorkDays);
+  if (Number.isFinite(explicitDays) && explicitDays > 0) {
+    return Math.round(explicitDays);
+  }
+
+  const deduction = calcPartialMonthDeduction(r);
+  const fullBase = Number(r.baseSalaryFull);
+  if (deduction > 0 && Number.isFinite(fullBase) && fullBase > 0) {
+    return Math.max(0, Math.round((deduction * 30) / fullBase));
+  }
+
+  return 0;
 }
 
 // ── 年度報表 (報稅彙整用) ──────────────────────────────────────────────────
@@ -1871,6 +1933,7 @@ function printSlip(r, mode) {
       ${deductRow('體檢費（外勞）', r.foreignMedical)}
       ${deductRow('服務費（外勞）', r.foreignService)}
       ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : '其他減項', r.otherDeduction)}
+      ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ''}
       ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
       ${deductRow('借款本金', r.loanPrincipal)}
       ${deductRow('借款利息', r.loanInterest)}
@@ -1917,12 +1980,13 @@ function printSlip(r, mode) {
 
     bodyRows = `
       <tr><th>薪資類型</th><td>${r.salaryType || ''}</td></tr>
-      <tr class="sep"><th>底薪</th><td>${n(r.baseSalary)}</td></tr>
+      <tr class="sep"><th>底薪</th><td>${n(displayBaseSalary(r))}</td></tr>
       ${r.bonusTotal > 0 ? `<tr><th>固定獎金合計</th><td>+${n(r.bonusTotal)}</td></tr>${bonuses}` : ''}
       ${r.otPay > 0 ? `<tr><th>加班費合計（實際，${r.otHours || 0}h）</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ''}
       ${(r.otPayOfficial != null && r.otPayOfficial !== r.otPay) ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>` : ''}
       ${r.mealAllowance > 0 ? `<tr><th>伙食費合計</th><td class="meal">+${n(r.mealAllowance)}</td></tr>${mealRows}` : ''}
       ${r.leaveDeduction > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ''}
+      ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ''}
       ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ''}
       ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
       ${deductRow('勞保費', r.laborInsurance)}

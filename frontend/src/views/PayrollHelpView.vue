@@ -80,7 +80,10 @@
       <h3>三、未滿月 / 月中離職計薪</h3>
       <p>適用條件：薪資類型為月薪制，且員工在當月的在職區間短於整月。</p>
       <p>這包含兩種情況：<strong>月中到職</strong>與<strong>月中離職</strong>。</p>
-      <p><code>當月底薪 = 月薪 × 在職天數 ÷ 當月總天數</code></p>
+      <p><code>當月底薪（baseSalary）維持月薪不變</code></p>
+      <p><code>月薪日薪基準 = 月薪 ÷ 30</code></p>
+      <p><code>未上班扣薪 = 月薪日薪基準 × 未上班天數</code></p>
+      <p><code>未上班扣薪會另列在扣項（partialMonthDeduction）</code></p>
       <p>系統實際使用的在職區間為：</p>
       <ul>
         <li><code>employmentStart</code> = max(到職日, 當月 1 日)</li>
@@ -88,15 +91,18 @@
       </ul>
       <div class="example">
         <strong>範例 1（月中到職）</strong>：5 月 15 日到職，月薪 40,000<br>
-        40,000 × 17 ÷ 31 ≈ <strong>21,935 元</strong>
+        未上班 14 天，扣薪 = (40,000 ÷ 30) × 14 ≈ 18,667<br>
+        底薪顯示 <strong>40,000 元</strong>，另列未上班扣薪 <strong>18,667 元</strong>
       </div>
       <div class="example">
         <strong>範例 2（月中離職）</strong>：5 月 20 日離職，月薪 40,000<br>
-        40,000 × 20 ÷ 31 ≈ <strong>25,806 元</strong>
+        未上班 11 天，扣薪 = (40,000 ÷ 30) × 11 ≈ 14,667<br>
+        底薪顯示 <strong>40,000 元</strong>，另列未上班扣薪 <strong>14,667 元</strong>
       </div>
       <div class="example">
         <strong>範例 3（同月到離職）</strong>：5 月 10 日到職，5 月 20 日離職，月薪 40,000<br>
-        40,000 × 11 ÷ 31 ≈ <strong>14,194 元</strong>
+        未上班 20 天，扣薪 = (40,000 ÷ 30) × 20 ≈ 26,667<br>
+        底薪顯示 <strong>40,000 元</strong>，另列未上班扣薪 <strong>26,667 元</strong>
       </div>
       <h4>日薪制底薪</h4>
       <p>適用條件：薪資類型為日薪制。</p>
