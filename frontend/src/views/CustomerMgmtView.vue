@@ -38,7 +38,6 @@
               <th>聯絡人</th>
               <th>電話</th>
               <th>付款條件</th>
-              <th>請款週期</th>
               <th>動作</th>
             </tr>
           </thead>
@@ -52,7 +51,6 @@
               <td>{{ c.contactPerson || '—' }}</td>
               <td>{{ c.phone || '—' }}</td>
               <td>{{ c.paymentTerms || '—' }}</td>
-              <td>{{ billingCycleLabel(c.billingCycleType) }}</td>
               <td style="white-space:nowrap">
                 <button class="btn-aux" @click="openEdit(c)" v-if="canWrite">編輯</button>
                 <button class="btn-aux" @click="openView(c)" v-else>查看</button>
@@ -65,7 +63,7 @@
               </td>
             </tr>
             <tr v-if="filtered.length === 0">
-              <td colspan="8" class="muted-text" style="text-align:center">查無資料</td>
+              <td colspan="7" class="muted-text" style="text-align:center">查無資料</td>
             </tr>
           </tbody>
         </table>
@@ -103,18 +101,6 @@
             <select v-model="form.paymentTerms" :disabled="dialog.viewOnly">
               <option value="">請選擇</option>
               <option v-for="p in PAYMENT_TERMS" :key="p" :value="p">{{ p }}</option>
-            </select>
-          </label>
-          <label>
-            請款週期
-            <select v-model="form.billingCycleType" :disabled="dialog.viewOnly">
-              <option v-for="item in BILLING_CYCLE_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option>
-            </select>
-          </label>
-          <label>
-            開票偏好
-            <select v-model="form.invoicePreference" :disabled="dialog.viewOnly">
-              <option v-for="item in INVOICE_PREFERENCE_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
           </label>
           <label v-if="isAdmin">
@@ -191,26 +177,6 @@
             <textarea v-model="form.notes" :disabled="dialog.viewOnly" rows="2"
               style="width:100%; border:1px solid #d1d5db; border-radius:8px; padding:0.5rem; font:inherit; resize:vertical" />
           </label>
-          <div class="span-2">
-            <div style="font-size:13px; margin-bottom:4px">允許收款方式</div>
-            <div class="check-grid-mini">
-              <label v-for="item in PAYMENT_METHOD_OPTIONS" :key="item.value" class="check-item-mini">
-                <input
-                  type="checkbox"
-                  :disabled="dialog.viewOnly"
-                  :value="item.value"
-                  :checked="form.paymentMethodsAllowed.includes(item.value)"
-                  @change="togglePaymentMethod(item.value, $event.target.checked)"
-                />
-                {{ item.label }}
-              </label>
-            </div>
-          </div>
-          <label class="span-2">
-            會計備註
-            <textarea v-model="form.accountingNotes" :disabled="dialog.viewOnly" rows="2"
-              style="width:100%; border:1px solid #d1d5db; border-radius:8px; padding:0.5rem; font:inherit; resize:vertical" />
-          </label>
         </div>
 
         <div v-if="errMsg" class="err-msg">{{ errMsg }}</div>
@@ -231,14 +197,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
-  db,
-  auth,
-  authReadyPromise,
-  userHasAnyDept,
-  userHasAnyRole,
-  RECEIVABLE_BILLING_CYCLE_OPTIONS,
-  RECEIVABLE_INVOICE_PREFERENCE_OPTIONS,
-  RECEIVABLE_PAYMENT_METHOD_OPTIONS,
+  db, auth, authReadyPromise
 } from '../firebase'
 import {
   collection, getDocs, setDoc, updateDoc, deleteDoc, doc,
@@ -248,9 +207,6 @@ import {
 // ── 常數 ──────────────────────────────────────────────
 const CUSTOMER_TYPES = ['設計師', '建商', '直客', '經銷']
 const PAYMENT_TERMS  = ['現金', '月結30', '月結60', '分期']
-const BILLING_CYCLE_OPTIONS = RECEIVABLE_BILLING_CYCLE_OPTIONS
-const INVOICE_PREFERENCE_OPTIONS = RECEIVABLE_INVOICE_PREFERENCE_OPTIONS
-const PAYMENT_METHOD_OPTIONS = RECEIVABLE_PAYMENT_METHOD_OPTIONS
 
 // ── 狀態 ──────────────────────────────────────────────
 const loading  = ref(true)
@@ -261,10 +217,10 @@ const typeFilter = ref('')
 const customers  = ref([])
 
 const userDoc  = ref(null)
-const isAdmin  = computed(() => userHasAnyRole(userDoc.value, ['admin', '管理者']))
+const isAdmin  = computed(() => ['admin', '管理者'].includes(userDoc.value?.role))
 const isOffice = computed(() =>
   isAdmin.value ||
-  userHasAnyDept(userDoc.value, ['1']) ||
+  String(userDoc.value?.dept) === '1' ||
   userDoc.value?.permissions?.office === true
 )
 const canRead  = computed(() => !!userDoc.value)
@@ -290,9 +246,6 @@ const lastIndividualId = computed(() => {
 const dialog = ref({ open: false, isNew: true, viewOnly: false, docId: null, legacyCode: '' })
 const emptyForm = () => ({
   name: '', taxId: '', type: '', paymentTerms: '',
-  billingCycleType: 'cutoff25', invoicePreference: 'optional',
-  paymentMethodsAllowed: PAYMENT_METHOD_OPTIONS.map(item => item.value),
-  accountingNotes: '',
   creditLimit: 0, contactPerson: '', phone: '', fax: '', email: '',
   address: '', notes: '', salesContacts: []
 })
@@ -327,10 +280,6 @@ function typeBadgeClass(type) {
     '直客':   'badge-yellow',
     '經銷':   'badge-purple',
   }[type] || 'badge-gray'
-}
-
-function billingCycleLabel(value) {
-  return BILLING_CYCLE_OPTIONS.find(item => item.value === value)?.label || '26-25 區間，次月請款'
 }
 
 // ── 讀取資料 ────────────────────────────────────────────
@@ -373,12 +322,6 @@ function openEdit(c) {
   form.value = {
     name: c.name || '', taxId: c.taxId || '', type: c.type || '',
     paymentTerms: c.paymentTerms || '', creditLimit: c.creditLimit || 0,
-    billingCycleType: c.billingCycleType || 'cutoff25',
-    invoicePreference: c.invoicePreference || 'optional',
-    paymentMethodsAllowed: Array.isArray(c.paymentMethodsAllowed) && c.paymentMethodsAllowed.length
-      ? [...c.paymentMethodsAllowed]
-      : PAYMENT_METHOD_OPTIONS.map(item => item.value),
-    accountingNotes: c.accountingNotes || '',
     contactPerson: c.contactPerson || '', phone: c.phone || '',
     fax: c.fax || '', email: c.email || '', address: c.address || '',
     notes: c.notes || '',
@@ -406,13 +349,6 @@ function removeContact(idx) {
   form.value.salesContacts.splice(idx, 1)
 }
 
-function togglePaymentMethod(value, checked) {
-  const next = new Set(form.value.paymentMethodsAllowed || [])
-  if (checked) next.add(value)
-  else next.delete(value)
-  form.value.paymentMethodsAllowed = [...next]
-}
-
 // ── 儲存 ────────────────────────────────────────────────
 async function save() {
   errMsg.value = ''
@@ -428,10 +364,6 @@ async function save() {
       taxId:         form.value.taxId.trim(),
       type:          form.value.type,
       paymentTerms:  form.value.paymentTerms,
-      billingCycleType: form.value.billingCycleType || 'cutoff25',
-      invoicePreference: form.value.invoicePreference || 'optional',
-      paymentMethodsAllowed: (form.value.paymentMethodsAllowed || []).filter(Boolean),
-      accountingNotes: form.value.accountingNotes.trim(),
       creditLimit:   form.value.creditLimit || 0,
       contactPerson: form.value.contactPerson.trim(),
       phone:         form.value.phone.trim(),
@@ -501,17 +433,6 @@ onMounted(async () => {
 .badge-yellow { background: #fef9c3; color: #a16207; }
 .badge-purple { background: #f3e8ff; color: #7e22ce; }
 .badge-gray   { background: #f3f4f6; color: #6b7280; }
-.check-grid-mini {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 6px 10px;
-}
-.check-item-mini {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
 
 /* ── 共用 modal / form ─────────────────────────── */
 .req { color: red; }

@@ -1,52 +1,39 @@
 <template>
-  <div ref="dispatchViewRef" class="dispatch-view">
-    <div ref="stickyToolsRef" class="sticky-tools">
-      <header class="page-header">
-        <h2>📋 發單作業</h2>
-        <div class="header-actions">
-          <RouterLink class="btn-aux" to="/orders">← 訂單列表</RouterLink>
-          <button
-            class="btn-primary btn-dispatch"
-            :disabled="!selectedIds.size || dispatching"
-            @click="onDispatchPrint"
-          >
-            {{
-              dispatching
-                ? pdfProgress || "處理中…"
-                : `🖨️ 批次發單並列印（${selectedIds.size} 張）`
-            }}
-          </button>
-        </div>
-      </header>
-
-      <!-- 篩選列 -->
-      <div class="filter-bar">
-        <select v-model="statusFilter" @change="applyFilter">
-          <option value="">全部狀態</option>
-          <option value="draft">草稿</option>
-          <option value="pendingSign">待回簽</option>
-          <option value="confirmed">已確認</option>
-          <option value="inProduction">生產中</option>
-          <option value="delivered">已驗收</option>
-          <option value="done">完工</option>
-          <option value="cancelled">已取消</option>
-        </select>
-        <select v-model="showDispatched" @change="applyFilter">
-          <option value="undispatched">未發單</option>
-          <option value="all">含已發單</option>
-          <option value="dispatched">僅已發單</option>
-        </select>
-        <input
-          v-model="keyword"
-          class="search-input"
-          placeholder="搜尋訂單號 / 客戶 / 地址"
-          @input="applyFilter"
-        />
-        <button class="btn-aux" @click="selectAll">
-          全選（{{ filtered.length }}）
+  <div class="dispatch-view">
+    <header class="page-header">
+      <h2>📋 發單作業</h2>
+      <div class="header-actions">
+        <RouterLink class="btn-aux" to="/orders">← 訂單列表</RouterLink>
+        <button
+          class="btn-primary btn-dispatch"
+          :disabled="!selectedIds.size || dispatching"
+          @click="onDispatchPrint"
+        >
+          {{ dispatching ? pdfProgress || "處理中…" : `🖨️ 批次發單並列印（${selectedIds.size} 張）` }}
         </button>
-        <button class="btn-aux" @click="clearSelection">取消全選</button>
       </div>
+    </header>
+
+    <!-- 篩選列 -->
+    <div class="filter-bar">
+      <select v-model="statusFilter" @change="applyFilter">
+        <option value="confirmed">已確認</option>
+        <option value="inProduction">生產中</option>
+        <option value="">全部狀態</option>
+      </select>
+      <select v-model="showDispatched" @change="applyFilter">
+        <option value="undispatched">未發單</option>
+        <option value="all">含已發單</option>
+        <option value="dispatched">僅已發單</option>
+      </select>
+      <input
+        v-model="keyword"
+        class="search-input"
+        placeholder="搜尋訂單號 / 客戶 / 地址"
+        @input="applyFilter"
+      />
+      <button class="btn-aux" @click="selectAll">全選（{{ filtered.length }}）</button>
+      <button class="btn-aux" @click="clearSelection">取消全選</button>
     </div>
 
     <p v-if="loading" class="hint">載入中…</p>
@@ -57,50 +44,23 @@
         <thead>
           <tr>
             <th class="col-check">
-              <input
-                type="checkbox"
-                :checked="allSelected"
-                :indeterminate.prop="someSelected"
-                @change="toggleAll"
-              />
+              <input type="checkbox" :checked="allSelected" :indeterminate.prop="someSelected" @change="toggleAll" />
             </th>
-            <th class="sortable col-date" @click="setSort('orderedAt')">
-              下單日{{ sortIcon("orderedAt") }}
-            </th>
-            <th class="sortable col-date" @click="setSort('promisedAt')">
-              預交日{{ sortIcon("promisedAt") }}
-            </th>
-            <th class="sortable col-no" @click="setSort('orderNo')">
-              訂單號{{ sortIcon("orderNo") }}
-            </th>
-            <th class="sortable col-customer" @click="setSort('customerName')">
-              客戶{{ sortIcon("customerName") }}
-            </th>
-            <th class="sortable col-addr" @click="setSort('siteAddress')">
-              施工地址{{ sortIcon("siteAddress") }}
-            </th>
-            <th class="sortable col-stone" @click="setSort('stoneType')">
-              石材{{ sortIcon("stoneType") }}
-            </th>
-            <th class="sortable col-status" @click="setSort('status')">
-              狀態{{ sortIcon("status") }}
-            </th>
-            <th class="sortable col-pdf" @click="setSort('confirmedPdf')">
-              確定單{{ sortIcon("confirmedPdf") }}
-            </th>
-            <th class="sortable col-dispatched" @click="setSort('dispatchedAt')">
-              發單紀錄{{ sortIcon("dispatchedAt") }}
-            </th>
+            <th class="sortable" @click="setSort('promisedAt')">預交日{{ sortIcon('promisedAt') }}</th>
+            <th class="sortable" @click="setSort('orderNo')">訂單號{{ sortIcon('orderNo') }}</th>
+            <th class="sortable" @click="setSort('customerName')">客戶{{ sortIcon('customerName') }}</th>
+            <th>施工地址</th>
+            <th>石材</th>
+            <th>狀態</th>
+            <th>確定單</th>
+            <th>發單紀錄</th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="o in filtered"
             :key="o.id"
-            :class="{
-              'row-dispatched': o.dispatchedAt,
-              'row-selected': selectedIds.has(o.id),
-            }"
+            :class="{ 'row-dispatched': o.dispatchedAt, 'row-selected': selectedIds.has(o.id) }"
             @click="toggleSelect(o.id)"
           >
             <td class="col-check" @click.stop>
@@ -110,15 +70,14 @@
                 @change="toggleSelect(o.id)"
               />
             </td>
-            <td class="col-date">{{ fmtDate(o.orderedAt) }}</td>
             <td class="col-date">{{ fmtDate(o.promisedAt) }}</td>
             <td class="col-no">
               <span class="order-no">{{ o.orderNo || "—" }}</span>
             </td>
-            <td class="col-customer" :title="o.customerName || ''">{{ o.customerName || "—" }}</td>
-            <td class="col-addr" :title="o.siteAddress || ''">{{ o.siteAddress || "—" }}</td>
-            <td class="col-stone" :title="o.countertop?.type || ''">{{ o.countertop?.type || "—" }}</td>
-            <td class="col-status">
+            <td class="col-customer">{{ o.customerName || "—" }}</td>
+            <td class="col-addr">{{ o.siteAddress || "—" }}</td>
+            <td>{{ o.countertop?.type || "—" }}</td>
+            <td>
               <span class="status-chip" :class="'status-' + o.status">
                 {{ STATUS_LABEL[o.status] || o.status || "—" }}
               </span>
@@ -128,9 +87,7 @@
               <span v-else class="pdf-none">✗ 未封存</span>
             </td>
             <td class="col-dispatched" @click.stop>
-              <span v-if="o.dispatchedAt" class="dispatched-badge"
-                >✓ {{ fmtDate(o.dispatchedAt) }}</span
-              >
+              <span v-if="o.dispatchedAt" class="dispatched-badge">✓ {{ fmtDate(o.dispatchedAt) }}</span>
               <span v-else class="undispatched-tag">未發單</span>
             </td>
           </tr>
@@ -153,12 +110,8 @@
       <strong>{{ selectedWithPdf }}</strong> 張有確定單PDF）×
       <strong>{{ activeStations.length }}</strong> 關卡 =
       <strong>{{ selectedWithPdf * activeStations.length }}</strong> 頁　
-      <span class="station-names">{{
-        activeStations.join(" / ") || "（未選任何關卡）"
-      }}</span>
-      <span v-if="selectedWithPdf < selectedIds.size" class="warn-no-pdf"
-        >　⚠️ {{ selectedIds.size - selectedWithPdf }} 張無PDF將略過</span
-      >
+      <span class="station-names">{{ activeStations.join(' / ') || '（未選任何關卡）' }}</span>
+      <span v-if="selectedWithPdf < selectedIds.size" class="warn-no-pdf">　⚠️ {{ selectedIds.size - selectedWithPdf }} 張無PDF將略過</span>
     </div>
 
     <!-- 錯誤訊息 -->
@@ -169,38 +122,33 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
-import { PDFDocument, rgb } from "pdf-lib";
-import {
-  listSalesOrders,
-  batchMarkDispatched,
-  downloadConfirmedPdfBytes,
-} from "../firebase";
+import { ref, computed, onMounted } from "vue";
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
+import { jsPDF } from "jspdf";
+import { listSalesOrders, batchMarkDispatched, downloadConfirmedPdfBytes } from "../firebase";
 
-const STATIONS = ["安裝", "裁切", "水刀", "黏合", "套板", "驗收"];
+GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
+
+const STATIONS = ["裁切", "水刀", "黏合", "水磨", "套板", "驗收"];
 
 const STATUS_LABEL = {
   draft: "草稿",
   pendingSign: "待回簽",
   confirmed: "已確認",
   inProduction: "生產中",
-  delivered: "已驗收",
+  delivered: "已出貨",
   done: "完工",
   cancelled: "已取消",
 };
 
 // Station selection: default all enabled
-const stationMap = ref(Object.fromEntries(STATIONS.map((s) => [s, true])));
-const activeStations = computed(() =>
-  STATIONS.filter((s) => stationMap.value[s]),
-);
+const stationMap = ref(Object.fromEntries(STATIONS.map(s => [s, true])));
+const activeStations = computed(() => STATIONS.filter(s => stationMap.value[s]));
 
 const loading = ref(true);
 const rows = ref([]);
 const filtered = ref([]);
-const dispatchViewRef = ref(null);
-const stickyToolsRef = ref(null);
-let stickyToolsResizeObserver = null;
 // Use a reactive object to track selection (Set doesn't trigger Vue reactivity)
 const selectedMap = ref({});
 
@@ -212,70 +160,24 @@ const sortDir = ref(1); // 1=asc (nearest deadline first)
 const dispatching = ref(false);
 const pdfProgress = ref("");
 const errorMsg = ref("");
-// 發單 PDF 給生產單位使用，價格區與客戶回簽區可一起遮住，
-// 讓右下角先洗白，再疊上站別浮水印。
-const DEFAULT_DISPATCH_REDACT_BOX = {
-  xPct: 0.158,
-  yPct: 0,
-  wPct: 0.84,
-  hPct: 0.136,
-};
-const priceRedactBox = ref({ ...DEFAULT_DISPATCH_REDACT_BOX });
 
-function normalizeDispatchRedactBox(box = {}) {
-  const normalized = {
-    xPct: Number.isFinite(Number(box.xPct))
-      ? Number(box.xPct)
-      : DEFAULT_DISPATCH_REDACT_BOX.xPct,
-    yPct: Number.isFinite(Number(box.yPct))
-      ? Number(box.yPct)
-      : DEFAULT_DISPATCH_REDACT_BOX.yPct,
-    wPct: Number.isFinite(Number(box.wPct))
-      ? Number(box.wPct)
-      : DEFAULT_DISPATCH_REDACT_BOX.wPct,
-    hPct: Number.isFinite(Number(box.hPct))
-      ? Number(box.hPct)
-      : DEFAULT_DISPATCH_REDACT_BOX.hPct,
-  };
-
-  normalized.xPct = Math.min(Math.max(normalized.xPct, 0.15), 0.175);
-  normalized.yPct = Math.min(Math.max(normalized.yPct, 0), 0.004);
-  normalized.wPct = Math.min(Math.max(normalized.wPct, 0.79), 0.85);
-  normalized.hPct = Math.min(Math.max(normalized.hPct, 0.12), 0.14);
-
-  if (normalized.xPct + normalized.wPct > 0.995) {
-    normalized.wPct = 0.995 - normalized.xPct;
-  }
-
-  return normalized;
-}
-
-const selectedIds = computed(
-  () =>
-    new Set(Object.keys(selectedMap.value).filter((k) => selectedMap.value[k])),
-);
+const selectedIds = computed(() => new Set(Object.keys(selectedMap.value).filter(k => selectedMap.value[k])));
 
 const selectedWithPdf = computed(() => {
   const ids = selectedIds.value;
-  return rows.value.filter((o) => ids.has(o.id) && o.confirmedPdfUrl).length;
+  return rows.value.filter(o => ids.has(o.id) && o.confirmedPdfUrl).length;
 });
 
-const allSelected = computed(
-  () =>
-    filtered.value.length > 0 &&
-    filtered.value.every((o) => selectedMap.value[o.id]),
+const allSelected = computed(() =>
+  filtered.value.length > 0 && filtered.value.every(o => selectedMap.value[o.id])
 );
-const someSelected = computed(
-  () =>
-    filtered.value.some((o) => selectedMap.value[o.id]) && !allSelected.value,
+const someSelected = computed(() =>
+  filtered.value.some(o => selectedMap.value[o.id]) && !allSelected.value
 );
 
 function setSort(col) {
   if (sortCol.value === col) sortDir.value *= -1;
-  else {
-    sortCol.value = col;
-    sortDir.value = 1;
-  }
+  else { sortCol.value = col; sortDir.value = 1; }
   applyFilter();
 }
 
@@ -303,52 +205,23 @@ function toggleSelect(id) {
   selectedMap.value = { ...selectedMap.value, [id]: !selectedMap.value[id] };
 }
 
-function updateStickyToolsHeight() {
-  const root = dispatchViewRef.value;
-  const tools = stickyToolsRef.value;
-  if (!(root instanceof HTMLElement) || !(tools instanceof HTMLElement)) return;
-  root.style.setProperty(
-    "--dispatch-sticky-height",
-    `${Math.ceil(tools.offsetHeight)}px`,
-  );
-}
-
 onMounted(async () => {
   try {
-    rows.value = await listSalesOrders({ limit: 0 });
-    priceRedactBox.value = normalizeDispatchRedactBox();
+    rows.value = await listSalesOrders({ limit: 300 });
   } finally {
     loading.value = false;
     applyFilter();
-    await nextTick();
-    updateStickyToolsHeight();
-    if (
-      typeof ResizeObserver === "function" &&
-      stickyToolsRef.value instanceof HTMLElement
-    ) {
-      stickyToolsResizeObserver = new ResizeObserver(() =>
-        updateStickyToolsHeight(),
-      );
-      stickyToolsResizeObserver.observe(stickyToolsRef.value);
-    }
   }
-});
-
-onUnmounted(() => {
-  stickyToolsResizeObserver?.disconnect();
-  stickyToolsResizeObserver = null;
 });
 
 function applyFilter() {
   const kw = keyword.value.trim().toLowerCase();
-  let result = rows.value.filter((o) => {
+  let result = rows.value.filter(o => {
     if (statusFilter.value && o.status !== statusFilter.value) return false;
     if (showDispatched.value === "undispatched" && o.dispatchedAt) return false;
     if (showDispatched.value === "dispatched" && !o.dispatchedAt) return false;
     if (kw) {
-      const hay = [o.orderNo, o.customerName, o.siteAddress]
-        .join(" ")
-        .toLowerCase();
+      const hay = [o.orderNo, o.customerName, o.siteAddress].join(" ").toLowerCase();
       if (!hay.includes(kw)) return false;
     }
     return true;
@@ -369,15 +242,6 @@ function applyFilter() {
 
 function sortVal(o, col) {
   switch (col) {
-    case "orderedAt": {
-      const v = o.orderedAt;
-      if (!v) return Infinity;
-      if (v?.toDate) return v.toDate().getTime();
-      const n = Number(v);
-      if (!isNaN(n) && n > 0 && n < 100000) return (n - 25569) * 86400 * 1000;
-      if (!isNaN(n) && n >= 1000000000000) return n;
-      return new Date(String(v).slice(0, 10)).getTime();
-    }
     case "promisedAt": {
       const v = o.promisedAt;
       if (!v) return Infinity;
@@ -387,28 +251,9 @@ function sortVal(o, col) {
       if (!isNaN(n) && n >= 1000000000000) return n;
       return new Date(String(v).slice(0, 10)).getTime();
     }
-    case "orderNo":
-      return o.orderNo ?? "";
-    case "customerName":
-      return o.customerName ?? "";
-    case "siteAddress":
-      return o.siteAddress ?? "";
-    case "stoneType":
-      return o.countertop?.type ?? "";
-    case "status":
-      return o.status ?? "";
-    case "confirmedPdf":
-      return o.confirmedPdfUrl ? 1 : 0;
-    case "dispatchedAt": {
-      const v = o.dispatchedAt;
-      if (!v) return Infinity;
-      if (v?.toDate) return v.toDate().getTime();
-      const n = Number(v);
-      if (!isNaN(n) && n >= 1000000000000) return n;
-      return new Date(String(v).slice(0, 10)).getTime();
-    }
-    default:
-      return "";
+    case "orderNo": return o.orderNo ?? "";
+    case "customerName": return o.customerName ?? "";
+    default: return "";
   }
 }
 
@@ -419,8 +264,7 @@ function fmtDate(val) {
     d = val.toDate();
   } else {
     const n = Number(val);
-    if (!isNaN(n) && n > 0 && n < 100000)
-      d = new Date((n - 25569) * 86400 * 1000);
+    if (!isNaN(n) && n > 0 && n < 100000) d = new Date((n - 25569) * 86400 * 1000);
     else if (!isNaN(n) && n >= 1000000000000) d = new Date(n);
     else d = new Date(String(val).slice(0, 10));
   }
@@ -438,7 +282,7 @@ async function onDispatchPrint() {
     return;
   }
 
-  const selectedOrders = rows.value.filter((o) => ids.includes(o.id));
+  const selectedOrders = rows.value.filter(o => ids.includes(o.id));
   // Sort by promisedAt ascending (nearest deadline first)
   const sorted = [...selectedOrders].sort((a, b) => {
     const va = sortVal(a, "promisedAt");
@@ -448,26 +292,19 @@ async function onDispatchPrint() {
     return va - vb;
   });
 
-  const ordersWithPdf = sorted.filter((o) => o.confirmedPdfUrl);
+  const ordersWithPdf = sorted.filter(o => o.confirmedPdfUrl);
   if (ordersWithPdf.length === 0) {
-    errorMsg.value =
-      "選取的訂單都尚未封存確定單PDF，請先到各訂單的「確定單」頁面按「封存PDF」後再發單。";
+    errorMsg.value = "選取的訂單都尚未封存確定單PDF，請先到各訂單的「確定單」頁面按「封存PDF」後再發單。";
     return;
   }
 
-  const missing = sorted.filter((o) => !o.confirmedPdfUrl);
-  let confirmMsg =
-    `確定要對 ${ids.length} 張訂單執行發單作業？\n` +
-    sorted
-      .map(
-        (o) =>
-          `  • ${o.orderNo || "—"} ${o.customerName || ""} (${fmtDate(o.promisedAt)})${!o.confirmedPdfUrl ? " ⚠️無PDF" : ""}`,
-      )
-      .join("\n");
+  const missing = sorted.filter(o => !o.confirmedPdfUrl);
+  let confirmMsg = `確定要對 ${ids.length} 張訂單執行發單作業？\n` +
+    sorted.map(o => `  • ${o.orderNo || "—"} ${o.customerName || ""} (${fmtDate(o.promisedAt)})${!o.confirmedPdfUrl ? " ⚠️無PDF" : ""}`).join("\n");
   if (missing.length) {
     confirmMsg += `\n\n⚠️ ${missing.length} 張無確定單PDF，將略過。`;
   }
-  confirmMsg += `\n\n系統將標記「生產中」並產生 ${ordersWithPdf.length * activeStations.value.length} 頁合併PDF（${activeStations.value.join("、")}）。`;
+  confirmMsg += `\n\n系統將標記「生產中」並產生 ${ordersWithPdf.length * activeStations.value.length} 頁合併PDF（${activeStations.value.join('、')}）。`;
 
   if (!confirm(confirmMsg)) return;
 
@@ -506,129 +343,46 @@ async function onDispatchPrint() {
   }
 }
 
-// ── PDF generation: pdf-lib 直接複製頁面（不走 canvas 渲染，避免掃描PDF空白問題）────
+// ── PDF generation: pdfjs-dist (render) → canvas watermark → jsPDF ─────────
 
 /**
- * 用 canvas 產生站別浮水印 PNG（只畫文字，不涉及跨域，canvas 不會被汙染）
+ * Mask the price area with a white rectangle.
+ * Coordinates mirror SystemSettings/general defaults (xPct/yPct/wPct/hPct).
+ * pdf-lib uses bottom-left origin; canvas uses top-left — converted here.
+ *   xPct=0.2  yPct=0.04  wPct=0.45  hPct=0.13
  */
-async function createStationWatermarkPng(station) {
-  const W = 400,
-    H = 160;
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, W, H);
+function maskPriceArea(ctx, w, h) {
+  const x    = 0.20 * w;
+  const mw   = 0.45 * w;
+  const mh   = 0.13 * h;
+  const y    = h - (0.04 + 0.13) * h;   // convert from bottom origin to top origin
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x, y, mw, mh);
+}
+
+/** Draw station name watermark at bottom-right in 標楷體 ~24pt */
+function drawWatermark(ctx, station, w, h) {
   ctx.save();
-  ctx.font = `bold 72px "標楷體", "DFKai-SB", "BiauKai", serif`;
+  // 24pt ≈ 4% of A4-landscape canvas height (595pt → 24/595 ≈ 4%)
+  const fontSize = Math.round(h * 0.04);
+  ctx.font = `bold ${fontSize}px "標楷體", "DFKai-SB", "BiauKai", serif`;
   ctx.fillStyle = "rgba(0, 0, 200, 0.30)";
   ctx.textAlign = "right";
-  ctx.translate(W - 30, H - 30);
-  ctx.rotate(-Math.PI / 18);
+  ctx.translate(w - 24, h - 20);
+  ctx.rotate(-Math.PI / 18);   // −10° slight tilt
   ctx.fillText(station, 0, 0);
   ctx.restore();
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
 let _pdfDone = 0;
 let _pdfTotal = 0;
 
-let _pdfJsPromise;
-
-async function getPdfJs() {
-  if (!_pdfJsPromise) {
-    _pdfJsPromise = (async () => {
-      const pdfjs = await import("pdfjs-dist");
-      if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-        const workerUrl = (
-          await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
-        ).default;
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-      }
-      return pdfjs;
-    })();
-  }
-  return _pdfJsPromise;
-}
-
-async function canvasToPngBytes(canvas) {
-  const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((nextBlob) => {
-      if (nextBlob) resolve(nextBlob);
-      else reject(new Error("無法建立發單 PDF 圖片"));
-    }, "image/png");
-  });
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
-function trimCanvasWhitespace(sourceCanvas) {
-  const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
-  if (!context) return sourceCanvas;
-  const { width, height } = sourceCanvas;
-  const imageData = context.getImageData(0, 0, width, height).data;
-  let top = height;
-  let left = width;
-  let right = 0;
-  let bottom = 0;
-  let found = false;
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4;
-      const r = imageData[offset];
-      const g = imageData[offset + 1];
-      const b = imageData[offset + 2];
-      const a = imageData[offset + 3];
-      const isBlank = a === 0 || (r > 245 && g > 245 && b > 245);
-      if (!isBlank) {
-        found = true;
-        if (x < left) left = x;
-        if (x > right) right = x;
-        if (y < top) top = y;
-        if (y > bottom) bottom = y;
-      }
-    }
-  }
-
-  if (!found) return sourceCanvas;
-
-  const trimmedWidth = right - left + 1;
-  const trimmedHeight = bottom - top + 1;
-  const trimmedCanvas = document.createElement("canvas");
-  trimmedCanvas.width = trimmedWidth;
-  trimmedCanvas.height = trimmedHeight;
-  trimmedCanvas
-    .getContext("2d")
-    .drawImage(
-      sourceCanvas,
-      left,
-      top,
-      trimmedWidth,
-      trimmedHeight,
-      0,
-      0,
-      trimmedWidth,
-      trimmedHeight,
-    );
-  return trimmedCanvas;
-}
-
 async function buildDispatchPdf(orders, stations) {
   _pdfDone = 0;
   _pdfTotal = orders.length * stations.length;
 
-  const mergedDoc = await PDFDocument.create();
-  const pdfjs = await getPdfJs();
-
-  // 預先為每個站別產生浮水印 PNG，嵌入 mergedDoc
-  const watermarkImages = {};
-  for (const station of stations) {
-    const blob = await createStationWatermarkPng(station);
-    const buf = await blob.arrayBuffer();
-    watermarkImages[station] = await mergedDoc.embedPng(new Uint8Array(buf));
-  }
-
-  let pageCount = 0;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  let firstPage = true;
 
   for (const station of stations) {
     for (const order of orders) {
@@ -636,159 +390,87 @@ async function buildDispatchPdf(orders, stations) {
 
       let srcBytes;
       try {
-        srcBytes = await downloadConfirmedPdfBytes(order.id);
+        // Use Firebase Storage SDK directly — avoids CORS restrictions (works on any LAN IP)
+        const arrayBuffer = await downloadConfirmedPdfBytes(order.id);
+        srcBytes = new Uint8Array(arrayBuffer);
       } catch (e) {
         console.error(`無法取得 ${order.orderNo} 的PDF:`, e);
-        errorMsg.value =
-          (errorMsg.value ? errorMsg.value + "\n" : "") +
+        errorMsg.value = (errorMsg.value ? errorMsg.value + "\n" : "") +
           `${order.orderNo || order.id}: 下載失敗 — ${e?.message || e}`;
         _pdfDone++;
         continue;
       }
 
-      let srcPdf;
+      let pdfDoc;
       try {
-        srcPdf = await pdfjs.getDocument({ data: srcBytes }).promise;
+        const loadingTask = getDocument({ data: srcBytes });
+        const timeout = new Promise((_, rej) =>
+          setTimeout(() => { loadingTask.destroy(); rej(new Error("PDF解析逾時")); }, 20000)
+        );
+        pdfDoc = await Promise.race([loadingTask.promise, timeout]);
       } catch (e) {
         console.error(`無法解析 ${order.orderNo} 的PDF:`, e);
-        errorMsg.value =
-          (errorMsg.value ? errorMsg.value + "\n" : "") +
+        errorMsg.value = (errorMsg.value ? errorMsg.value + "\n" : "") +
           `${order.orderNo || order.id}: 解析失敗 — ${e?.message || e}`;
         _pdfDone++;
         continue;
       }
 
-      for (let pageNumber = 1; pageNumber <= srcPdf.numPages; pageNumber++) {
-        const srcPage = await srcPdf.getPage(pageNumber);
-        let baseViewport = srcPage.getViewport({ scale: 1, rotation: 0 });
-        let renderViewport = srcPage.getViewport({ scale: 2, rotation: 0 });
-        let forcedRotation = 0;
-
-        if (baseViewport.height > baseViewport.width) {
-          forcedRotation = 90;
-          baseViewport = srcPage.getViewport({ scale: 1, rotation: 90 });
-          renderViewport = srcPage.getViewport({ scale: 2, rotation: 90 });
-        }
-
-        const width = baseViewport.width;
-        const height = baseViewport.height;
-        const page = mergedDoc.addPage([width, height]);
-        const box = priceRedactBox.value;
-
+      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        const page = await pdfDoc.getPage(pageNum);
+        // Render at scale=2 for quality
+        const viewport = page.getViewport({ scale: 2 });
         const canvas = document.createElement("canvas");
-        canvas.width = renderViewport.width;
-        canvas.height = renderViewport.height;
-        await srcPage.render({
-          canvasContext: canvas.getContext("2d"),
-          viewport: renderViewport,
-        }).promise;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
+        await page.render({ canvasContext: ctx, viewport }).promise;
 
-        const trimmedCanvas = trimCanvasWhitespace(canvas);
-        const pngBytes = await canvasToPngBytes(trimmedCanvas);
-        const renderedImage = await mergedDoc.embedPng(pngBytes);
-        page.drawImage(renderedImage, {
-          x: 0,
-          y: 0,
-          width,
-          height,
-        });
+        // 1. Mask price area with white rectangle
+        maskPriceArea(ctx, canvas.width, canvas.height);
+        // 2. Overlay station watermark (bottom-right, 標楷體)
+        drawWatermark(ctx, station, canvas.width, canvas.height);
 
-        const originalWidth = forcedRotation === 90 ? height : width;
-        const originalHeight = forcedRotation === 90 ? width : height;
-        const redactX = box.xPct * originalWidth;
-        const redactY = box.yPct * originalHeight;
-        const redactWidth = box.wPct * originalWidth;
-        const redactHeight = box.hPct * originalHeight;
-        const pageRedactX =
-          forcedRotation === 90 ? width - (redactY + redactHeight) : redactX;
-        const pageRedactY = forcedRotation === 90 ? redactX : redactY;
-        const pageRedactWidth =
-          forcedRotation === 90 ? redactHeight : redactWidth;
-        const pageRedactHeight =
-          forcedRotation === 90 ? redactWidth : redactHeight;
-
-        // 1. 遮蓋價格區域（白色矩形，pdf-lib 座標原點在左下）
-        page.drawRectangle({
-          x: pageRedactX,
-          y: pageRedactY,
-          width: pageRedactWidth,
-          height: pageRedactHeight,
-          color: rgb(1, 1, 1),
-          opacity: 1,
-          borderWidth: 0,
-        });
-
-        // 2. 站別浮水印圖片（右下角）
-        const wImg = watermarkImages[station];
-        const wW = width * 0.22;
-        const wH = wW * (160 / 400);
-        page.drawImage(wImg, {
-          x: width - wW - 15,
-          y: 15,
-          width: wW,
-          height: wH,
-          opacity: 0.85,
-        });
-
-        pageCount++;
+        // Add page to jsPDF
+        if (!firstPage) doc.addPage();
+        firstPage = false;
+        const imgData = canvas.toDataURL("image/jpeg", 0.92);
+        doc.addImage(imgData, "JPEG", 0, 0, 297, 210);
       }
+      pdfDoc.destroy();
 
       _pdfDone++;
     }
   }
 
-  if (pageCount === 0) {
-    throw new Error(
-      "所有確定單PDF均無法下載，請檢查網路連線或重新登入後再試。",
-    );
+  if (firstPage) {
+    throw new Error("所有確定單PDF均無法下載，請檢查網路連線或重新登入後再試。");
   }
-
-  const bytes = await mergedDoc.save();
-  return new Blob([bytes], { type: "application/pdf" });
+  return doc.output("blob");
 }
 </script>
 
 <style scoped>
 .dispatch-view {
-  width: min(1680px, calc(100vw - 32px));
-  max-width: none;
+  max-width: 1200px;
   margin: 0 auto;
-  --dispatch-sticky-height: 128px;
-  padding: calc(var(--page-sticky-top, 58px) + var(--dispatch-sticky-height))
-    16px 80px;
-}
-.sticky-tools {
-  position: fixed;
-  top: var(--page-sticky-top, 58px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(1680px, calc(100vw - 32px));
-  box-sizing: border-box;
-  z-index: 35;
-  padding-top: 12px;
-  background: #f7f8fc;
+  padding: 20px 16px 80px;
 }
 .page-header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   margin-bottom: 16px;
 }
 .page-header h2 {
   margin: 0;
-  flex: 0 0 auto;
   font-size: 1.3rem;
   font-weight: 700;
 }
 .header-actions {
   display: flex;
-  flex: 1 1 360px;
   gap: 8px;
   align-items: center;
-  justify-content: flex-end;
-  min-width: 0;
 }
 .filter-bar {
   display: flex;
@@ -796,9 +478,6 @@ async function buildDispatchPdf(orders, stations) {
   gap: 8px;
   margin-bottom: 14px;
   align-items: center;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(37, 99, 235, 0.12);
-  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
 }
 .search-input {
   flex: 1 1 180px;
@@ -815,16 +494,11 @@ async function buildDispatchPdf(orders, stations) {
   background: #fff;
 }
 .table-wrap {
-  max-height: calc(
-    100vh - var(--page-sticky-top, 58px) - var(--dispatch-sticky-height) - 28px
-  );
-  overflow: auto;
+  overflow-x: auto;
 }
 .dispatch-table {
   width: 100%;
-  min-width: 1460px;
   border-collapse: collapse;
-  table-layout: fixed;
   font-size: 13.5px;
 }
 .dispatch-table th,
@@ -839,9 +513,6 @@ async function buildDispatchPdf(orders, stations) {
   font-size: 12px;
   color: #6b7280;
   font-weight: 600;
-  position: sticky;
-  top: 0;
-  z-index: 5;
 }
 .dispatch-table th.sortable {
   cursor: pointer;
@@ -869,53 +540,15 @@ async function buildDispatchPdf(orders, stations) {
 }
 .col-date {
   white-space: nowrap;
-  min-width: 96px;
-}
-.col-no {
-  min-width: 116px;
-}
-.col-customer {
-  width: 180px;
-  min-width: 180px;
-  max-width: 180px;
 }
 .col-no .order-no {
   font-weight: 600;
   color: #1d4ed8;
 }
 .col-addr {
-  width: 480px;
-  min-width: 480px;
-  max-width: 480px;
-}
-.col-stone {
-  width: 120px;
+  white-space: normal;
   min-width: 120px;
-  max-width: 120px;
-}
-.col-status {
-  width: 88px;
-  min-width: 88px;
-  max-width: 88px;
-}
-.col-pdf {
-  width: 92px;
-  min-width: 92px;
-  max-width: 92px;
-}
-.col-dispatched {
-  width: 118px;
-  min-width: 118px;
-  max-width: 118px;
-}
-.col-customer,
-.col-addr,
-.col-stone,
-.col-pdf,
-.col-dispatched {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 200px;
 }
 .dispatched-badge {
   color: #16a34a;
@@ -1023,25 +656,6 @@ async function buildDispatchPdf(orders, stations) {
   height: 15px;
   cursor: pointer;
 }
-@media (max-width: 899px) {
-  .dispatch-view {
-    --dispatch-sticky-height: 156px;
-  }
-  .header-actions {
-    justify-content: flex-start;
-  }
-}
-@media (max-width: 640px) {
-  .dispatch-view {
-    --dispatch-sticky-height: 196px;
-    width: calc(100vw - 24px);
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  .sticky-tools {
-    width: calc(100vw - 24px);
-  }
-}
 .station-names {
   color: #374151;
 }
@@ -1061,32 +675,11 @@ async function buildDispatchPdf(orders, stations) {
   font-weight: 600;
   white-space: nowrap;
 }
-.status-chip.status-draft {
-  background: #f3f4f6;
-  color: #6b7280;
-}
-.status-chip.status-pendingSign {
-  background: #fef9c3;
-  color: #a16207;
-}
-.status-chip.status-confirmed {
-  background: #dcfce7;
-  color: #166534;
-}
-.status-chip.status-inProduction {
-  background: #dbeafe;
-  color: #1e40af;
-}
-.status-chip.status-delivered {
-  background: #f0fdf4;
-  color: #15803d;
-}
-.status-chip.status-done {
-  background: #e0e7ff;
-  color: #3730a3;
-}
-.status-chip.status-cancelled {
-  background: #fee2e2;
-  color: #991b1b;
-}
+.status-chip.status-draft { background: #f3f4f6; color: #6b7280; }
+.status-chip.status-pendingSign { background: #fef9c3; color: #a16207; }
+.status-chip.status-confirmed { background: #dcfce7; color: #166534; }
+.status-chip.status-inProduction { background: #dbeafe; color: #1e40af; }
+.status-chip.status-delivered { background: #f0fdf4; color: #15803d; }
+.status-chip.status-done { background: #e0e7ff; color: #3730a3; }
+.status-chip.status-cancelled { background: #fee2e2; color: #991b1b; }
 </style>

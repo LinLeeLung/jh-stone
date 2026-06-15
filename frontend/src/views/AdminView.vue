@@ -19,9 +19,7 @@
                 <th>姓名</th>
                 <th class="secondary-col">電郵</th>
                 <th>角色</th>
-                <th>預設視角</th>
                 <th>部門</th>
-                <th>預設部門</th>
                 <th>動作</th>
               </tr>
             </thead>
@@ -32,41 +30,17 @@
                 </td>
                 <td class="secondary-col">{{ u.email }}</td>
                 <td>
-                  <div class="role-checklist">
-                    <label v-for="r in roles" :key="r" class="role-chip">
-                      <input
-                        type="checkbox"
-                        :checked="u.roles.includes(r)"
-                        @change="toggleUserRole(u, r, $event.target.checked)"
-                      />
-                      <span>{{ r }}</span>
-                    </label>
-                  </div>
-                </td>
-                <td>
-                  <select v-model="u.activeRole" style="min-width: 110px">
-                    <option v-for="r in u.roles" :key="r" :value="r">
+                  <select v-model="u.role">
+                    <option v-for="r in roles" :key="r" :value="r">
                       {{ r }}
                     </option>
                   </select>
                 </td>
                 <td>
-                  <div class="role-checklist">
-                    <label v-for="d in deptOptions" :key="d.value" class="role-chip">
-                      <input
-                        type="checkbox"
-                        :checked="u.departments.includes(d.value)"
-                        @change="toggleUserDepartment(u, d.value, $event.target.checked)"
-                      />
-                      <span>{{ d.label }}</span>
-                    </label>
-                  </div>
-                </td>
-                <td>
-                  <select v-model="u.activeDepartment" style="min-width: 110px">
+                  <select v-model="u.dept" style="min-width: 90px">
                     <option value="">— 未設定</option>
-                    <option v-for="d in u.departments" :key="d" :value="d">
-                      {{ deptLabel(d) }}
+                    <option v-for="d in deptOptions" :key="d.value" :value="d.value">
+                      {{ d.label }}
                     </option>
                   </select>
                 </td>
@@ -196,142 +170,6 @@
             </table>
           </div>
         </template>
-
-        <!-- 派車任務工具 -->
-        <div class="toolbar-row" style="margin-top: 28px">
-          <h2 style="margin: 0">派車任務工具</h2>
-        </div>
-        <div class="field-row" style="margin-top: 10px; gap: 12px; flex-wrap: wrap;">
-          <button
-            class="btn-aux"
-            :disabled="dispatchTools.loading"
-            @click="runBackfillOrders(true)"
-            title="不寫入,只統計會建立/更新幾筆"
-          >
-            {{ dispatchTools.loading && dispatchTools.action === 'backfill-dry' ? '檢查中…' : '回填預覽 (dryRun)' }}
-          </button>
-          <button
-            class="btn-manage"
-            :disabled="dispatchTools.loading"
-            @click="runBackfillOrders(false)"
-          >
-            {{ dispatchTools.loading && dispatchTools.action === 'backfill' ? '回填中…' : '執行回填 (Orders→salesOrders)' }}
-          </button>
-          <button
-            class="btn-aux"
-            :disabled="dispatchTools.loading"
-            @click="runNightlySync(true)"
-          >
-            {{ dispatchTools.loading && dispatchTools.action === 'sync-dry' ? '檢查中…' : '夜班同步預覽 (dryRun)' }}
-          </button>
-          <button
-            class="btn-manage"
-            :disabled="dispatchTools.loading"
-            @click="runNightlySync(false)"
-          >
-            {{ dispatchTools.loading && dispatchTools.action === 'sync' ? '同步中…' : '立即執行夜班同步' }}
-          </button>
-          <button
-            class="btn-aux"
-            :disabled="dispatchTools.loading"
-            @click="runPurgeLegacy(true)"
-            title="不實際刪除,只統計會刪掉幾筆"
-          >
-            {{ dispatchTools.loading && dispatchTools.action === 'purge-dry' ? '檢查中…' : '清除 legacy 鏡像 (dryRun)' }}
-          </button>
-          <button
-            class="btn-manage"
-            :disabled="dispatchTools.loading"
-            style="background:#dc2626;color:#fff;"
-            @click="runPurgeLegacy(false)"
-          >
-            {{ dispatchTools.loading && dispatchTools.action === 'purge' ? '刪除中…' : '危險: 刪除所有 legacy 鏡像' }}
-          </button>
-        </div>
-        <div class="field-row" style="margin-top: 8px; gap: 12px;">
-          <div class="field-item tight">
-            <label>回填筆數上限:</label>
-            <input type="number" min="1" max="5000" v-model.number="dispatchTools.backfillLimit" />
-          </div>
-          <div class="field-item tight">
-            <label>夜班掃描未來天數:</label>
-            <input type="number" min="1" max="30" v-model.number="dispatchTools.syncDaysAhead" />
-          </div>
-          <div class="field-item tight">
-            <label title="勾選後會重寫已存在的鏡像並用來源日期覆寫 createdAt">
-              <input type="checkbox" v-model="dispatchTools.forceCreatedAt" />
-              強制覆寫 createdAt
-            </label>
-          </div>
-        </div>
-        <div style="margin-top: 14px; padding: 14px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 8px; max-width: 780px">
-          <h3 style="margin: 0 0 8px; font-size: 15px; color: #9a3412;">🧪 清除派車測試資料</h3>
-          <p style="margin: 0 0 12px; font-size: 13px; color: #9a3412;">
-            只刪除 <strong>PendingOrders</strong> 中含指定關鍵字的測試資料。員工查詢會直接讀這個集合，建議先用 dryRun 預覽再刪除。
-          </p>
-          <div class="field-row" style="gap: 12px; flex-wrap: wrap; align-items: end;">
-            <div class="field-item tight">
-              <label>測試關鍵字:</label>
-              <input type="text" v-model.trim="dispatchTools.pendingCleanupKeyword" placeholder="例如：測試 / TEST" />
-            </div>
-            <div class="field-item tight">
-              <label>掃描上限:</label>
-              <input type="number" min="1" max="10000" v-model.number="dispatchTools.pendingCleanupLimit" />
-            </div>
-            <button
-              class="btn-aux"
-              :disabled="dispatchTools.loading"
-              @click="runPendingCleanup(true)"
-            >
-              {{ dispatchTools.loading && dispatchTools.action === 'pending-cleanup-dry' ? '檢查中…' : '預覽 PendingOrders 測試資料' }}
-            </button>
-            <button
-              class="btn-manage"
-              style="background:#dc2626;color:#fff;"
-              :disabled="dispatchTools.loading"
-              @click="runPendingCleanup(false)"
-            >
-              {{ dispatchTools.loading && dispatchTools.action === 'pending-cleanup' ? '刪除中…' : '刪除 PendingOrders 測試資料' }}
-            </button>
-          </div>
-        </div>
-        <div style="margin-top: 14px; padding: 14px; background: #eff6ff; border: 1px solid #93c5fd; border-radius: 8px; max-width: 780px">
-          <h3 style="margin: 0 0 8px; font-size: 15px; color: #1d4ed8;">🧾 清除 Orders 測試派車資料</h3>
-          <p style="margin: 0 0 12px; font-size: 13px; color: #1e40af;">
-            只刪除 <strong>Orders</strong> 中含指定關鍵字的派車測試資料。若你的 Sheet trigger 是直接匯進 Orders，應該使用這組工具。
-          </p>
-          <div class="field-row" style="gap: 12px; flex-wrap: wrap; align-items: end;">
-            <div class="field-item tight">
-              <label>測試關鍵字:</label>
-              <input type="text" v-model.trim="dispatchTools.ordersCleanupKeyword" placeholder="例如：測試 / TEST" />
-            </div>
-            <div class="field-item tight">
-              <label>掃描上限:</label>
-              <input type="number" min="1" max="10000" v-model.number="dispatchTools.ordersCleanupLimit" />
-            </div>
-            <button
-              class="btn-aux"
-              :disabled="dispatchTools.loading"
-              @click="runOrdersCleanup(true)"
-            >
-              {{ dispatchTools.loading && dispatchTools.action === 'orders-cleanup-dry' ? '檢查中…' : '預覽 Orders 測試資料' }}
-            </button>
-            <button
-              class="btn-manage"
-              style="background:#dc2626;color:#fff;"
-              :disabled="dispatchTools.loading"
-              @click="runOrdersCleanup(false)"
-            >
-              {{ dispatchTools.loading && dispatchTools.action === 'orders-cleanup' ? '刪除中…' : '刪除 Orders 測試資料' }}
-            </button>
-          </div>
-        </div>
-        <div v-if="dispatchTools.error" class="muted-text" style="color: #dc2626; margin-top: 8px;">
-          {{ dispatchTools.error }}
-        </div>
-        <div v-if="dispatchTools.result" class="summary-row" style="margin-top: 8px">
-          <pre style="margin: 0; white-space: pre-wrap; font-size: 12px; max-height: 240px; overflow: auto;">{{ JSON.stringify(dispatchTools.result, null, 2) }}</pre>
-        </div>
 
         <div class="toolbar-row" style="margin-top: 20px">
           <h2 style="margin: 0">上傳錯誤日誌</h2>
@@ -604,41 +442,6 @@
           ⚠️ 「admin」角色不建議取消任何頁面的存取權限，以免無法管理系統。「允許部門」填部門代號（如 1, 2），留空表示不以部門限制。角色勾選與允許部門為 OR 關係（符合其一即可進入）。
         </p>
 
-        <div class="toolbar-row" style="margin-top: 24px">
-          <h2 style="margin: 0">使用者模組預覽</h2>
-          <span class="muted-text" style="font-size: 13px">依目前編輯中的預設角色與預設部門視角，即時預覽可見模組</span>
-        </div>
-        <div class="field-row" style="margin-top: 10px; align-items: end; gap: 12px; flex-wrap: wrap">
-          <div class="field-item" style="min-width: 280px">
-            <label>預覽使用者</label>
-            <select v-model="previewUserId">
-              <option v-for="u in users" :key="u.id" :value="u.id">
-                {{ u.displayName || u.email || u.id }}
-              </option>
-            </select>
-          </div>
-          <div v-if="selectedPreviewUser" class="summary-row" style="gap: 8px; flex-wrap: wrap">
-            <span>角色：{{ selectedPreviewUser.roles.join(' / ') || '—' }}</span>
-            <span>預設角色：{{ selectedPreviewUser.activeRole || '—' }}</span>
-            <span>部門：{{ previewDepartmentLabels || '—' }}</span>
-            <span>預設部門：{{ deptLabel(selectedPreviewUser.activeDepartment) || '—' }}</span>
-          </div>
-        </div>
-        <div v-if="selectedPreviewUser" class="preview-grid" style="margin-top: 12px">
-          <div v-for="group in previewGroups" :key="group.name" class="preview-card">
-            <div class="preview-head">
-              <h3>{{ group.name }}</h3>
-              <span class="preview-meta">{{ group.visible.length }}/{{ group.items.length }} 可見</span>
-            </div>
-            <div v-if="group.visible.length" class="preview-tags">
-              <span v-for="item in group.visible" :key="item.path" class="preview-tag">
-                {{ item.title }}
-              </span>
-            </div>
-            <div v-else class="muted-text" style="font-size: 13px">此預設視角目前看不到此群組模組</div>
-          </div>
-        </div>
-
         <!-- 測試資料清除 -->
         <div style="margin-top: 28px; padding: 16px; background: #fff8e1; border: 1px solid #fbbf24; border-radius: 8px; max-width: 480px">
           <h3 style="margin: 0 0 8px; font-size: 15px; color: #92400e;">🧹 清除測試資料</h3>
@@ -701,8 +504,8 @@ import {
   subscribeAuthState,
   fetchAllUsers,
   updateUserDisplayName,
-  updateUserRoles,
-  updateUserDepartments,
+  updateUserRole,
+  updateUserDept,
   ROLES,
   listClientUploadErrors,
   listCompletionPhotoFolderCreations,
@@ -711,164 +514,16 @@ import {
   repairWrongOrderFolder,
   getRoutePermissionsConfig,
   saveRoutePermissionsConfig,
-  userHasAnyRole,
-  canAccessPermission,
 } from "../firebase";
 import { getUserByUid } from "../firebase";
 import { deleteTestOrders } from "../firebase";
 import { resetAllOrderStatusToDraft } from "../firebase";
-import { functionsInstance } from "../firebase";
-import { httpsCallable } from "firebase/functions";
-import {
-  DEFAULT_ROUTE_PERMISSIONS,
-  ALL_ROLES as PERM_ALL_ROLES,
-  mergeRoutePermissions,
-} from "../config/routePermissions";
+import { DEFAULT_ROUTE_PERMISSIONS, ALL_ROLES as PERM_ALL_ROLES } from "../config/routePermissions";
 import { invalidatePermissionsCache } from "../router/index";
 
 const users = ref([]);
 const testDataDeleting = ref(false);
 const statusResetting = ref(false);
-
-// 派車任務工具
-const dispatchTools = ref({
-  loading: false,
-  action: "",
-  backfillLimit: 500,
-  syncDaysAhead: 7,
-  forceCreatedAt: false,
-  pendingCleanupKeyword: "測試",
-  pendingCleanupLimit: 3000,
-  ordersCleanupKeyword: "測試",
-  ordersCleanupLimit: 3000,
-  result: null,
-  error: "",
-});
-
-async function runBackfillOrders(dryRun) {
-  if (dispatchTools.value.loading) return;
-  if (!dryRun && !confirm("確定要執行 Orders→salesOrders 全量回填?")) return;
-  dispatchTools.value.loading = true;
-  dispatchTools.value.action = dryRun ? "backfill-dry" : "backfill";
-  dispatchTools.value.error = "";
-  dispatchTools.value.result = null;
-  try {
-    const call = httpsCallable(functionsInstance, "backfillSalesOrdersFromOrders", { timeout: 540000 });
-    const res = await call({
-      dryRun,
-      limit: Math.min(5000, Math.max(1, Number(dispatchTools.value.backfillLimit) || 1000)),
-      forceCreatedAt: !!dispatchTools.value.forceCreatedAt,
-    });
-    dispatchTools.value.result = res.data;
-  } catch (e) {
-    dispatchTools.value.error = e?.message || String(e);
-  } finally {
-    dispatchTools.value.loading = false;
-    dispatchTools.value.action = "";
-  }
-}
-
-async function runNightlySync(dryRun) {
-  if (dispatchTools.value.loading) return;
-  if (!dryRun && !confirm("確定要立即執行夜班同步 (建立 installTasks)?")) return;
-  dispatchTools.value.loading = true;
-  dispatchTools.value.action = dryRun ? "sync-dry" : "sync";
-  dispatchTools.value.error = "";
-  dispatchTools.value.result = null;
-  try {
-    const call = httpsCallable(functionsInstance, "runNightlySyncNow", { timeout: 540000 });
-    const res = await call({
-      dryRun,
-      daysAhead: Math.min(30, Math.max(1, Number(dispatchTools.value.syncDaysAhead) || 7)),
-    });
-    dispatchTools.value.result = res.data;
-  } catch (e) {
-    dispatchTools.value.error = e?.message || String(e);
-  } finally {
-    dispatchTools.value.loading = false;
-    dispatchTools.value.action = "";
-  }
-}
-
-async function runPurgeLegacy(dryRun) {
-  if (dispatchTools.value.loading) return;
-  if (!dryRun && !confirm("確定要刪除 salesOrders 中所有 mirrorSource='Orders' 的鏡像文件?\n\n之後 installTasks 在夜班同步時可重新建立,但指到 legacy_* 的舊 installTasks 參照會斷裂。")) return;
-  dispatchTools.value.loading = true;
-  dispatchTools.value.action = dryRun ? "purge-dry" : "purge";
-  dispatchTools.value.error = "";
-  dispatchTools.value.result = null;
-  try {
-    const call = httpsCallable(functionsInstance, "purgeLegacyMirroredSalesOrders", { timeout: 540000 });
-    const res = await call({
-      dryRun,
-      limit: Math.min(10000, Math.max(1, Number(dispatchTools.value.backfillLimit) || 5000)),
-    });
-    dispatchTools.value.result = res.data;
-  } catch (e) {
-    dispatchTools.value.error = e?.message || String(e);
-  } finally {
-    dispatchTools.value.loading = false;
-    dispatchTools.value.action = "";
-  }
-}
-
-async function runPendingCleanup(dryRun) {
-  if (dispatchTools.value.loading) return;
-  const keyword = String(dispatchTools.value.pendingCleanupKeyword || "").trim();
-  if (!keyword) {
-    dispatchTools.value.error = "請先輸入要刪除的測試關鍵字";
-    return;
-  }
-  if (!dryRun && !confirm(`確定要刪除 PendingOrders 中包含「${keyword}」的測試資料？\n\n此操作會影響員工查詢結果，且無法復原。`)) return;
-
-  dispatchTools.value.loading = true;
-  dispatchTools.value.action = dryRun ? "pending-cleanup-dry" : "pending-cleanup";
-  dispatchTools.value.error = "";
-  dispatchTools.value.result = null;
-  try {
-    const call = httpsCallable(functionsInstance, "purgePendingTestOrders", { timeout: 540000 });
-    const res = await call({
-      dryRun,
-      keyword,
-      limit: Math.min(10000, Math.max(1, Number(dispatchTools.value.pendingCleanupLimit) || 3000)),
-    });
-    dispatchTools.value.result = res.data;
-  } catch (e) {
-    dispatchTools.value.error = e?.message || String(e);
-  } finally {
-    dispatchTools.value.loading = false;
-    dispatchTools.value.action = "";
-  }
-}
-
-async function runOrdersCleanup(dryRun) {
-  if (dispatchTools.value.loading) return;
-  const keyword = String(dispatchTools.value.ordersCleanupKeyword || "").trim();
-  if (!keyword) {
-    dispatchTools.value.error = "請先輸入要刪除的測試關鍵字";
-    return;
-  }
-  if (!dryRun && !confirm(`確定要刪除 Orders 中包含「${keyword}」的測試資料？\n\n此操作會直接影響正式訂單查詢，且無法復原。`)) return;
-
-  dispatchTools.value.loading = true;
-  dispatchTools.value.action = dryRun ? "orders-cleanup-dry" : "orders-cleanup";
-  dispatchTools.value.error = "";
-  dispatchTools.value.result = null;
-  try {
-    const call = httpsCallable(functionsInstance, "purgeOrdersTestData", { timeout: 540000 });
-    const res = await call({
-      dryRun,
-      keyword,
-      limit: Math.min(10000, Math.max(1, Number(dispatchTools.value.ordersCleanupLimit) || 3000)),
-    });
-    dispatchTools.value.result = res.data;
-  } catch (e) {
-    dispatchTools.value.error = e?.message || String(e);
-  } finally {
-    dispatchTools.value.loading = false;
-    dispatchTools.value.action = "";
-  }
-}
 
 async function onClearTestData() {
   if (!confirm("確定要刪除所有標記為「測試資料」的訂單嗎？此操作無法復原。")) return;
@@ -897,6 +552,7 @@ async function onResetAllStatusToDraft() {
 }
 const loading = ref(true);
 const isAdmin = ref(false);
+const currentUid = ref(null);
 const logsLoading = ref(false);
 const uploadErrorLogs = ref([]);
 const folderCreationsLoading = ref(false);
@@ -929,93 +585,48 @@ const roles = ROLES;
 // 部門選項
 const deptOptions = [
   { value: '1', label: '1 辦公室' },
-  { value: '2', label: '2 裝安' },
+  { value: '2', label: '2 安裝' },
   { value: '3', label: '3 廠內' },
   { value: '4', label: '4 外勞' },
 ];
-
-function deptLabel(value) {
-  return deptOptions.find((item) => item.value === String(value || ""))?.label || String(value || "");
-}
-
-function isProtectedAdminUser(u) {
-  return String(u?.email || "").trim().toLowerCase() === adminEmail;
-}
 
 async function loadUsers() {
   loading.value = true;
   const list = await fetchAllUsers();
   users.value = list.map((u) => ({
     ...u,
-    roles: Array.isArray(u.roles) && u.roles.length ? [...u.roles] : [u.role || "遊客"],
-    activeRole: u.activeRole || u.role || "遊客",
-    departments: Array.isArray(u.departments) ? [...u.departments] : (u.dept ? [u.dept] : []),
-    activeDepartment: u.activeDepartment || u.dept || "",
-    _origRoles: JSON.stringify(
-      [...(Array.isArray(u.roles) && u.roles.length ? u.roles : [u.role || "遊客"])]
-        .sort(),
-    ),
-    _origActiveRole: u.activeRole || u.role || "遊客",
+    role: u.role || "遊客",
+    dept: u.dept || "",
+    _origRole: u.role || "遊客",
     _origName: u.displayName || "",
-    _origDepartments: JSON.stringify([...(Array.isArray(u.departments) ? u.departments : (u.dept ? [u.dept] : []))].sort()),
-    _origActiveDepartment: u.activeDepartment || u.dept || "",
+    _origDept: u.dept || "",
   }));
   loading.value = false;
 }
 
 function changed(u) {
-  return JSON.stringify([...(u.roles || [])].sort()) !== u._origRoles
-    || u.activeRole !== u._origActiveRole
+  return u.role !== u._origRole
     || (u.displayName || "") !== u._origName
-    || JSON.stringify([...(u.departments || [])].sort()) !== u._origDepartments
-    || (u.activeDepartment || "") !== u._origActiveDepartment;
-}
-
-function toggleUserRole(u, role, checked) {
-  if (isProtectedAdminUser(u) && role === "admin" && !checked) {
-    alert("linlilung 帳號必須保留 admin 角色。");
-    return;
-  }
-  const nextRoles = checked
-    ? [...u.roles, role]
-    : u.roles.filter((item) => item !== role);
-  const uniqueRoles = Array.from(new Set(nextRoles));
-  u.roles = uniqueRoles.length ? uniqueRoles : ["遊客"];
-  if (!u.roles.includes(u.activeRole)) {
-    u.activeRole = u.roles[0];
-  }
-}
-
-function toggleUserDepartment(u, dept, checked) {
-  const nextDepartments = checked
-    ? [...u.departments, dept]
-    : u.departments.filter((item) => item !== dept);
-  const uniqueDepartments = Array.from(new Set(nextDepartments));
-  u.departments = uniqueDepartments;
-  if (!u.departments.includes(u.activeDepartment)) {
-    u.activeDepartment = u.departments[0] || "";
-  }
+    || (u.dept || "") !== u._origDept;
 }
 
 async function applyRole(u) {
-  if (isProtectedAdminUser(u) && !u.roles.includes("admin")) {
-    u.roles = Array.from(new Set([...(u.roles || []), "admin"]));
-  }
-  if (!u.roles.includes(u.activeRole)) {
-    u.activeRole = u.roles[0] || "遊客";
-  }
-
-  const rolesChanged = JSON.stringify([...(u.roles || [])].sort()) !== u._origRoles;
-  const activeRoleChanged = u.activeRole !== u._origActiveRole;
-  const departmentsChanged = JSON.stringify([...(u.departments || [])].sort()) !== u._origDepartments;
-  const activeDepartmentChanged = u.activeDepartment !== u._origActiveDepartment;
-
-  if (rolesChanged || activeRoleChanged || departmentsChanged || activeDepartmentChanged) {
-    await updateUserRoles(u.id, u.roles, u.activeRole);
-    await updateUserDepartments(u.id, u.departments, u.activeDepartment);
+  if (u.role !== u._origRole) {
+    if (u.id === currentUid.value) {
+      alert("無法變更自己的角色。");
+      return;
+    }
+    if (u.email === adminEmail) {
+      alert("此帳號的角色不可變更。");
+      return;
+    }
+    await updateUserRole(u.id, u.role);
   }
   if ((u.displayName || "") !== u._origName) {
     await updateUserDisplayName(u.id, u.displayName || "");
+  }
+  if ((u.dept || "") !== u._origDept) {
+    await updateUserDept(u.id, u.dept || "");
   }
   await loadUsers();
 }
@@ -1325,9 +936,10 @@ const permSaveMsg = ref('');
 
 async function loadPermissions() {
   const firestoreRoutes = await getRoutePermissionsConfig();
-  permRoutes.value = deepCloneRoutes(
-    mergeRoutePermissions(DEFAULT_ROUTE_PERMISSIONS, firestoreRoutes || []),
-  );
+  if (firestoreRoutes) {
+    permRoutes.value = deepCloneRoutes(firestoreRoutes);
+  }
+  // 若 Firestore 無資料，保留已顯示的預設值
 }
 
 const permGroups = computed(() => {
@@ -1344,64 +956,6 @@ const permGroups = computed(() => {
   }
   return groups;
 });
-
-const previewUserId = ref("");
-
-const selectedPreviewUser = computed(() => {
-  if (!users.value.length) return null;
-  return users.value.find((user) => user.id === previewUserId.value) || users.value[0];
-});
-
-const previewDepartmentLabels = computed(() => {
-  const departments = selectedPreviewUser.value?.departments || [];
-  return departments.map((dept) => deptLabel(dept)).join(" / ");
-});
-
-const previewPerspectiveUser = computed(() => {
-  const user = selectedPreviewUser.value;
-  if (!user) return null;
-  return {
-    ...user,
-    roles: user.activeRole ? [user.activeRole] : [],
-    role: user.activeRole || "",
-    departments: user.activeDepartment ? [user.activeDepartment] : [],
-    dept: user.activeDepartment || "",
-  };
-});
-
-const previewGroups = computed(() => {
-  if (!previewPerspectiveUser.value) return [];
-  const groups = [];
-  const seen = new Map();
-  for (const perm of permRoutes.value) {
-    const groupName = perm.group || "其他";
-    if (!seen.has(groupName)) {
-      const entry = { name: groupName, items: [], visible: [] };
-      seen.set(groupName, entry);
-      groups.push(entry);
-    }
-    const bucket = seen.get(groupName);
-    bucket.items.push(perm);
-    if (canAccessPermission(previewPerspectiveUser.value, perm)) {
-      bucket.visible.push(perm);
-    }
-  }
-  return groups;
-});
-
-watch(
-  users,
-  (list) => {
-    if (!list.length) {
-      previewUserId.value = "";
-      return;
-    }
-    if (!list.some((user) => user.id === previewUserId.value)) {
-      previewUserId.value = list[0].id;
-    }
-  },
-  { immediate: true },
-);
 
 function togglePermRole(perm, role, checked) {
   if (checked) {
@@ -1425,7 +979,6 @@ async function savePermissions() {
   try {
     await saveRoutePermissionsConfig(permRoutes.value);
     invalidatePermissionsCache();
-    window.dispatchEvent(new CustomEvent('route-permissions-updated'));
     permSaveMsg.value = '✅ 已儲存，設定立即生效';
   } catch (e) {
     console.error('savePermissions failed:', e);
@@ -1444,10 +997,12 @@ onMounted(() => {
   subscribeAuthState(async (u) => {
     if (!u) {
       isAdmin.value = false;
+      currentUid.value = null;
       return;
     }
-    const currentUserDoc = await getUserByUid(u.uid);
-    isAdmin.value = userHasAnyRole(currentUserDoc, ["admin", "管理者"]);
+    currentUid.value = u.uid;
+    const doc = await getUserByUid(u.uid);
+    isAdmin.value = doc && (doc.role === "admin" || doc.role === "管理者");
     if (isAdmin.value) {
       await loadUsers();
       await loadUploadErrorLogs();
@@ -1470,75 +1025,5 @@ onMounted(() => {
 .name-input:focus {
   outline: none;
   border-color: #4a90e2;
-}
-
-.role-checklist {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 220px;
-}
-
-.role-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 999px;
-  background: #f9fafb;
-  font-size: 0.85rem;
-}
-
-.role-chip input {
-  width: auto;
-  height: auto;
-}
-
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.preview-card {
-  border: 1px solid #dbe3ef;
-  border-radius: 10px;
-  padding: 12px;
-  background: #f8fbff;
-}
-
-.preview-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.preview-head h3 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.preview-meta {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.preview-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.preview-tag {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 4px 10px;
-  background: #0f766e;
-  color: #fff;
-  font-size: 12px;
 }
 </style>

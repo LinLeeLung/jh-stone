@@ -14,106 +14,34 @@ service cloud.firestore {
       return signedIn() ? userDoc().data.role : null;
     }
 
-    function myRoles() {
-      return !signedIn()
-        ? []
-        : (userDoc().data.roles is list)
-          ? userDoc().data.roles
-          : (myRole() != null ? [myRole()] : []);
-    }
-
-    function hasRole(role) {
-      return signedIn() && (role in myRoles() || myRole() == role);
-    }
-
     function myCompanyId() {
       return signedIn() ? userDoc().data.companyId : null;
     }
 
     function isAdmin() {
-      return hasRole('admin');
+      return signedIn() && myRole() == 'admin';
     }
 
     function isStaff() {
-      return hasRole('admin') || hasRole('管理者') || hasRole('員工');
-    }
-
-    function isAccounting() {
-      return hasRole('admin') || hasRole('管理者') || hasRole('會計');
+      return signedIn() && myRole() in ['admin', '管理者', '員工'];
     }
 
     // 行動角色：只能存取打卡/請假/加班（幫員工個人手機用帳號）
     function isMobileStaff() {
-      return hasRole('行動');
-    }
-
-    function hasEmployeeProfile() {
-      return signedIn()
-        && (
-          (userDoc().data.staffRole is string && userDoc().data.staffRole != '')
-          || (userDoc().data.dept is string && userDoc().data.dept != '')
-          || (userDoc().data.empNo is string && userDoc().data.empNo != '')
-          || ((userDoc().data.departments is list) && userDoc().data.departments.size() > 0)
-        );
-    }
-
-    function canUseAttendance() {
-      return isStaff() || isMobileStaff() || hasEmployeeProfile();
+      return signedIn() && myRole() == '行動';
     }
 
     function isAdminOrManager() {
-      return hasRole('admin') || hasRole('管理者');
-    }
-
-    function isAttendanceApprover() {
-      return isAdminOrManager()
-        || userDoc().data.staffRole == '主管'
-        || userDoc().data.staffRole == 'HR';
-    }
-
-    function isReceivableOrderUpdate() {
-      return request.resource.data.updatedByUid == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'billingEligible',
-          'billingTriggerType',
-          'billingEligibleReason',
-          'staleBillingEligibleAt',
-          'receivableStatus',
-          'receivableTotal',
-          'receivedTotal',
-          'balanceDue',
-          'latestArBillId',
-          'latestInvoiceNo',
-          'updatedAt',
-          'updatedByUid',
-        ]);
-    }
-
-    // 廠內員工（部門 3）或一般員工以上角色
-    function isFactoryOrStaff() {
-      return isStaff()
-        || hasDepartment('3');
+      return signedIn() && myRole() in ['admin', '管理者'];
     }
 
     function myDept() {
       return signedIn() ? userDoc().data.dept : null;
     }
 
-    function myDepartments() {
-      return !signedIn()
-        ? []
-        : (userDoc().data.departments is list)
-          ? userDoc().data.departments
-          : (myDept() != null ? [myDept()] : []);
-    }
-
-    function hasDepartment(dept) {
-      return signedIn() && dept in myDepartments();
-    }
-
     function isApprovedCustomer() {
       return signedIn()
-        && hasRole('客戶')
+        && myRole() == '客戶'
         && userDoc().data.customerApproved == true
         && myCompanyId() != null
         && myCompanyId() != '';
@@ -179,14 +107,11 @@ service cloud.firestore {
     // System settings (e.g. NAS path): staff can read (needed for punchLocation geofencing); only admin/manager can write
     // Exception: orderCounter can be written by any staff (needed for issueOrder transaction)
     match /SystemSettings/{docId} {
-      allow read: if canUseAttendance();
+      allow read: if isStaff() || isMobileStaff();
       allow write: if isAdminOrManager();
     }
     match /SystemSettings/orderCounter {
       allow read, write: if isStaff();
-    }
-    match /SystemSettings/receivableBillCounter {
-      allow read, write: if isAccounting();
     }
 
     // Client-side upload diagnostics for intermittent device/network issues.
@@ -232,39 +157,13 @@ service cloud.firestore {
     // Attendance (打卡): staff can create/read their own record; admin/manager can read/write all
     match /attendance/{docId} {
       allow create: if isAdminOrManager()
-        || (canUseAttendance() && request.resource.data.uid == request.auth.uid);
+        || ((isStaff() || isMobileStaff()) && request.resource.data.uid == request.auth.uid);
       allow update: if isAdminOrManager()
-        || (canUseAttendance() && resource.data.uid == request.auth.uid);
+        || ((isStaff() || isMobileStaff()) && resource.data.uid == request.auth.uid);
       // resource == null when the doc doesn't exist yet; allow the read so getDoc returns "not found"
-      allow read: if canUseAttendance()
+      allow read: if (isStaff() || isMobileStaff())
         && (resource == null || resource.data.uid == request.auth.uid || isAdminOrManager());
       allow delete: if isAdminOrManager();
-    }
-
-    // Attendance correction requests（補打卡申請）
-    match /attendanceCorrectionRequests/{docId} {
-      // 員工建立自己的 pending 申請；審核者也可代建立
-      allow create: if (canUseAttendance() && request.resource.data.uid == request.auth.uid)
-        || isAttendanceApprover();
-      // 申請人可讀自己的單；審核者可讀全部（含待審清單）
-      allow read: if isAttendanceApprover()
-        || (canUseAttendance() && resource.data.uid == request.auth.uid);
-      // 審核者可更新審核結果；申請人可更新自己的 pending 內容
-      allow update: if isAttendanceApprover()
-        || (
-          canUseAttendance()
-          && resource.data.uid == request.auth.uid
-          && resource.data.status == 'pending'
-          && request.resource.data.uid == resource.data.uid
-          && request.resource.data.status == 'pending'
-        );
-      // 申請人只能刪自己的 pending；審核者可刪除
-      allow delete: if isAttendanceApprover()
-        || (
-          canUseAttendance()
-          && resource.data.uid == request.auth.uid
-          && resource.data.status == 'pending'
-        );
     }
 
     // Leave requests: staff submit own; admin/manager review all
@@ -320,8 +219,8 @@ service cloud.firestore {
 
     // 新 ERP 主檔：客戶資料、產品型號、石材狀態（所有員工可讀，admin/manager 可寫）
     match /customers/{docId} {
-      allow read: if isStaff() || isAccounting();
-      allow write: if isAdminOrManager() || (isStaff() && hasDepartment('1'));
+      allow read: if isStaff();
+      allow write: if isAdminOrManager() || (isStaff() && myDept() == '1');
     }
 
     match /productModels/{docId} {
@@ -336,11 +235,10 @@ service cloud.firestore {
 
     // 銷售訂單（新 ERP）：員工可讀寫；admin/manager 可刪
     match /salesOrders/{docId} {
-      allow read: if isStaff() || isAccounting();
+      allow read: if isStaff();
       allow create: if isStaff()
         && request.resource.data.createdByUid == request.auth.uid;
       allow update: if isAdminOrManager()
-        || (isAccounting() && isReceivableOrderUpdate())
         || (isStaff() && request.resource.data.updatedByUid == request.auth.uid);
       allow delete: if isAdminOrManager();
 
@@ -372,147 +270,12 @@ service cloud.firestore {
           && request.resource.data.uploadedByUid == request.auth.uid;
         allow delete: if isStaff();
       }
-
-      match /designReviewFiles/{fileId} {
-        allow read: if isStaff();
-        allow create: if isStaff()
-          && request.resource.data.uploadedByUid == request.auth.uid;
-        allow delete: if isStaff();
-      }
-
-      match /designReviewPdfs/{fileId} {
-        allow read: if isStaff();
-        allow create: if isStaff()
-          && request.resource.data.uploadedByUid == request.auth.uid;
-        allow delete: if isStaff();
-      }
-
-      match /designReviewOverlays/{fileId} {
-        allow read: if isStaff();
-        allow create: if isStaff()
-          && request.resource.data.uploadedByUid == request.auth.uid;
-        allow delete: if isStaff();
-      }
-    }
-
-    // repairTickets（維修單）：員工可讀，建立者需為自己；管理者可修改/刪除
-    match /repairTickets/{docId} {
-      allow read: if isStaff();
-      allow create: if isStaff()
-        && request.resource.data.createdByUid == request.auth.uid;
-      allow update: if isAdminOrManager()
-        || (isStaff() && request.resource.data.updatedByUid == request.auth.uid);
-      allow delete: if isAdminOrManager();
-    }
-
-    // dispatchEntries（派車表單）：員工可讀寫；管理者可刪除
-    match /dispatchEntries/{docId} {
-      allow read: if isStaff();
-      allow write: if isStaff();
-      allow delete: if isStaff();
-    }
-
-    // productionJobs（生產流程管理）：廠內員工（dept=3）或一般員工以上皆可讀寫；admin/manager 可刪除
-    match /productionJobs/{docId} {
-      allow read: if isFactoryOrStaff();
-      allow create: if isFactoryOrStaff()
-        && request.resource.data.createdByUid == request.auth.uid;
-      allow update: if isFactoryOrStaff()
-        && request.resource.data.updatedByUid == request.auth.uid;
-      allow delete: if isAdminOrManager();
-    }
-
-    // customerPricing（客戶計價記憶）：員工可讀寫
-    match /customerPricing/{docId} {
-      allow read: if isStaff();
-      allow write: if isStaff();
-    }
-
-    // 應收帳：會計 / 管理者 / admin 可讀寫；刪除僅管理者以上
-    match /accountsReceivableItems/{docId} {
-      allow read: if isAccounting();
-      allow create: if isAccounting()
-        && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.updatedByUid == request.auth.uid;
-      allow update: if isAccounting()
-        && request.resource.data.updatedByUid == request.auth.uid
-        && request.resource.data.createdByUid == resource.data.createdByUid;
-      allow delete: if isAdminOrManager();
-    }
-
-    match /accountsReceivableBills/{docId} {
-      allow read: if isAccounting();
-      allow create: if isAccounting()
-        && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.updatedByUid == request.auth.uid;
-      allow update: if isAccounting()
-        && request.resource.data.updatedByUid == request.auth.uid
-        && request.resource.data.createdByUid == resource.data.createdByUid;
-      allow delete: if isAdminOrManager();
-    }
-
-    match /accountingNotifications/{docId} {
-      allow read: if isAccounting();
-      allow create: if false;
-      allow update: if isAccounting()
-        && request.resource.data.updatedByUid == request.auth.uid
-        && request.resource.data.createdByUid == resource.data.createdByUid;
-      allow delete: if isAdminOrManager();
     }
 
     // System configuration（路由權限等）：所有已登入員工可讀；只有 admin/manager 可寫
     match /Config/{docId} {
       allow read: if isStaff() || isMobileStaff();
       allow write: if isAdminOrManager();
-    }
-
-    // 派車任務（installTasks）：員工皆可讀；2 裝安部門（dept == '2'）為維修+安裝同一群人,
-    // 可建立/排程；被指派的 assignedCrew 可更新自己任務的狀態與完工資料
-    function isService() {
-      return signedIn()
-        && (hasRole('admin')
-            || hasRole('管理者')
-            || ((hasRole('員工') || hasRole('行動'))
-                && hasDepartment('2')));
-    }
-    function isInstaller() {
-      return isService();
-    }
-    match /installTasks/{taskId} {
-      allow read: if isStaff() || isMobileStaff();
-      allow create: if isService()
-        && request.resource.data.createdByUid == request.auth.uid;
-      // 維修組可任意更新；被指派的安裝人員（assignedCrew 含 uid）可更新完工/狀態相關欄位
-      allow update: if isService()
-        || (
-          isInstaller()
-          && request.auth.uid in resource.data.assignedCrew
-          && request.resource.data.updatedByUid == request.auth.uid
-        );
-      allow delete: if isAdminOrManager();
-
-      // 完工照片 metadata（細節）
-      match /completionPhotos/{photoId} {
-        allow read: if isStaff() || isMobileStaff();
-        allow create: if (isService() || isInstaller())
-          && request.resource.data.uploadedByUid == request.auth.uid;
-        allow update: if (isService() || isInstaller())
-          && request.resource.data.updatedByUid == request.auth.uid
-          && request.resource.data.uploadedByUid == resource.data.uploadedByUid;
-        allow delete: if isService() || isAdminOrManager();
-      }
-    }
-
-    // 派車車輛（vehicles）：員工可讀；admin/manager 維護
-    match /vehicles/{vehicleId} {
-      allow read: if isStaff() || isMobileStaff();
-      allow write: if isAdminOrManager();
-    }
-
-    // 序號計數器（installTasks 用；其他模組亦可共用）：員工可讀；Cloud Function 才能寫
-    match /counters/{counterId} {
-      allow read: if isStaff();
-      allow write: if false;
     }
 
     // Deny everything else by default - lock down the DB
