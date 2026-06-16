@@ -66,7 +66,8 @@
       <span v-if="exactCustomerName">（客戶：{{ exactCustomerName }}）</span>
     </p>
     <p class="result-sales">
-      銷售額統計：總計 {{ fmtMoney(salesStats.total) }}，平均 {{ fmtMoney(salesStats.average) }}
+      銷售額統計：總計 {{ fmtMoney(salesStats.total) }}，平均
+      {{ fmtMoney(salesStats.average) }}
       <span v-if="salesStats.counted !== filtered.length">
         （可計算 {{ salesStats.counted }} / {{ filtered.length }} 筆）
       </span>
@@ -81,16 +82,36 @@
         <thead>
           <tr>
             <th></th>
-            <th class="sortable" @click="setSort('promisedAt')">預交日{{ sortIcon('promisedAt') }}</th>
-            <th class="sortable" @click="setSort('status')">訂單狀態{{ sortIcon('status') }}</th>
-            <th class="sortable" @click="setSort('sinkStatus')">水槽狀態{{ sortIcon('sinkStatus') }}</th>
-            <th class="sortable" @click="setSort('salesAmount')">銷售額{{ sortIcon('salesAmount') }}</th>
-            <th class="sortable" @click="setSort('orderNo')">訂單號{{ sortIcon('orderNo') }}</th>
-            <th class="sortable" @click="setSort('stones')">石材{{ sortIcon('stones') }}</th>
-            <th class="sortable" @click="setSort('customerName')">客戶{{ sortIcon('customerName') }}</th>
-            <th class="sortable" @click="setSort('category')">類別{{ sortIcon('category') }}</th>
-            <th class="sortable" @click="setSort('countertop')">台面{{ sortIcon('countertop') }}</th>
-            <th class="sortable" @click="setSort('siteAddress')">施工地址{{ sortIcon('siteAddress') }}</th>
+            <th class="sortable" @click="setSort('promisedAt')">
+              預交日{{ sortIcon("promisedAt") }}
+            </th>
+            <th class="sortable" @click="setSort('status')">
+              訂單狀態{{ sortIcon("status") }}
+            </th>
+            <th class="sortable" @click="setSort('sinkStatus')">
+              水槽狀態{{ sortIcon("sinkStatus") }}
+            </th>
+            <th class="sortable" @click="setSort('salesAmount')">
+              銷售額{{ sortIcon("salesAmount") }}
+            </th>
+            <th class="sortable" @click="setSort('orderNo')">
+              訂單號{{ sortIcon("orderNo") }}
+            </th>
+            <th class="sortable" @click="setSort('stones')">
+              石材{{ sortIcon("stones") }}
+            </th>
+            <th class="sortable" @click="setSort('customerName')">
+              客戶{{ sortIcon("customerName") }}
+            </th>
+            <th class="sortable" @click="setSort('category')">
+              類別{{ sortIcon("category") }}
+            </th>
+            <th class="sortable" @click="setSort('countertop')">
+              台面{{ sortIcon("countertop") }}
+            </th>
+            <th class="sortable" @click="setSort('siteAddress')">
+              施工地址{{ sortIcon("siteAddress") }}
+            </th>
             <th>打板</th>
             <th>對圖</th>
           </tr>
@@ -130,7 +151,13 @@
                 :class="'status-' + o.status"
                 @change="onStatusChange(o, $event.target.value)"
               >
-                <option v-for="(label, val) in STATUS_LABEL" :key="val" :value="val">{{ label }}</option>
+                <option
+                  v-for="(label, val) in STATUS_LABEL"
+                  :key="val"
+                  :value="val"
+                >
+                  {{ label }}
+                </option>
               </select>
               <span v-else class="status-chip" :class="'status-' + o.status">
                 {{ STATUS_LABEL[o.status] || o.status || "—" }}
@@ -159,7 +186,7 @@
             <td class="col-stones">
               <template v-if="o.stones && o.stones.length">
                 <div v-for="(s, i) in o.stones" :key="i" class="stone-tag">
-                  {{ [s.brand, s.color].filter(Boolean).join(' ') || '—' }}
+                  {{ [s.brand, s.color].filter(Boolean).join(" ") || "—" }}
                 </div>
               </template>
               <span v-else class="dim">—</span>
@@ -354,7 +381,10 @@ function fmtMoney(value) {
 
 function setSort(col) {
   if (sortCol.value === col) sortDir.value *= -1;
-  else { sortCol.value = col; sortDir.value = 1; }
+  else {
+    sortCol.value = col;
+    sortDir.value = 1;
+  }
   applyFilter();
 }
 function sortIcon(col) {
@@ -362,13 +392,22 @@ function sortIcon(col) {
   return sortDir.value === 1 ? " ↑" : " ↓";
 }
 
-const STATUS_ORDER = ["draft","pendingSign","confirmed","inProduction","delivered","done","cancelled"];
+const STATUS_ORDER = [
+  "draft",
+  "pendingSign",
+  "confirmed",
+  "inProduction",
+  "delivered",
+  "done",
+  "cancelled",
+];
 
 function toEpochMs(val) {
   if (!val) return 0;
   if (val?.toDate) return val.toDate().getTime();
   const n = Number(val);
-  if (!Number.isNaN(n) && n > 0 && n < 100000) return (n - 25569) * 86400 * 1000;
+  if (!Number.isNaN(n) && n > 0 && n < 100000)
+    return (n - 25569) * 86400 * 1000;
   if (!Number.isNaN(n) && n >= 1000000000000) return n;
   const t = new Date(String(val).slice(0, 10)).getTime();
   return Number.isNaN(t) ? 0 : t;
@@ -395,19 +434,30 @@ function sortVal(o, col) {
       if (!isNaN(n) && n >= 1000000000000) return n;
       return new Date(String(v).slice(0, 10)).getTime();
     }
-    case "status": return STATUS_ORDER.indexOf(o.status ?? "");
-    case "sinkStatus": return sinkBadges(o).map(s => s.label).join(",");
-    case "salesAmount": return getOrderSalesAmount(o) ?? -1;
-    case "orderNo": return o.orderNo ?? "";
-    case "customerName": return o.customerName ?? "";
-    case "category": return o.category ?? "";
-    case "countertop": return o.countertop?.type ?? "";
+    case "status":
+      return STATUS_ORDER.indexOf(o.status ?? "");
+    case "sinkStatus":
+      return sinkBadges(o)
+        .map((s) => s.label)
+        .join(",");
+    case "salesAmount":
+      return getOrderSalesAmount(o) ?? -1;
+    case "orderNo":
+      return o.orderNo ?? "";
+    case "customerName":
+      return o.customerName ?? "";
+    case "category":
+      return o.category ?? "";
+    case "countertop":
+      return o.countertop?.type ?? "";
     case "stones": {
       const first = Array.isArray(o.stones) && o.stones[0];
-      return first ? [first.brand, first.color].filter(Boolean).join(' ') : "";
+      return first ? [first.brand, first.color].filter(Boolean).join(" ") : "";
     }
-    case "siteAddress": return o.siteAddress ?? "";
-    default: return "";
+    case "siteAddress":
+      return o.siteAddress ?? "";
+    default:
+      return "";
   }
 }
 
@@ -418,7 +468,7 @@ onMounted(async () => {
     if (uid) {
       const u = await getUserByUid(uid);
       isAdmin.value = u?.role === "admin" || u?.role === "管理者";
-      canDispatch.value = isAdmin.value || u?.dept === "1";
+      canDispatch.value = isAdmin.value || String(u?.dept ?? "").trim() === "1";
     }
     baseRows.value = await listSalesOrders({ limit: loadLimit });
     rows.value = [...baseRows.value];
@@ -442,14 +492,24 @@ function applyFilter() {
     if (st && o.status !== st) return false;
     if (sk && !hasSinkStatus(o, sk)) return false;
     if (exactCustomer) {
-      const currentName = String(o.customerName || "").trim().toLowerCase();
+      const currentName = String(o.customerName || "")
+        .trim()
+        .toLowerCase();
       if (currentName !== exactCustomer) return false;
     }
     if (kw) {
       const stonesText = Array.isArray(o.stones)
-        ? o.stones.map((s) => [s.brand, s.color].filter(Boolean).join(' ')).join(' ')
-        : '';
-      const hay = [o.orderNo, o.customerName, o.siteAddress, o.category, stonesText]
+        ? o.stones
+            .map((s) => [s.brand, s.color].filter(Boolean).join(" "))
+            .join(" ")
+        : "";
+      const hay = [
+        o.orderNo,
+        o.customerName,
+        o.siteAddress,
+        o.category,
+        stonesText,
+      ]
         .join(" ")
         .toLowerCase();
       if (!hay.includes(kw)) return false;

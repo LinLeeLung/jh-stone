@@ -3863,10 +3863,18 @@ async function persistConfirmation({
 
       const preferredEdgeType = normalizePreferredEdgeType(cf.edgeType);
       if (order.value?.customerId && preferredEdgeType) {
-        await updateCustomerPricing(order.value.customerId, {
-          customerName: order.value.customerName,
-          preferredConfirmationEdgeType: preferredEdgeType,
-        });
+        try {
+          await updateCustomerPricing(order.value.customerId, {
+            customerName: order.value.customerName,
+            preferredConfirmationEdgeType: preferredEdgeType,
+          });
+        } catch (pricingErr) {
+          console.warn(
+            "updateCustomerPricing skipped during confirmation save",
+            pricingErr,
+          );
+          setTransientMsg("已儲存生產確定單，未同步客戶邊型偏好", 2500);
+        }
       }
       savedRevision = Math.max(savedRevision, revisionAtStart);
       dirty.value = dirtyRevision > savedRevision;
@@ -4932,12 +4940,11 @@ onBeforeRouteLeave(async () => {
 .detail-tbl td {
   border: 1px solid var(--sheet-grid-border);
   padding: 0 3px 1px;
-  height: 20px;
   text-align: center;
   vertical-align: top;
   line-height: 1;
   overflow: visible;
-  white-space: nowrap;
+  white-space: normal;
 }
 .detail-tbl td:first-child {
   white-space: normal;
@@ -5381,10 +5388,15 @@ onBeforeRouteLeave(async () => {
 }
 /* Export-only fine-tune for print/PDF alignment */
 .detail-cell-text {
-  display: inline-block;
+  display: block;
+  min-height: 18px;
+  line-height: 1.1;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .a4-page.export-rendering .detail-cell-text {
-  transform: translateY(-7px);
+  transform: none;
 }
 .a4-page.export-rendering .lbl,
 .a4-page.export-rendering .val {

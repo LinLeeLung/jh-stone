@@ -10131,6 +10131,31 @@ async function runPayrollCalculation(yyyyMM) {
     }
     return Math.round((overlapMins / 60) * 10) / 10;
   }
+
+  function isSaturdayDate(dateStr) {
+    const s = String(dateStr || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const [y, m, d] = s.split("-").map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    return dow === 6;
+  }
+
+  function calcOvertimePay(hours, dateStr, hourlyRate) {
+    const h = Number(hours) || 0;
+    if (h <= 0) return 0;
+
+    // 公司規則：星期六加班時數全部以 1.67 倍計算
+    if (isSaturdayDate(dateStr)) {
+      return Math.round(h * hourlyRate * (5 / 3));
+    }
+
+    if (h <= 2) {
+      return Math.round(h * hourlyRate * (4 / 3));
+    }
+    return Math.round(
+      2 * hourlyRate * (4 / 3) + (h - 2) * hourlyRate * (5 / 3),
+    );
+  }
   // 依扣薪單位計算扣薪金額
   function calcDeductionAmt(deductMins, hourlyRate) {
     if (deductMins <= 0) return 0;
@@ -10157,49 +10182,146 @@ async function runPayrollCalculation(yyyyMM) {
   const workStartMins = toMins(workStart);
   const workEndMins = toMins(workEnd);
 
+  function tsToMs(value) {
+    if (!value) return 0;
+    if (typeof value.toMillis === "function") return value.toMillis();
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function pickPreferredUser(existing, incoming) {
+    if (!existing) return incoming;
+    const exMs = tsToMs(existing.lastSeen);
+    const inMs = tsToMs(incoming.lastSeen);
+    if (inMs !== exMs) return inMs > exMs ? incoming : existing;
+    return String(incoming.uid || "") > String(existing.uid || "")
+      ? incoming
+      : existing;
+  }
+
   const staffSnap = await db.collection("staff").get();
+  const usersSnap = await db.collection("Users").get();
+  const usersByEmpNo = new Map();
+  const usersByEmail = new Map();
+  const userUidsByEmpNo = new Map();
+  const userUidsByEmail = new Map();
+  usersSnap.docs.forEach((d) => {
+    const data = d.data() || {};
+    const user = { uid: d.id, ...data };
+    const empNoKey = String(data.empNo || "").trim();
+    if (empNoKey) {
+      usersByEmpNo.set(
+        empNoKey,
+        pickPreferredUser(usersByEmpNo.get(empNoKey), user),
+      );
+      if (!userUidsByEmpNo.has(empNoKey))
+        userUidsByEmpNo.set(empNoKey, new Set());
+      userUidsByEmpNo.get(empNoKey).add(String(d.id));
+    }
+    const emailKey = String(data.email || "")
+      .trim()
+      .toLowerCase();
+    if (emailKey) {
+      usersByEmail.set(
+        emailKey,
+        pickPreferredUser(usersByEmail.get(emailKey), user),
+      );
+      if (!userUidsByEmail.has(emailKey))
+        userUidsByEmail.set(emailKey, new Set());
+      userUidsByEmail.get(emailKey).add(String(d.id));
+    }
+  });
+
   const results = [];
 
   for (const staffDoc of staffSnap.docs) {
     const s = staffDoc.data();
     const empNo = s.empNo || staffDoc.id;
-    const email = String(s.email || "").trim();
-    if (!email) continue;
+    const empNoKey = String(empNo || "").trim();
+    const email = String(s.email || "")
+      .trim()
+      .toLowerCase();
 
-    // Try to find Firebase Auth uid by email; if not found, use empNo as identifier
+    // Resolve uid by Users.empNo first (account-switch safe), then email fallback.
     let userUid = null;
-    try {
-      const userRecord = await admin.auth().getUserByEmail(email);
-      userUid = userRecord.uid;
-    } catch (_) {
+    const matchedByEmpNo = usersByEmpNo.get(empNoKey);
+    const matchedByEmail = email ? usersByEmail.get(email) : null;
+    if (matchedByEmpNo && matchedByEmpNo.uid) {
+      userUid = String(matchedByEmpNo.uid);
+    } else if (matchedByEmail && matchedByEmail.uid) {
+      userUid = String(matchedByEmail.uid);
+    } else if (email) {
+      try {
+        const userRecord = await admin.auth().getUserByEmail(email);
+        userUid = userRecord.uid;
+      } catch (_) {
+        userUid = null;
+      }
+    }
+
+    if (!userUid) {
       logger.info(
-        `payroll: staff ${empNo} (${email}) has no Auth account, using empNo as key`,
+        `payroll: staff ${empNo} (${email || "no-email"}) has no resolved uid, using empNo key only`,
       );
-      userUid = null;
+    }
+
+    const candidateUidSet = new Set();
+    if (userUid) candidateUidSet.add(String(userUid));
+    const empNoUids = userUidsByEmpNo.get(empNoKey);
+    if (empNoUids) empNoUids.forEach((uid) => candidateUidSet.add(String(uid)));
+    if (email) {
+      const emailUids = userUidsByEmail.get(email);
+      if (emailUids)
+        emailUids.forEach((uid) => candidateUidSet.add(String(uid)));
+    }
+    const candidateUids = [...candidateUidSet].filter(Boolean);
+    if (candidateUids.length > 1) {
+      logger.info(`payroll: ${empNo} merged multiple uids`, {
+        empNo,
+        email,
+        primaryUid: userUid || null,
+        candidateUids,
+      });
     }
 
     // Approved overtime records in this month
-    // Query by uid when available, otherwise no OT/leave records (no login = no requests)
+    // Query by merged candidate uids to handle account switches.
     let otRecords = [];
     let leaveRecords = [];
-    if (userUid) {
-      const otSnap = await db
-        .collection("overtimeRequests")
-        .where("uid", "==", userUid)
-        .where("status", "==", "approved2")
-        .get();
-      otRecords = otSnap.docs
-        .map((d) => d.data())
-        .filter((r) => String(r.date || "").startsWith(monthPrefix));
+    if (candidateUids.length > 0) {
+      const otSnaps = await Promise.all(
+        candidateUids.map((uid) =>
+          db
+            .collection("overtimeRequests")
+            .where("uid", "==", uid)
+            .where("status", "==", "approved2")
+            .get(),
+        ),
+      );
+      const otByDocId = new Map();
+      otSnaps.forEach((snap) => {
+        snap.docs.forEach((d) => otByDocId.set(d.id, d.data()));
+      });
+      otRecords = [...otByDocId.values()].filter((r) =>
+        String(r.date || "").startsWith(monthPrefix),
+      );
 
-      const leaveSnap = await db
-        .collection("leaveRequests")
-        .where("uid", "==", userUid)
-        .where("status", "==", "approved2")
-        .get();
-      leaveRecords = leaveSnap.docs
-        .map((d) => d.data())
-        .filter((r) => String(r.startDate || "").startsWith(monthPrefix));
+      const leaveSnaps = await Promise.all(
+        candidateUids.map((uid) =>
+          db
+            .collection("leaveRequests")
+            .where("uid", "==", uid)
+            .where("status", "==", "approved2")
+            .get(),
+        ),
+      );
+      const leaveByDocId = new Map();
+      leaveSnaps.forEach((snap) => {
+        snap.docs.forEach((d) => leaveByDocId.set(d.id, d.data()));
+      });
+      leaveRecords = [...leaveByDocId.values()].filter((r) =>
+        String(r.startDate || "").startsWith(monthPrefix),
+      );
     }
 
     // Base hourly rate (for OT and leave deduction)
@@ -10236,7 +10358,9 @@ async function runPayrollCalculation(yyyyMM) {
       partialMonthNoWorkDays = Math.max(0, daysInMonth - employedDays);
       if (partialMonthNoWorkDays > 0) {
         // 月薪日薪基準採 30 天，利於人資核算
-        partialMonthDeduction = Math.round((base / 30) * partialMonthNoWorkDays);
+        partialMonthDeduction = Math.round(
+          (base / 30) * partialMonthNoWorkDays,
+        );
       }
       effectiveBase = base;
     }
@@ -10253,17 +10377,22 @@ async function runPayrollCalculation(yyyyMM) {
 
     // 當月打卡資料（供加班交集計算與伙食/遲到早退）
     let attendanceRecordsThisMonth = [];
-    if (userUid) {
-      const attSnap = await db
-        .collection("attendance")
-        .where("uid", "==", userUid)
-        .get();
-      attendanceRecordsThisMonth = attSnap.docs
-        .map((d) => d.data())
-        .filter((r) => {
+    if (candidateUids.length > 0) {
+      const attSnaps = await Promise.all(
+        candidateUids.map((uid) =>
+          db.collection("attendance").where("uid", "==", uid).get(),
+        ),
+      );
+      const attendanceByDocId = new Map();
+      attSnaps.forEach((snap) => {
+        snap.docs.forEach((d) => attendanceByDocId.set(d.id, d.data()));
+      });
+      attendanceRecordsThisMonth = [...attendanceByDocId.values()].filter(
+        (r) => {
           const d = normalizeDateStr(r.date);
           return d && d >= employmentStart && d <= employmentEnd;
-        });
+        },
+      );
     }
     const attendanceByDate = new Map(
       attendanceRecordsThisMonth.map((r) => [String(r.date || ""), r]),
@@ -10295,13 +10424,7 @@ async function runPayrollCalculation(yyyyMM) {
     for (const ot of otRecords) {
       const h = Math.max(0, calcOtIntersectionHours(ot, attendanceByDate));
       otHours += h;
-      let pay;
-      if (h <= 2) {
-        pay = h * baseHourlyRate * (4 / 3);
-      } else {
-        pay = 2 * baseHourlyRate * (4 / 3) + (h - 2) * baseHourlyRate * (5 / 3);
-      }
-      pay = Math.round(pay);
+      const pay = calcOvertimePay(h, ot.date, baseHourlyRate);
       otPay += pay;
       otDetail.push({ date: ot.date || "", hours: h, pay });
     }
@@ -10326,14 +10449,7 @@ async function runPayrollCalculation(yyyyMM) {
       );
       if (hOff <= 0) continue;
       otHoursOfficial += hOff;
-      let payOff;
-      if (hOff <= 2) {
-        payOff = hOff * baseHourlyRate * (4 / 3);
-      } else {
-        payOff =
-          2 * baseHourlyRate * (4 / 3) + (hOff - 2) * baseHourlyRate * (5 / 3);
-      }
-      payOff = Math.round(payOff);
+      const payOff = calcOvertimePay(hOff, ot.date, baseHourlyRate);
       otPayOfficial += payOff;
       otDetailOfficial.push({ date: ot.date || "", hours: hOff, pay: payOff });
     }
@@ -10380,7 +10496,33 @@ async function runPayrollCalculation(yyyyMM) {
     let absentDeduction = 0;
     let absentDays = 0;
     const absentDetail = [];
-    if (userUid) {
+    if (candidateUids.length > 0) {
+      const publicHolidaySet = new Set(
+        (settingsData.publicHolidays || [])
+          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
+          .filter(Boolean),
+      );
+      const makeupWorkdaySet = new Set(
+        (settingsData.makeupWorkdays || [])
+          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
+          .filter(Boolean),
+      );
+      const isRegularWorkday = (dateStr) => {
+        const d = String(dateStr || "").slice(0, 10);
+        if (!d) return false;
+        const dow = new Date(d + "T00:00:00").getDay();
+        const isMakeup = makeupWorkdaySet.has(d);
+        if ((dow === 0 || dow === 6) && !isMakeup) return false;
+        if (publicHolidaySet.has(d)) return false;
+        return true;
+      };
+      const isWeekendOrPublicHoliday = (dateStr) => {
+        const d = String(dateStr || "").slice(0, 10);
+        if (!d) return false;
+        const dow = new Date(d + "T00:00:00").getDay();
+        return dow === 0 || dow === 6 || publicHolidaySet.has(d);
+      };
+
       const attRecords = attendanceRecordsThisMonth.filter(
         (r) => r.punchIn && r.punchOut,
       );
@@ -10398,6 +10540,7 @@ async function runPayrollCalculation(yyyyMM) {
         const inT = getFirstWorkStart(att);
         const outT = getLastWorkEnd(att);
         if (!inT || !outT) continue;
+        const attDate = String(att.date || "").slice(0, 10);
         let dayMeal = 0;
         if (overlapsWindow(workSegments, "11:00:00", "14:00:00"))
           dayMeal += 100; // 午餐
@@ -10413,41 +10556,33 @@ async function runPayrollCalculation(yyyyMM) {
           });
         }
 
-        // 遲到/早退扣薪
-        const inMins = timeStrToMins(inT);
-        const outMins = timeStrToMins(outT);
-        const lateMins = Math.max(0, inMins - (workStartMins + graceMins));
-        const earlyMins = deductEarlyLeave
-          ? Math.max(0, workEndMins - graceMins - outMins)
-          : 0;
-        const totalDeductMins = lateMins + earlyMins;
-        if (totalDeductMins > 0) {
-          const deduction = Math.round(
-            calcDeductionAmt(totalDeductMins, baseHourlyRate),
-          );
-          lateEarlyDeduction += deduction;
-          lateEarlyDetail.push({
-            date: att.date,
-            punchIn: inT,
-            punchOut: outT,
-            lateMins,
-            earlyMins,
-            deduction,
-          });
+        // 假日（週末/國定假日）不計遲到早退扣薪
+        if (!isWeekendOrPublicHoliday(attDate)) {
+          const inMins = timeStrToMins(inT);
+          const outMins = timeStrToMins(outT);
+          const lateMins = Math.max(0, inMins - (workStartMins + graceMins));
+          const earlyMins = deductEarlyLeave
+            ? Math.max(0, workEndMins - graceMins - outMins)
+            : 0;
+          const totalDeductMins = lateMins + earlyMins;
+          if (totalDeductMins > 0) {
+            const deduction = Math.round(
+              calcDeductionAmt(totalDeductMins, baseHourlyRate),
+            );
+            lateEarlyDeduction += deduction;
+            lateEarlyDetail.push({
+              date: att.date,
+              punchIn: inT,
+              punchOut: outT,
+              lateMins,
+              earlyMins,
+              deduction,
+            });
+          }
         }
       }
 
       // 曠職自動偵測：工作日（週一至五）無打卡且無請假
-      const publicHolidaySet = new Set(
-        (settingsData.publicHolidays || [])
-          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
-          .filter(Boolean),
-      );
-      const makeupWorkdaySet = new Set(
-        (settingsData.makeupWorkdays || [])
-          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
-          .filter(Boolean),
-      );
       // 展開核准請假涵蓋的日期
       const leaveCoveredDates = new Set();
       for (const lv of leaveRecords) {
@@ -10474,13 +10609,10 @@ async function runPayrollCalculation(yyyyMM) {
       const todayStr = new Date().toISOString().slice(0, 10);
       for (let day = 1; day <= daysInMonthN; day++) {
         const dateStr = `${yyyy}-${mm}-${String(day).padStart(2, "0")}`;
-        if (dateStr > todayStr) continue; // 未來日期不計
+        if (dateStr >= todayStr) continue; // 未來日期與今天不計（今天可能還在上班）
         if (dateStr < employmentStart) continue; // 到職前
         if (dateStr > employmentEnd) continue; // 離職後
-        const dow = new Date(dateStr + "T00:00:00").getDay();
-        const isMakeup = makeupWorkdaySet.has(dateStr);
-        if ((dow === 0 || dow === 6) && !isMakeup) continue; // 週末（非補班）
-        if (publicHolidaySet.has(dateStr)) continue; // 國定假日
+        if (!isRegularWorkday(dateStr)) continue;
         if (punchedDates.has(dateStr)) continue; // 有打卡
         if (leaveCoveredDates.has(dateStr)) continue; // 有請假
         absentDays++;
@@ -10649,7 +10781,10 @@ async function runPayrollCalculation(yyyyMM) {
     // 申報所得 = 投保薪資 - 曠職扣款 - 遲到/早退扣款 - 未上班扣薪
     const reportedIncome = Math.max(
       0,
-      laborInsuranceSalaryBase - absentDeduction - lateEarlyDeduction - partialMonthDeductionFirst,
+      laborInsuranceSalaryBase -
+        absentDeduction -
+        lateEarlyDeduction -
+        partialMonthDeductionFirst,
     );
     const secondPayment = grossPay - firstPayment;
 

@@ -1293,10 +1293,10 @@ function buildCutoutLineItemsFromState(type, state, materialType) {
   const items = getDrawingCutoutItems(type, state);
   const rows = [];
 
-  // 推斷預設工法：陶板→上掛，其他→下嵌
-  const mt = String(materialType || "").toLowerCase();
-  const defaultSinkMethod = (mt === "porcelain") ? "上掛" : "下嵌";
-  const defaultStoveMethod = (mt === "porcelain") ? "上掛" : "下嵌";
+  // 一鍵帶入繪圖資料時，預設以現場常用工法帶入：
+  // 水槽多數為下嵌，爐子多數為上掛。
+  const defaultSinkMethod = "下嵌";
+  const defaultStoveMethod = "上掛";
 
   items.forEach((item, index) => {
     if (!item?.enabled) return;
@@ -1784,16 +1784,25 @@ async function onSave({
   try {
     form.value.lineItems = normalizePricingItems(form.value.lineItems);
     const payload = toPayload();
+    let customerPricingSyncFailed = false;
     if (isEdit.value) {
       await updateSalesOrder(route.params.id, payload);
-      if (showSuccess) alert("已更新");
     } else {
       const id = await createSalesOrder(payload);
-      if (showSuccess) alert(`已建立訂單 (id: ${id})`);
       if (redirectAfterCreate) {
         router.replace({ name: "order-edit", params: { id } });
       }
     }
+
+    const syncCustomerPricingSafely = async (pricingPayload) => {
+      try {
+        await updateCustomerPricing(form.value.customerId, pricingPayload);
+        customerPricing.value = await getCustomerPricing(form.value.customerId);
+      } catch (pricingErr) {
+        console.warn("updateCustomerPricing skipped during order save", pricingErr);
+        customerPricingSyncFailed = true;
+      }
+    };
 
     if (form.value.customerId && Number(form.value.pricePerCm) > 0) {
       const stonePrices = {};
@@ -1809,14 +1818,13 @@ async function onSave({
         }
       }
       const mainPrice = usedPrices.size === 1 ? Array.from(usedPrices)[0] : Number(form.value.pricePerCm);
-      await updateCustomerPricing(form.value.customerId, {
+      await syncCustomerPricingSafely({
         customerName: form.value.customerName,
         stonePrices,
         defaultPricePerCm: mainPrice,
         depthStandard: Number(form.value.depthStandard) || 60,
         depthProportional: form.value.depthProportional !== false,
       });
-      customerPricing.value = await getCustomerPricing(form.value.customerId);
     } else if (form.value.customerId && form.value.lineItems?.length) {
       // 即使 pricePerCm 為 0，也嘗試從 lineItems 中提取並保存價格歷史
       const usedPrices = new Set();
@@ -1828,14 +1836,25 @@ async function onSave({
       if (usedPrices.size > 0) {
         const mainPrice = usedPrices.size === 1 ? Array.from(usedPrices)[0] : 0;
         if (mainPrice > 0) {
-          await updateCustomerPricing(form.value.customerId, {
+          await syncCustomerPricingSafely({
             customerName: form.value.customerName,
             defaultPricePerCm: mainPrice,
             depthStandard: Number(form.value.depthStandard) || 60,
             depthProportional: form.value.depthProportional !== false,
           });
-          customerPricing.value = await getCustomerPricing(form.value.customerId);
         }
+      }
+    }
+    if (showSuccess) {
+      if (isEdit.value) {
+        alert(customerPricingSyncFailed ? "已更新訂單，但客戶價格偏好未同步" : "已更新");
+      } else {
+        const createdId = route.params.id || "";
+        alert(
+          customerPricingSyncFailed
+            ? `已建立訂單${createdId ? ` (id: ${createdId})` : ""}，但客戶價格偏好未同步`
+            : `已建立訂單${createdId ? ` (id: ${createdId})` : ""}`,
+        );
       }
     }
     refreshSavedFormSignature();

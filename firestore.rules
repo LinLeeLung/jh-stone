@@ -35,6 +35,17 @@ service cloud.firestore {
       return signedIn() && myRole() in ['admin', '管理者'];
     }
 
+    function myStaffRole() {
+      return signedIn() ? userDoc().data.staffRole : null;
+    }
+
+    function isLeaveApprover() {
+      return signedIn() && (
+        isAdminOrManager()
+        || myStaffRole() in ['主管', 'HR']
+      );
+    }
+
     function myDept() {
       return signedIn() ? userDoc().data.dept : null;
     }
@@ -154,7 +165,8 @@ service cloud.firestore {
       allow write: if isAdminOrManager();
     }
 
-    // Attendance (打卡): staff can create/read their own record; admin/manager can read/write all
+    // Attendance (打卡): staff can create/read their own record;
+    // admin/manager + leave approver(主管/HR) can read all for overtime review.
     match /attendance/{docId} {
       allow create: if isAdminOrManager()
         || ((isStaff() || isMobileStaff()) && request.resource.data.uid == request.auth.uid);
@@ -162,7 +174,7 @@ service cloud.firestore {
         || ((isStaff() || isMobileStaff()) && resource.data.uid == request.auth.uid);
       // resource == null when the doc doesn't exist yet; allow the read so getDoc returns "not found"
       allow read: if (isStaff() || isMobileStaff())
-        && (resource == null || resource.data.uid == request.auth.uid || isAdminOrManager());
+        && (resource == null || resource.data.uid == request.auth.uid || isLeaveApprover());
       allow delete: if isAdminOrManager();
     }
 
@@ -219,6 +231,11 @@ service cloud.firestore {
 
     // 新 ERP 主檔：客戶資料、產品型號、石材狀態（所有員工可讀，admin/manager 可寫）
     match /customers/{docId} {
+      allow read: if isStaff();
+      allow write: if isAdminOrManager() || (isStaff() && myDept() == '1');
+    }
+
+    match /customerPricing/{docId} {
       allow read: if isStaff();
       allow write: if isAdminOrManager() || (isStaff() && myDept() == '1');
     }

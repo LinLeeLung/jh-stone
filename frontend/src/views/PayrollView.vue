@@ -1,8 +1,12 @@
 <template>
   <div class="payroll-wrap">
-    <div style="display:flex; align-items:baseline; gap:16px; flex-wrap:wrap;">
+    <div
+      style="display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap"
+    >
       <h2 class="page-title">{{ t("payroll_title") }}</h2>
-      <router-link to="/payroll/help" style="font-size:0.85rem; color:#2563eb;">？ 薪資計算說明</router-link>
+      <router-link to="/payroll/help" style="font-size: 0.85rem; color: #2563eb"
+        >？ 薪資計算說明</router-link
+      >
     </div>
 
     <!-- Month picker -->
@@ -52,7 +56,9 @@
       </button>
       <span v-if="isManager" class="btn-remit-group">
         <button class="btn-remit" @click="printRemittance('first')">5日</button>
-        <button class="btn-remit" @click="printRemittance('second')">10日</button>
+        <button class="btn-remit" @click="printRemittance('second')">
+          10日
+        </button>
         <span class="btn-remit-label">匯款明細</span>
       </span>
       <button
@@ -73,7 +79,7 @@
 
     <!-- Staff table -->
     <template v-else>
-      <div v-if="allRecords.length === 0" class="empty-state">
+      <div v-if="displayedRecords.length === 0" class="empty-state">
         尚無薪資資料，請點「計算薪資」產生本月薪資單。
       </div>
       <table v-else class="payroll-table">
@@ -98,38 +104,61 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(r, index) in allRecords" :key="r.id">
+          <tr v-for="(r, index) in displayedRecords" :key="r.id">
             <td>{{ index + 1 }}</td>
             <td>{{ r.empNo }}</td>
             <td>{{ r.name }}</td>
             <td>{{ r.dept || "—" }}</td>
-            <td class="num">{{ maskSensitive(r, displayBaseSalary(r)?.toLocaleString() || "—") }}</td>
             <td class="num">
-              {{ maskSensitive(r, r.bonusTotal > 0 ? "+" + r.bonusTotal.toLocaleString() : "—") }}
+              {{
+                maskSensitive(r, displayBaseSalary(r)?.toLocaleString() || "—")
+              }}
+            </td>
+            <td class="num">
+              {{
+                maskSensitive(
+                  r,
+                  r.bonusTotal > 0 ? "+" + r.bonusTotal.toLocaleString() : "—",
+                )
+              }}
             </td>
             <td class="num ot">
-              {{ maskSensitive(r, r.otPay > 0 ? "+" + r.otPay.toLocaleString() : "—") }}
+              {{
+                maskSensitive(
+                  r,
+                  r.otPay > 0 ? "+" + r.otPay.toLocaleString() : "—",
+                )
+              }}
             </td>
             <td class="num meal">
-              {{ maskSensitive(r,
-                r.mealAllowance > 0
-                  ? "+" + r.mealAllowance.toLocaleString()
-                  : "—",
-              ) }}
+              {{
+                maskSensitive(
+                  r,
+                  r.mealAllowance > 0
+                    ? "+" + r.mealAllowance.toLocaleString()
+                    : "—",
+                )
+              }}
             </td>
             <td class="num deduct">
-              {{ maskSensitive(r,
-                r.leaveDeduction > 0
-                  ? "−" + r.leaveDeduction.toLocaleString()
-                  : "—",
-              ) }}
+              {{
+                maskSensitive(
+                  r,
+                  r.leaveDeduction > 0
+                    ? "−" + r.leaveDeduction.toLocaleString()
+                    : "—",
+                )
+              }}
             </td>
             <td class="num deduct">
-              {{ maskSensitive(r,
-                calcPartialMonthDeduction(r) > 0
-                  ? "−" + calcPartialMonthDeduction(r).toLocaleString()
-                  : "—",
-              ) }}
+              {{
+                maskSensitive(
+                  r,
+                  calcPartialMonthDeduction(r) > 0
+                    ? "−" + calcPartialMonthDeduction(r).toLocaleString()
+                    : "—",
+                )
+              }}
             </td>
             <td class="num deduct lunch-col">
               <input
@@ -141,22 +170,38 @@
                 @change="saveLunchFee(r, $event.target.value)"
               />
               <span v-else>{{
-                maskSensitive(r, (r.lunchFee || 0) > 0
-                  ? "−" + (r.lunchFee || 0).toLocaleString()
-                  : "—")
+                maskSensitive(
+                  r,
+                  (r.lunchFee || 0) > 0
+                    ? "−" + (r.lunchFee || 0).toLocaleString()
+                    : "—",
+                )
               }}</span>
             </td>
-            <td class="num gross">{{ maskSensitive(r, r.firstPayment?.toLocaleString() ?? '—') }}</td>
-            <td class="num" :class="(r.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'">
-              {{ maskSensitive(r, r.secondPayment?.toLocaleString() ?? '—') }}
+            <td class="num gross">
+              {{ maskSensitive(r, r.firstPayment?.toLocaleString() ?? "—") }}
             </td>
-            <td class="num gross">{{ maskSensitive(r, r.grossPay?.toLocaleString() || '—') }}</td>
-            <td class="num gross">{{ maskSensitive(r, calcReportedIncome(r).toLocaleString()) }}</td>
+            <td
+              class="num"
+              :class="(r.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'"
+            >
+              {{ maskSensitive(r, r.secondPayment?.toLocaleString() ?? "—") }}
+            </td>
+            <td class="num gross">
+              {{ maskSensitive(r, r.grossPay?.toLocaleString() || "—") }}
+            </td>
+            <td class="num gross">
+              {{ maskSensitive(r, calcReportedIncome(r).toLocaleString()) }}
+            </td>
             <td>
               <button
                 class="btn-sm btn-detail"
                 :disabled="!isSensitiveVisible(r)"
-                :title="isSensitiveVisible(r) ? '' : '請先在上方選單選擇個人或全部顯示'"
+                :title="
+                  isSensitiveVisible(r)
+                    ? ''
+                    : '請先在上方選單選擇個人或全部顯示'
+                "
                 @click="openDetail(r)"
               >
                 {{ t("payroll_detail") }}
@@ -357,14 +402,20 @@
                 +{{ detailRecord.mealAllowance.toLocaleString() }}
               </td>
             </tr>
-            <template v-if="detailRecord.mealDetail && detailRecord.mealDetail.length">
+            <template
+              v-if="detailRecord.mealDetail && detailRecord.mealDetail.length"
+            >
               <tr v-if="mealTotals(detailRecord).lunch > 0" class="sub">
                 <th>午餐</th>
-                <td class="num meal">+{{ mealTotals(detailRecord).lunch.toLocaleString() }}</td>
+                <td class="num meal">
+                  +{{ mealTotals(detailRecord).lunch.toLocaleString() }}
+                </td>
               </tr>
               <tr v-if="mealTotals(detailRecord).dinner > 0" class="sub">
                 <th>晚餐</th>
-                <td class="num meal">+{{ mealTotals(detailRecord).dinner.toLocaleString() }}</td>
+                <td class="num meal">
+                  +{{ mealTotals(detailRecord).dinner.toLocaleString() }}
+                </td>
               </tr>
             </template>
             <tr v-if="detailRecord.leaveDeduction > 0">
@@ -374,7 +425,9 @@
               </td>
             </tr>
             <tr v-if="calcPartialMonthDeduction(detailRecord) > 0">
-              <th>未上班扣薪（{{ calcPartialMonthNoWorkDays(detailRecord) }}天）</th>
+              <th>
+                未上班扣薪（{{ calcPartialMonthNoWorkDays(detailRecord) }}天）
+              </th>
               <td class="num deduct">
                 −{{ calcPartialMonthDeduction(detailRecord).toLocaleString() }}
               </td>
@@ -536,7 +589,9 @@
               <th>10日發薪（補差額）</th>
               <td
                 class="num"
-                :class="(detailRecord.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'"
+                :class="
+                  (detailRecord.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'
+                "
               >
                 {{ (detailRecord.secondPayment ?? 0).toLocaleString() }}
               </td>
@@ -544,8 +599,18 @@
           </tbody>
         </table>
         <div class="modal-actions">
-          <button class="btn-sm btn-print" @click="printSlip(detailRecord, 'first')">列印 5日明細</button>
-          <button class="btn-sm btn-print" @click="printSlip(detailRecord, 'full')">列印全部明細</button>
+          <button
+            class="btn-sm btn-print"
+            @click="printSlip(detailRecord, 'first')"
+          >
+            列印 5日明細
+          </button>
+          <button
+            class="btn-sm btn-print"
+            @click="printSlip(detailRecord, 'full')"
+          >
+            列印全部明細
+          </button>
           <button class="btn-sm" @click="detailRecord = null">關閉</button>
         </div>
       </div>
@@ -578,7 +643,9 @@
               <option value="__ALL__">全部員工（含離職）</option>
               <optgroup label="在職">
                 <option
-                  v-for="s in allStaffForAnnual.filter(s => s.status !== '離職')"
+                  v-for="s in allStaffForAnnual.filter(
+                    (s) => s.status !== '離職',
+                  )"
                   :key="`annual-${s.empNo}`"
                   :value="s.empNo"
                 >
@@ -587,7 +654,9 @@
               </optgroup>
               <optgroup label="離職">
                 <option
-                  v-for="s in allStaffForAnnual.filter(s => s.status === '離職')"
+                  v-for="s in allStaffForAnnual.filter(
+                    (s) => s.status === '離職',
+                  )"
                   :key="`annual-off-${s.empNo}`"
                   :value="s.empNo"
                 >
@@ -627,7 +696,8 @@
             <template v-if="annualResult.mode === 'single'">
               {{ annualResult.staff.empNo }} {{ annualResult.staff.name }}（{{
                 annualResult.rows.filter((r) => r.exists).length
-              }} 個月有資料）
+              }}
+              個月有資料）
             </template>
             <template v-else>
               全公司 {{ annualResult.rows.length }} 人
@@ -678,10 +748,7 @@
                   </tr>
                 </template>
                 <template v-else>
-                  <tr
-                    v-for="row in annualResult.rows"
-                    :key="`aa-${row.empNo}`"
-                  >
+                  <tr v-for="row in annualResult.rows" :key="`aa-${row.empNo}`">
                     <th>{{ row.empNo }}</th>
                     <td>{{ row.name }}</td>
                     <td>{{ row.dept || "—" }}</td>
@@ -697,10 +764,7 @@
                 </template>
               </tbody>
               <tfoot>
-                <tr
-                  v-if="annualResult.mode === 'single'"
-                  class="annual-total"
-                >
+                <tr v-if="annualResult.mode === 'single'" class="annual-total">
                   <th>年度合計</th>
                   <td
                     v-for="c in annualResult.columns"
@@ -744,11 +808,7 @@
           >
             列印薪資表格式
           </button>
-          <button
-            v-if="annualResult"
-            class="btn-sm"
-            @click="exportAnnualCSV"
-          >
+          <button v-if="annualResult" class="btn-sm" @click="exportAnnualCSV">
             匯出 CSV
           </button>
           <button class="btn-sm" @click="closeAnnualReport">關閉</button>
@@ -848,21 +908,97 @@ const sensitiveOptions = computed(() => {
     });
 });
 
+function toMonthKey(ymLike) {
+  const raw = String(ymLike || "").trim();
+  if (!raw) return "";
+  if (/^\d{6}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}`;
+  if (/^\d{4}-\d{2}/.test(raw)) return raw.slice(0, 7);
+  return "";
+}
+
+function getPrevMonthKey(yyyyMm) {
+  const key = toMonthKey(yyyyMm);
+  if (!key) return "";
+  const [yStr, mStr] = key.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return "";
+  const d = new Date(y, m - 1, 1);
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function normalizeDateStr(v) {
+  const raw = String(v || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(raw)) {
+    const [y, m, d] = raw.split("/").map((n) => Number(n));
+    if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)) {
+      return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  const dt = new Date(raw);
+  if (!Number.isNaN(dt.getTime())) {
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  }
+  return "";
+}
+
+function resolveResignDate(staff, record) {
+  const fromStaff =
+    staff?.endDate ||
+    staff?.leaveDate ||
+    staff?.resignDate ||
+    staff?.terminationDate ||
+    "";
+  const fromRecord =
+    record?.employmentEnd ||
+    record?.endDate ||
+    record?.leaveDate ||
+    record?.resignDate ||
+    record?.terminationDate ||
+    "";
+  return normalizeDateStr(fromStaff || fromRecord);
+}
+
+const displayedRecords = computed(() => {
+  const prevMonthKey = getPrevMonthKey(selectedMonth.value);
+  return allRecords.value.filter((r) => {
+    const empNo = String(r.empNo ?? "").trim();
+    const staff = staffBankMap.value.get(empNo) || null;
+    const status = String(staff?.status || r.status || "").trim();
+    if (status !== "離職") return true;
+    const resignDate = resolveResignDate(staff, r);
+    if (!resignDate) return false;
+    return toMonthKey(resignDate) === prevMonthKey;
+  });
+});
+
 const visibleSensitiveRecords = computed(() =>
-  allRecords.value.filter((r) => isSensitiveVisible(r)),
+  displayedRecords.value.filter((r) => isSensitiveVisible(r)),
 );
 
 const totalGross = computed(() =>
   visibleSensitiveRecords.value.reduce((sum, r) => sum + (r.grossPay || 0), 0),
 );
 const totalFirst = computed(() =>
-  visibleSensitiveRecords.value.reduce((sum, r) => sum + (r.firstPayment || 0), 0),
+  visibleSensitiveRecords.value.reduce(
+    (sum, r) => sum + (r.firstPayment || 0),
+    0,
+  ),
 );
 const totalSecond = computed(() =>
-  visibleSensitiveRecords.value.reduce((sum, r) => sum + (r.secondPayment || 0), 0),
+  visibleSensitiveRecords.value.reduce(
+    (sum, r) => sum + (r.secondPayment || 0),
+    0,
+  ),
 );
 const totalReported = computed(() =>
-  visibleSensitiveRecords.value.reduce((sum, r) => sum + calcReportedIncome(r), 0),
+  visibleSensitiveRecords.value.reduce(
+    (sum, r) => sum + calcReportedIncome(r),
+    0,
+  ),
 );
 
 function isSensitiveVisible(r) {
@@ -923,7 +1059,8 @@ function calcReportedIncome(r) {
         (Number(r.lateEarlyDeduction) || 0),
     );
   }
-  if (r.reportedIncome != null) return Math.max(0, Number(r.reportedIncome) || 0);
+  if (r.reportedIncome != null)
+    return Math.max(0, Number(r.reportedIncome) || 0);
   return Math.max(
     0,
     calcLaborInsuranceSalaryBase(r) -
@@ -1067,7 +1204,9 @@ async function loadAnnualReport() {
     alert("請輸入正確的年份（4位數）");
     return;
   }
-  const selectedCols = annualColumnDefs.filter((c) => annualColumns.value[c.key]);
+  const selectedCols = annualColumnDefs.filter(
+    (c) => annualColumns.value[c.key],
+  );
   if (!selectedCols.length) {
     alert("請至少選擇一個欄位");
     return;
@@ -1115,11 +1254,12 @@ async function loadAnnualReport() {
     });
 
     if (targetEmpNo && !includeAll) {
-      const staff =
-        allStaffForAnnual.value.find((s) => String(s.empNo) === targetEmpNo) || {
-          empNo: targetEmpNo,
-          name: "",
-        };
+      const staff = allStaffForAnnual.value.find(
+        (s) => String(s.empNo) === targetEmpNo,
+      ) || {
+        empNo: targetEmpNo,
+        name: "",
+      };
       const rows = [];
       const totals = Object.fromEntries(selectedCols.map((c) => [c.key, 0]));
       for (let m = 1; m <= 12; m++) {
@@ -1163,7 +1303,9 @@ async function loadAnnualReport() {
       const totals = Object.fromEntries(selectedCols.map((c) => [c.key, 0]));
       for (const en of empNos) {
         const recs = byEmp.get(en);
-        const staff = allStaffForAnnual.value.find((s) => String(s.empNo) === en);
+        const staff = allStaffForAnnual.value.find(
+          (s) => String(s.empNo) === en,
+        );
         const sample = recs[0] || {};
         const values = {};
         for (const c of selectedCols) {
@@ -1176,9 +1318,11 @@ async function loadAnnualReport() {
         }
         const monthlyData = {};
         for (let m = 1; m <= 12; m++) {
-          const mm = String(m).padStart(2, '0');
+          const mm = String(m).padStart(2, "0");
           const rec = recs.find((r) => r.yyyyMM === year + mm);
-          monthlyData[mm] = rec ? getAnnualFieldValue(rec, 'reportedIncome') : 0;
+          monthlyData[mm] = rec
+            ? getAnnualFieldValue(rec, "reportedIncome")
+            : 0;
         }
         rows.push({
           empNo: en,
@@ -1287,35 +1431,42 @@ function printAnnualSlipFormat() {
   const rocYear = Number(year) - 1911;
   const fmt = (v) => (Number(v) || 0).toLocaleString();
   const esc = (s) =>
-    String(s ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
 
   const empBlocks = [];
-  if (R.mode === 'single') {
-    const staffInfo =
-      allStaffForAnnual.value.find((s) => String(s.empNo) === String(R.staff.empNo)) ||
-      { ...R.staff, idNo: '', address: '', spouse: '', numDependents: '' };
+  if (R.mode === "single") {
+    const staffInfo = allStaffForAnnual.value.find(
+      (s) => String(s.empNo) === String(R.staff.empNo),
+    ) || { ...R.staff, idNo: "", address: "", spouse: "", numDependents: "" };
     const monthlyValues = [];
     let total = 0;
     for (let m = 1; m <= 12; m++) {
       const row = R.rows.find((r) => r.month === m);
-      const v = row ? (row.values['reportedIncome'] || 0) : 0;
+      const v = row ? row.values["reportedIncome"] || 0 : 0;
       monthlyValues.push(v);
       total += v;
     }
     empBlocks.push({ staff: staffInfo, monthlyValues, total });
   } else {
     for (const row of R.rows) {
-      const staffInfo =
-        allStaffForAnnual.value.find((s) => String(s.empNo) === String(row.empNo)) ||
-        { empNo: row.empNo, name: row.name, idNo: '', address: '', spouse: '', numDependents: '' };
+      const staffInfo = allStaffForAnnual.value.find(
+        (s) => String(s.empNo) === String(row.empNo),
+      ) || {
+        empNo: row.empNo,
+        name: row.name,
+        idNo: "",
+        address: "",
+        spouse: "",
+        numDependents: "",
+      };
       const monthlyValues = [];
       let total = 0;
       for (let m = 1; m <= 12; m++) {
-        const mm = String(m).padStart(2, '0');
-        const v = row.monthlyData ? (row.monthlyData[mm] || 0) : 0;
+        const mm = String(m).padStart(2, "0");
+        const v = row.monthlyData ? row.monthlyData[mm] || 0 : 0;
         monthlyValues.push(v);
         total += v;
       }
@@ -1325,12 +1476,13 @@ function printAnnualSlipFormat() {
 
   function buildEmpHtml(block) {
     const { staff, monthlyValues, total } = block;
-    const mHeaders = Array.from({ length: 12 }, (_, i) =>
-      `<th class="th-m">${i + 1}月份</th>`
-    ).join('');
-    const mTds = monthlyValues.map((v) =>
-      `<td class="num">${fmt(v)}</td>`
-    ).join('');
+    const mHeaders = Array.from(
+      { length: 12 },
+      (_, i) => `<th class="th-m">${i + 1}月份</th>`,
+    ).join("");
+    const mTds = monthlyValues
+      .map((v) => `<td class="num">${fmt(v)}</td>`)
+      .join("");
     const emptyM = '<td colspan="12" class="empty-m"></td>';
     return `<div class="page-hd">
   <span class="co-name">公司名稱：峻晟實業股份有限公司</span>
@@ -1385,35 +1537,35 @@ function printAnnualSlipFormat() {
   const blocksHtml = empBlocks
     .map(
       (b, i) =>
-        `<div class="emp-blk${(i % 2 === 1) ? ' brk' : ''}">${buildEmpHtml(b)}</div>`,
+        `<div class="emp-blk${i % 2 === 1 ? " brk" : ""}">${buildEmpHtml(b)}</div>`,
     )
-    .join('');
+    .join("");
 
   const css = [
     'body{font-family:"Noto Sans TC",Arial,sans-serif;font-size:13px;margin:6mm;color:#000;}',
-    '.emp-blk{margin-bottom:8mm;}',
-    '.emp-blk.brk{page-break-after:always;margin-bottom:0;}',
-    '.emp-blk:last-child{page-break-after:avoid;}',
-    '.page-hd{display:flex;align-items:baseline;margin-bottom:3px;}',
-    '.co-name{font-size:13px;white-space:nowrap;}',
-    '.yr-title{flex:1;text-align:center;font-size:18px;font-weight:bold;letter-spacing:6px;}',
-    '.slip{width:100%;border-collapse:collapse;table-layout:fixed;}',
-    '.slip th,.slip td{border:1px solid #000;padding:3px 4px;text-align:center;vertical-align:middle;font-size:12px;word-break:break-all;}',
-    '.th-name{width:7%;}.th-sp{width:4%;}.th-dep{width:4%;}.th-total{width:8%;}.th-lbl{width:11%;}.th-m{width:5.5%;}',
-    '.td-name{font-size:18px;font-weight:bold;}',
-    '.td-id-lbl{font-size:11px;line-height:1.4;text-align:center;vertical-align:middle;}',
-    '.td-id-val{font-size:11px;text-align:center;vertical-align:middle;letter-spacing:1px;}',
-    '.td-lbl-sm{font-size:9.5px !important;white-space:nowrap;}',
-    '.td-addr{font-size:11px;text-align:center;vertical-align:middle;padding:4px;}',
-    '.td-lbl{text-align:left;white-space:nowrap;padding-left:6px;font-size:12px;}',
-    '.td-seal{height:42px;}',
-    '.num{text-align:right;}',
-    '@media print{@page{size:A4 landscape;margin:6mm;}body{margin:0;}}',
-  ].join('');
+    ".emp-blk{margin-bottom:8mm;}",
+    ".emp-blk.brk{page-break-after:always;margin-bottom:0;}",
+    ".emp-blk:last-child{page-break-after:avoid;}",
+    ".page-hd{display:flex;align-items:baseline;margin-bottom:3px;}",
+    ".co-name{font-size:13px;white-space:nowrap;}",
+    ".yr-title{flex:1;text-align:center;font-size:18px;font-weight:bold;letter-spacing:6px;}",
+    ".slip{width:100%;border-collapse:collapse;table-layout:fixed;}",
+    ".slip th,.slip td{border:1px solid #000;padding:3px 4px;text-align:center;vertical-align:middle;font-size:12px;word-break:break-all;}",
+    ".th-name{width:7%;}.th-sp{width:4%;}.th-dep{width:4%;}.th-total{width:8%;}.th-lbl{width:11%;}.th-m{width:5.5%;}",
+    ".td-name{font-size:18px;font-weight:bold;}",
+    ".td-id-lbl{font-size:11px;line-height:1.4;text-align:center;vertical-align:middle;}",
+    ".td-id-val{font-size:11px;text-align:center;vertical-align:middle;letter-spacing:1px;}",
+    ".td-lbl-sm{font-size:9.5px !important;white-space:nowrap;}",
+    ".td-addr{font-size:11px;text-align:center;vertical-align:middle;padding:4px;}",
+    ".td-lbl{text-align:left;white-space:nowrap;padding-left:6px;font-size:12px;}",
+    ".td-seal{height:42px;}",
+    ".num{text-align:right;}",
+    "@media print{@page{size:A4 landscape;margin:6mm;}body{margin:0;}}",
+  ].join("");
 
   const html = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${rocYear} 年度薪資表</title><style>${css}</style></head><body>${blocksHtml}</body></html>`;
 
-  const win = window.open('', '_blank', 'width=1400,height=900');
+  const win = window.open("", "_blank", "width=1400,height=900");
   win.document.write(html);
   win.document.close();
   win.focus();
@@ -1481,9 +1633,7 @@ function exportAnnualCSV() {
   const a = document.createElement("a");
   a.href = url;
   const tag =
-    R.mode === "single"
-      ? `${R.staff.empNo}_${R.staff.name}`
-      : "全公司";
+    R.mode === "single" ? `${R.staff.empNo}_${R.staff.name}` : "全公司";
   a.download = `${R.year}年度薪資彙整_${tag}.csv`;
   document.body.appendChild(a);
   a.click();
@@ -1540,13 +1690,17 @@ async function importLunchFromSheets() {
   if (!lunchSheetUrl.value) {
     calcMsg.value = "請先至「系統設定」儲存便當費試算表 CSV 網址";
     calcMsgIsErr.value = true;
-    setTimeout(() => { calcMsg.value = ""; }, 5000);
+    setTimeout(() => {
+      calcMsg.value = "";
+    }, 5000);
     return;
   }
   if (!allRecords.value.length) {
     calcMsg.value = "尚無薪資資料，請先計算薪資";
     calcMsgIsErr.value = true;
-    setTimeout(() => { calcMsg.value = ""; }, 5000);
+    setTimeout(() => {
+      calcMsg.value = "";
+    }, 5000);
     return;
   }
   importingLunch.value = true;
@@ -1606,7 +1760,9 @@ async function importLunchFromSheets() {
       const amount = Number(dataRow[monthColIdx + 1 + i]) || 0;
       if (amount <= 0) continue;
       const name = (empNames[i] || "").trim();
-      const empNo = empNoRow ? String(Number(empNoRow[monthColIdx + 1 + i]) || "") : "";
+      const empNo = empNoRow
+        ? String(Number(empNoRow[monthColIdx + 1 + i]) || "")
+        : "";
       if (empNo) empNoMap[empNo] = amount;
       if (name) nameMap[name] = amount;
     }
@@ -1624,11 +1780,15 @@ async function importLunchFromSheets() {
     }
     calcMsg.value = `已載入 ${currentMonth} 月便當費，更新 ${updated} 人`;
     calcMsgIsErr.value = false;
-    setTimeout(() => { calcMsg.value = ""; }, 5000);
+    setTimeout(() => {
+      calcMsg.value = "";
+    }, 5000);
   } catch (e) {
     calcMsg.value = "載入失敗：" + e.message;
     calcMsgIsErr.value = true;
-    setTimeout(() => { calcMsg.value = ""; }, 15000);
+    setTimeout(() => {
+      calcMsg.value = "";
+    }, 15000);
   } finally {
     importingLunch.value = false;
   }
@@ -1652,10 +1812,17 @@ async function loadPayroll() {
       if (!byEmpNo[key]) {
         byEmpNo[key] = r;
       } else {
-        const existingIsOld = byEmpNo[key].id.startsWith("empNo_") ||
-          /^\d+_/.test(byEmpNo[key].id);
+        const existingIsOld =
+          byEmpNo[key].id.startsWith("empNo_") || /^\d+_/.test(byEmpNo[key].id);
         const newIsOld = r.id.startsWith("empNo_") || /^\d+_/.test(r.id);
-        if (existingIsOld && !newIsOld) byEmpNo[key] = r;
+        if (existingIsOld && !newIsOld) {
+          byEmpNo[key] = r; // 新格式優先於舊格式
+        } else if (!existingIsOld && !newIsOld) {
+          // 兩個都是 uid 格式（換帳號後舊/新 uid 各有一筆），保留 updatedAt 較新的
+          const existingMs = byEmpNo[key].updatedAt?.toMillis?.() || 0;
+          const newMs = r.updatedAt?.toMillis?.() || 0;
+          if (newMs > existingMs) byEmpNo[key] = r;
+        }
       }
     }
     allRecords.value = Object.values(byEmpNo).sort((a, b) => {
@@ -1674,7 +1841,12 @@ async function loadPayroll() {
 
 async function cleanupDuplicates() {
   const yyyyMM = selectedMonth.value.replace("-", "");
-  if (!confirm(`清除 ${selectedMonth.value} 的重複舊薪資記錄？\n（保留UID格式，刪除empNo格式的舊資料）`)) return;
+  if (
+    !confirm(
+      `清除 ${selectedMonth.value} 的重複舊薪資記錄？\n（保留UID格式，刪除empNo格式的舊資料）`,
+    )
+  )
+    return;
   const snap = await getDocs(
     query(collection(db, "payroll"), where("yyyyMM", "==", yyyyMM)),
   );
@@ -1687,7 +1859,9 @@ async function cleanupDuplicates() {
   }
   const toDelete = raw.filter((r) => {
     const key = String(r.empNo ?? r.id);
-    return empCount[key] > 1 && (r.id.startsWith("empNo_") || /^\d+_/.test(r.id));
+    return (
+      empCount[key] > 1 && (r.id.startsWith("empNo_") || /^\d+_/.test(r.id))
+    );
   });
   if (!toDelete.length) {
     alert("沒有找到重複記錄。");
@@ -1760,6 +1934,12 @@ async function loadStaff() {
     empNo: String(d.data().empNo || d.id),
     name: d.data().name || "",
     status: d.data().status || "",
+    endDate:
+      d.data().endDate ||
+      d.data().leaveDate ||
+      d.data().resignDate ||
+      d.data().terminationDate ||
+      "",
     idNo: d.data().idNo || "",
     address: d.data().address || "",
     spouse: d.data().spouse || "",
@@ -1832,7 +2012,7 @@ function buildAttendanceRows(r, mode) {
     byDate.get(d).push(text);
   };
 
-  const otRows = mode === "first" ? (r.otDetailOfficial || []) : (r.otDetail || []);
+  const otRows = mode === "first" ? r.otDetailOfficial || [] : r.otDetail || [];
   for (const ot of otRows) {
     add(ot.date, `加班 ${ot.hours || 0}h`);
   }
@@ -1851,7 +2031,7 @@ function buildAttendanceRows(r, mode) {
 
   const dates = Array.from(byDate.keys()).sort((a, b) => a.localeCompare(b));
   if (!dates.length) {
-    return '<tr><th>—</th><td>本期無出勤明細</td></tr>';
+    return "<tr><th>—</th><td>本期無出勤明細</td></tr>";
   }
   return dates
     .map((date) => {
@@ -1866,28 +2046,37 @@ function printRemittance(mode) {
     const aNum = Number(a.empNo);
     const bNum = Number(b.empNo);
     if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
-    return String(a.empNo).localeCompare(String(b.empNo), 'zh-Hant', { numeric: true });
+    return String(a.empNo).localeCompare(String(b.empNo), "zh-Hant", {
+      numeric: true,
+    });
   });
 
-  const label = mode === 'first' ? '5日' : '10日';
+  const label = mode === "first" ? "5日" : "10日";
   const title = `${selectedMonth.value} ${label}匯款明細`;
 
-  const rows = sorted.map((r, i) => {
-    const seq = String(i + 1).padStart(6, '0');
-    const s = staffBankMap.value.get(String(r.empNo)) || {};
-    const bankAccount = s.bankAccount || '—';
-    const amount = mode === 'first' ? (r.firstPayment || 0) : (r.secondPayment || 0);
-    return `<tr>
+  const rows = sorted
+    .map((r, i) => {
+      const seq = String(i + 1).padStart(6, "0");
+      const s = staffBankMap.value.get(String(r.empNo)) || {};
+      const bankAccount = s.bankAccount || "—";
+      const amount =
+        mode === "first" ? r.firstPayment || 0 : r.secondPayment || 0;
+      return `<tr>
       <td>${seq}</td>
-      <td>${r.empNo || ''}</td>
-      <td>${r.name || ''}</td>
+      <td>${r.empNo || ""}</td>
+      <td>${r.name || ""}</td>
       <td>${bankAccount}</td>
       <td class="num">${Number(amount).toLocaleString()}</td>
     </tr>`;
-  }).join('');
+    })
+    .join("");
 
-  const total = sorted.reduce((sum, r) =>
-    sum + Number(mode === 'first' ? (r.firstPayment || 0) : (r.secondPayment || 0)), 0);
+  const total = sorted.reduce(
+    (sum, r) =>
+      sum +
+      Number(mode === "first" ? r.firstPayment || 0 : r.secondPayment || 0),
+    0,
+  );
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${title}</title>
@@ -1916,118 +2105,140 @@ th { background: #f0f0f0; white-space: nowrap; }
 </table>
 </body></html>`;
 
-  const win = window.open('', '_blank', 'width=960,height=820');
+  const win = window.open("", "_blank", "width=960,height=820");
   win.document.write(html);
   win.document.close();
   win.focus();
-  win.onload = () => { win.print(); win.onafterprint = () => win.close(); };
+  win.onload = () => {
+    win.print();
+    win.onafterprint = () => win.close();
+  };
 }
 
 function printSlip(r, mode) {
   const title =
-    mode === 'first'
+    mode === "first"
       ? `${r.name}（${r.empNo}）${r.monthLabel} 5日薪資單`
       : `${r.name}（${r.empNo}）${r.monthLabel} 完整薪資單`;
 
   const deductRow = (label, val) =>
     val > 0
       ? `<tr><th>${label}</th><td class="deduct">−${Number(val).toLocaleString()}</td></tr>`
-      : '';
+      : "";
 
-  let bodyRows = '';
+  let bodyRows = "";
 
-  if (mode === 'first') {
+  if (mode === "first") {
     const base = calcLaborInsuranceSalaryBase(r);
     const otOffRows = (r.otDetailOfficial || [])
-      .map((ot) => `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`)
-      .join('');
+      .map(
+        (ot) =>
+          `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`,
+      )
+      .join("");
     bodyRows = `
       <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
-      ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ''}
-      ${deductRow('勞保費', r.laborInsurance)}
-      ${deductRow('健保費（本人）', r.healthInsurance)}
-      ${deductRow('健保費（眷屬）', r.dependentHealth)}
-      ${deductRow('減項互助金', r.mutualAid)}
-      ${deductRow('便當費', r.lunchFee)}
-      ${deductRow('房租（外勞）', r.foreignRent)}
-      ${deductRow('水費', r.waterFee)}
-      ${deductRow('電費', r.electricFee)}
-      ${deductRow('體檢費（外勞）', r.foreignMedical)}
-      ${deductRow('服務費（外勞）', r.foreignService)}
-      ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : '其他減項', r.otherDeduction)}
-      ${calcFirstPaymentPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcFirstPaymentPartialMonthDeduction(r))}</td></tr>` : ''}
-      ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
-      ${deductRow('借款本金', r.loanPrincipal)}
-      ${deductRow('借款利息', r.loanInterest)}
+      ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ""}
+      ${deductRow("勞保費", r.laborInsurance)}
+      ${deductRow("健保費（本人）", r.healthInsurance)}
+      ${deductRow("健保費（眷屬）", r.dependentHealth)}
+      ${deductRow("減項互助金", r.mutualAid)}
+      ${deductRow("便當費", r.lunchFee)}
+      ${deductRow("房租（外勞）", r.foreignRent)}
+      ${deductRow("水費", r.waterFee)}
+      ${deductRow("電費", r.electricFee)}
+      ${deductRow("體檢費（外勞）", r.foreignMedical)}
+      ${deductRow("服務費（外勞）", r.foreignService)}
+      ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : "其他減項", r.otherDeduction)}
+      ${calcFirstPaymentPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcFirstPaymentPartialMonthDeduction(r))}</td></tr>` : ""}
+      ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ""}
+      ${deductRow("借款本金", r.loanPrincipal)}
+      ${deductRow("借款利息", r.loanInterest)}
       <tr class="total-row"><th>5日實發</th><td class="gross">${n(r.firstPayment)}</td></tr>
       <tr><th>申報所得（投保薪資-曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
     `;
   } else {
     const bonuses = [r.bonus1, r.bonus2, r.bonus3, r.bonus4, r.bonus5]
       .filter((b) => b && b > 0)
-      .map((b, i) => `<tr class="sub"><th>獎金(${i + 1})</th><td>+${Number(b).toLocaleString()}</td></tr>`)
-      .join('');
+      .map(
+        (b, i) =>
+          `<tr class="sub"><th>獎金(${i + 1})</th><td>+${Number(b).toLocaleString()}</td></tr>`,
+      )
+      .join("");
 
     const otRows = (r.otDetail || [])
-      .map((ot) => `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`)
-      .join('');
+      .map(
+        (ot) =>
+          `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`,
+      )
+      .join("");
 
     let lunchTotal = 0;
     let dinnerTotal = 0;
     for (const ml of r.mealDetail || []) {
-      const inT = String(ml.punchIn).length <= 5 ? ml.punchIn + ':00' : String(ml.punchIn);
-      const outT = String(ml.punchOut).length <= 5 ? ml.punchOut + ':00' : String(ml.punchOut);
-      if (inT < '14:00:00' && outT > '11:00:00') lunchTotal += 100;
-      if (inT < '18:30:00' && outT > '17:30:00') dinnerTotal += 100;
+      const inT =
+        String(ml.punchIn).length <= 5
+          ? ml.punchIn + ":00"
+          : String(ml.punchIn);
+      const outT =
+        String(ml.punchOut).length <= 5
+          ? ml.punchOut + ":00"
+          : String(ml.punchOut);
+      if (inT < "14:00:00" && outT > "11:00:00") lunchTotal += 100;
+      if (inT < "18:30:00" && outT > "17:30:00") dinnerTotal += 100;
     }
     const mealRows =
-      (lunchTotal > 0 ? `<tr class="sub"><th>午餐</th><td class="meal">+${lunchTotal.toLocaleString()}</td></tr>` : '') +
-      (dinnerTotal > 0 ? `<tr class="sub"><th>晚餐</th><td class="meal">+${dinnerTotal.toLocaleString()}</td></tr>` : '');
+      (lunchTotal > 0
+        ? `<tr class="sub"><th>午餐</th><td class="meal">+${lunchTotal.toLocaleString()}</td></tr>`
+        : "") +
+      (dinnerTotal > 0
+        ? `<tr class="sub"><th>晚餐</th><td class="meal">+${dinnerTotal.toLocaleString()}</td></tr>`
+        : "");
 
     const leaveRows = (r.leaveDetail || [])
       .map((lv) => {
-        const unit = lv.unit === '小時' ? `${lv.hours}h` : `${lv.days}天`;
+        const unit = lv.unit === "小時" ? `${lv.hours}h` : `${lv.days}天`;
         return `<tr class="sub"><th>${lv.type}（${unit}）</th><td class="deduct">−${n(lv.deduction)}</td></tr>`;
       })
-      .join('');
+      .join("");
 
     const lateRows = (r.lateEarlyDetail || [])
       .map((le) => {
         const parts = [];
         if (le.lateMins > 0) parts.push(`遲到${le.lateMins}分`);
         if (le.earlyMins > 0) parts.push(`早退${le.earlyMins}分`);
-        return `<tr class="sub"><th>${le.date} ${parts.join('/')}</th><td class="deduct">−${n(le.deduction)}</td></tr>`;
+        return `<tr class="sub"><th>${le.date} ${parts.join("/")}</th><td class="deduct">−${n(le.deduction)}</td></tr>`;
       })
-      .join('');
+      .join("");
 
     bodyRows = `
-      <tr><th>薪資類型</th><td>${r.salaryType || ''}</td></tr>
+      <tr><th>薪資類型</th><td>${r.salaryType || ""}</td></tr>
       <tr class="sep"><th>底薪</th><td>${n(displayBaseSalary(r))}</td></tr>
-      ${r.bonusTotal > 0 ? `<tr><th>固定獎金合計</th><td>+${n(r.bonusTotal)}</td></tr>${bonuses}` : ''}
-      ${r.otPay > 0 ? `<tr><th>加班費合計（實際，${r.otHours || 0}h）</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ''}
-      ${(r.otPayOfficial != null && r.otPayOfficial !== r.otPay) ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>` : ''}
-      ${r.mealAllowance > 0 ? `<tr><th>伙食費合計</th><td class="meal">+${n(r.mealAllowance)}</td></tr>${mealRows}` : ''}
-      ${r.leaveDeduction > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ''}
-      ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ''}
-      ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ''}
-      ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ''}
-      ${deductRow('勞保費', r.laborInsurance)}
-      ${deductRow('健保費（本人）', r.healthInsurance)}
-      ${deductRow('健保費（眷屬）', r.dependentHealth)}
-      ${deductRow('減項互助金', r.mutualAid)}
-      ${deductRow('便當費', r.lunchFee)}
-      ${deductRow('房租（外勞）', r.foreignRent)}
-      ${deductRow('水費', r.waterFee)}
-      ${deductRow('電費', r.electricFee)}
-      ${deductRow('體檢費（外勞）', r.foreignMedical)}
-      ${deductRow('服務費（外勞）', r.foreignService)}
-      ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : '其他減項', r.otherDeduction)}
-      ${deductRow('借款本金', r.loanPrincipal)}
-      ${deductRow('借款利息', r.loanInterest)}
+      ${r.bonusTotal > 0 ? `<tr><th>固定獎金合計</th><td>+${n(r.bonusTotal)}</td></tr>${bonuses}` : ""}
+      ${r.otPay > 0 ? `<tr><th>加班費合計（實際，${r.otHours || 0}h）</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ""}
+      ${r.otPayOfficial != null && r.otPayOfficial !== r.otPay ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>` : ""}
+      ${r.mealAllowance > 0 ? `<tr><th>伙食費合計</th><td class="meal">+${n(r.mealAllowance)}</td></tr>${mealRows}` : ""}
+      ${r.leaveDeduction > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ""}
+      ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ""}
+      ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ""}
+      ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ""}
+      ${deductRow("勞保費", r.laborInsurance)}
+      ${deductRow("健保費（本人）", r.healthInsurance)}
+      ${deductRow("健保費（眷屬）", r.dependentHealth)}
+      ${deductRow("減項互助金", r.mutualAid)}
+      ${deductRow("便當費", r.lunchFee)}
+      ${deductRow("房租（外勞）", r.foreignRent)}
+      ${deductRow("水費", r.waterFee)}
+      ${deductRow("電費", r.electricFee)}
+      ${deductRow("體檢費（外勞）", r.foreignMedical)}
+      ${deductRow("服務費（外勞）", r.foreignService)}
+      ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : "其他減項", r.otherDeduction)}
+      ${deductRow("借款本金", r.loanPrincipal)}
+      ${deductRow("借款利息", r.loanInterest)}
       <tr class="total-row"><th>實領薪資</th><td class="gross">${n(r.grossPay)}</td></tr>
       <tr class="sep"><th>申報所得（投保薪資-曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
       <tr class="sep"><th>5日發薪（投保薪資＋申報加班費）</th><td class="gross">${n(r.firstPayment)}</td></tr>
-      <tr><th>10日發薪（補差額）</th><td class="${(r.secondPayment ?? 0) < 0 ? 'deduct' : 'gross'}">${n(r.secondPayment)}</td></tr>
+      <tr><th>10日發薪（補差額）</th><td class="${(r.secondPayment ?? 0) < 0 ? "deduct" : "gross"}">${n(r.secondPayment)}</td></tr>
     `;
   }
 
@@ -2063,7 +2274,7 @@ function printSlip(r, mode) {
     </style>
   </head><body>
     <h2>${title}</h2>
-    <p class="sub">列印時間：${new Date().toLocaleString('zh-TW')}</p>
+    <p class="sub">列印時間：${new Date().toLocaleString("zh-TW")}</p>
     <div class="slip-layout">
       <table><tbody>${bodyRows}</tbody></table>
       <section class="att-wrap">
@@ -2073,7 +2284,7 @@ function printSlip(r, mode) {
     </div>
   </body></html>`;
 
-  const win = window.open('', '_blank', 'width=960,height=820');
+  const win = window.open("", "_blank", "width=960,height=820");
   win.document.write(html);
   win.document.close();
   win.focus();
@@ -2096,12 +2307,17 @@ function openDetail(r) {
 }
 
 function mealTotals(r) {
-  let lunch = 0, dinner = 0;
+  let lunch = 0,
+    dinner = 0;
   for (const ml of r.mealDetail || []) {
-    const inT = String(ml.punchIn).length <= 5 ? ml.punchIn + ':00' : String(ml.punchIn);
-    const outT = String(ml.punchOut).length <= 5 ? ml.punchOut + ':00' : String(ml.punchOut);
-    if (inT < '14:00:00' && outT > '11:00:00') lunch += 100;
-    if (inT < '18:30:00' && outT > '17:30:00') dinner += 100;
+    const inT =
+      String(ml.punchIn).length <= 5 ? ml.punchIn + ":00" : String(ml.punchIn);
+    const outT =
+      String(ml.punchOut).length <= 5
+        ? ml.punchOut + ":00"
+        : String(ml.punchOut);
+    if (inT < "14:00:00" && outT > "11:00:00") lunch += 100;
+    if (inT < "18:30:00" && outT > "17:30:00") dinner += 100;
   }
   return { lunch, dinner };
 }

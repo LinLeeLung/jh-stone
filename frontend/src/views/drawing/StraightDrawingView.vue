@@ -1162,12 +1162,13 @@ function recal() {
 
   const ratioStandard = dep65.value ? 65 : 60;
   const minus = backheight + thick - 8;
+  const effectiveD = d + Math.max(0, minus);
   let total = 0,
     resultshow = "";
 
-  if (d > ratioStandard || minus > 0) {
+  if (effectiveD > ratioStandard) {
     if (minus > 0) {
-      const adj = ((d + minus) / 60) * _length;
+      const adj = (effectiveD / 60) * _length;
       total = Math.round(priceVal * adj);
       resultshow = `@${priceVal} x (${d}+${minus.toFixed(1)})/60 x ${_length} = ${priceVal} x ${adj.toFixed(1)} = ${total}`;
     } else {

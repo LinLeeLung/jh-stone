@@ -344,6 +344,33 @@
         </button>
       </div>
 
+      <p v-if="pendingLoadError" class="msg error">{{ pendingLoadError }}</p>
+      <details
+        class="approve-debug"
+        v-if="isApprover && (isManager || !!pendingLoadError)"
+      >
+        <summary>審核診斷資訊</summary>
+        <div class="approve-debug-grid">
+          <span>auth uid</span><b>{{ currentUser?.uid || "—" }}</b>
+          <span>Users doc id</span><b>{{ debugUserDocId || "—" }}</b>
+          <span>role(active)</span><b>{{ userRole || "—" }}</b>
+          <span>staffRole</span><b>{{ myStaffRole || "—" }}</b>
+          <span>dept(active)</span><b>{{ myDept || "—" }}</b>
+          <span>isDeptHead</span><b>{{ isDeptHead ? "yes" : "no" }}</b>
+          <span>raw pending</span>
+          <b
+            >L1 {{ debugPendingRaw.l1 }} / L2 {{ debugPendingRaw.l2 }} / O1
+            {{ debugPendingRaw.o1 }} / O2 {{ debugPendingRaw.o2 }}</b
+          >
+          <span>after filter</span>
+          <b
+            >L1 {{ debugPendingFiltered.l1 }} / L2
+            {{ debugPendingFiltered.l2 }} / O1 {{ debugPendingFiltered.o1 }} /
+            O2 {{ debugPendingFiltered.o2 }}</b
+          >
+        </div>
+      </details>
+
       <p v-if="loadingPending" class="loading">{{ t("loading") }}</p>
       <template v-else>
         <!-- Stage 1 -->
@@ -1316,6 +1343,10 @@ const pendingOT1 = ref([]);
 const pendingOT2 = ref([]);
 const approvedLeaveByMe = ref([]);
 const approvedOTByMe = ref([]);
+const pendingLoadError = ref("");
+const debugUserDocId = ref("");
+const debugPendingRaw = reactive({ l1: 0, l2: 0, o1: 0, o2: 0 });
+const debugPendingFiltered = reactive({ l1: 0, l2: 0, o1: 0, o2: 0 });
 const loadingApproved = ref(false);
 const _nowA = new Date();
 const approvedMonth = ref(
@@ -1647,6 +1678,7 @@ onMounted(async () => {
 
   const userDoc = await getUserByUid(currentUser.value.uid);
   if (userDoc) {
+    debugUserDocId.value = userDoc.id || "";
     userRole.value = getUserActiveRole(userDoc);
     myName.value = userDoc.displayName || currentUser.value.displayName || "";
     if (userDoc.staffRole) myStaffRole.value = userDoc.staffRole;
@@ -1927,6 +1959,7 @@ async function cancelRequest(r) {
 // ── Load pending (approvers) ───────────────────────────────────────────────
 async function loadPending() {
   if (!isApprover.value) return;
+  pendingLoadError.value = "";
   loadingPending.value = true;
   try {
     const [l1, l2, o1, o2] = await Promise.all([
@@ -1955,6 +1988,11 @@ async function loadPending() {
         ),
       ),
     ]);
+    debugPendingRaw.l1 = l1.size;
+    debugPendingRaw.l2 = l2.size;
+    debugPendingRaw.o1 = o1.size;
+    debugPendingRaw.o2 = o2.size;
+
     let lv1 = l1.docs.map((d) => ({ id: d.id, ...d.data() }));
     let lv2 = l2.docs.map((d) => ({ id: d.id, ...d.data() }));
     let ov1 = o1.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -2008,6 +2046,11 @@ async function loadPending() {
       lv2 = [];
       ov2 = [];
     }
+    debugPendingFiltered.l1 = lv1.length;
+    debugPendingFiltered.l2 = lv2.length;
+    debugPendingFiltered.o1 = ov1.length;
+    debugPendingFiltered.o2 = ov2.length;
+
     const [ov1Enriched, ov2Enriched] = await Promise.all([
       enrichOTRecordsWithAttendance(ov1),
       enrichOTRecordsWithAttendance(ov2),
@@ -2017,6 +2060,12 @@ async function loadPending() {
     pendingLeave2.value = lv2;
     pendingOT1.value = ov1Enriched;
     pendingOT2.value = ov2Enriched;
+  } catch (e) {
+    pendingLoadError.value = `讀取待審資料失敗：${e?.message || e}`;
+    pendingLeave1.value = [];
+    pendingLeave2.value = [];
+    pendingOT1.value = [];
+    pendingOT2.value = [];
   } finally {
     loadingPending.value = false;
   }
@@ -2084,7 +2133,9 @@ async function approveOT(r, stage) {
           status: "approved2",
           approvedHours,
           officialHours:
-            Number(r?.officialHours) >= 0 ? Number(r.officialHours) : approvedHours,
+            Number(r?.officialHours) >= 0
+              ? Number(r.officialHours)
+              : approvedHours,
           approvedTimeRange: r.effectiveTimeRange || "—",
           approvalMode,
           comparedAttendanceRange: r.attendanceTimeRange || "—",
@@ -2482,6 +2533,28 @@ h4 {
   color: #999;
   font-style: italic;
   font-size: 0.9rem;
+}
+.approve-debug {
+  margin-bottom: 10px;
+  border: 1px solid #e2e6ea;
+  border-radius: 6px;
+  background: #fafbfc;
+  padding: 6px 10px;
+}
+.approve-debug summary {
+  cursor: pointer;
+  font-size: 0.86rem;
+  color: #556;
+}
+.approve-debug-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 4px 10px;
+  font-size: 0.82rem;
+}
+.approve-debug-grid span {
+  color: #667;
 }
 .hint {
   font-size: 0.88rem;
