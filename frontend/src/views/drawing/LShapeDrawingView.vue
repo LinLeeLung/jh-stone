@@ -410,6 +410,12 @@
             @change="redraw"
           />左靠櫃</label
         >
+        側板/櫃深<input
+          type="number"
+          v-model.number="leftEndDepth"
+          class="number"
+          @change="redraw"
+        />
         <label
           ><input
             type="radio"
@@ -418,12 +424,6 @@
             @change="redraw"
           />側落腳</label
         >
-        側板/櫃深<input
-          type="number"
-          v-model.number="leftEndDepth"
-          class="number"
-          @change="redraw"
-        />
         <template v-if="leftEnd === '左側落腳'">
           腳高<input
             type="number"
@@ -498,6 +498,12 @@
             @change="redraw"
           />右靠櫃</label
         >
+        側板/櫃深<input
+          type="number"
+          v-model.number="rightEndDepth"
+          class="number"
+          @change="redraw"
+        />
         <label
           ><input
             type="radio"
@@ -506,12 +512,6 @@
             @change="redraw"
           />側落腳</label
         >
-        側板/櫃深<input
-          type="number"
-          v-model.number="rightEndDepth"
-          class="number"
-          @change="redraw"
-        />
         <template v-if="rightEnd === '右側落腳'">
           腳高<input
             type="number"
@@ -1366,12 +1366,10 @@ function drawTopLengthMarker(x0, y0, w) {
   draw
     .line(x0 + w, yLine - 6, x0 + w, yLine + 6)
     .stroke({ width: 1, color: "black" });
-  const t = draw
-    .text(String(w))
-    .font({
-      size: Math.max(10, Number(leftTextFontSize.value) || 10) + 6,
-      family: "DFKai-sb",
-    });
+  const t = draw.text(String(w)).font({
+    size: Math.max(10, Number(leftTextFontSize.value) || 10) + 6,
+    family: "DFKai-sb",
+  });
   const bb = t.bbox();
   t.move(x0 + w / 2 - bb.width / 2, yLine - bb.height - 4);
 }
@@ -1529,7 +1527,10 @@ function drawLegAngledTextCentered(text, cx, cy, size, angle) {
 }
 
 function saveSettings(n) {
-  localStorage.setItem(`l-shape-drawing-settings-${n}`, JSON.stringify(settings));
+  localStorage.setItem(
+    `l-shape-drawing-settings-${n}`,
+    JSON.stringify(settings),
+  );
   alert(`設定${n}存檔完成`);
 }
 
@@ -1670,6 +1671,7 @@ function drawRightSideLeg(x0, yBottom) {
     legHeight - (sin === 0 ? TABLETOP_THICKNESS : TABLETOP_THICKNESS / sin),
   );
   const k1P4 = legPoint(k1P3.x + k1Length * cos, k1P3.y - k1Length * sin);
+  const k1P6 = legPoint(p6.x - legThickness, p6.y + legThickness);
 
   const p22 = legPoint(p1.x, p1.y - 55);
   const p24 = { x: p22.x, y: p22.y - 5 };
@@ -1682,22 +1684,6 @@ function drawRightSideLeg(x0, yBottom) {
   const h1Inset = Math.max(TABLETOP_THICKNESS, legThickness);
   const h1Start = legPoint(p1.x, p1.y + h1Inset);
   const h1End = legPoint(p0.x, p0.y + h1Inset);
-
-  const topDx = p1.x - p0.x;
-  const topDy = p1.y - p0.y;
-  const topLen = Math.hypot(topDx, topDy) || 1;
-  const rightDx = p6.x - p0.x;
-  const rightDy = p6.y - p0.y;
-  const rightLen = Math.hypot(rightDx, rightDy) || 1;
-  const h2Inset = Math.max(5, legThickness * 2.4);
-  const h2SeamTop = legPoint(
-    p0.x + (topDx / topLen) * h2Inset,
-    p0.y + (topDy / topLen) * h2Inset,
-  );
-  const h2SeamRight = legPoint(
-    p0.x + (rightDx / rightLen) * h2Inset,
-    p0.y + (rightDy / rightLen) * h2Inset,
-  );
 
   const dh = (frontWrap - 12) / 2;
   const dh2 = (backWrap - 12) / 2;
@@ -1713,9 +1699,10 @@ function drawRightSideLeg(x0, yBottom) {
     drawLegLine(toWorld(k1P3), toWorld(k1P4));
   }
   if (legMethod === "H2") {
-    drawLegLine(toWorld(p0), toWorld(h2SeamTop));
-    drawLegLine(toWorld(p0), toWorld(h2SeamRight));
+    drawLegLine(toWorld(p0), toWorld(k1P4));
   }
+
+  drawRightLegDebugPoint("KP", toWorld(p1));
 
   if (frontWrap > 0) {
     drawLegDashedLine(toWorld(p7), toWorld(p8));
@@ -1743,6 +1730,27 @@ function drawRightSideLeg(x0, yBottom) {
   drawLegLine(toWorld(p22), toWorld({ x: p22.x, y: p22.y - 10 }));
   drawLegLine(toWorld(p24), toWorld(p28));
   drawLegLine(toWorld(p26), toWorld(p29));
+}
+
+function drawRightLegDebugPoint(label, point) {
+  const color = "#e11d48";
+  draw
+    .circle(8)
+    .center(point.x, point.y)
+    .fill("white")
+    .stroke({ width: 1.5, color });
+  draw.circle(3).center(point.x, point.y).fill(color);
+  draw
+    .text(label)
+    .font({ size: 6, family: "Arial", weight: "bold" })
+    .fill(color)
+    .move(point.x + 5, point.y - 10);
+}
+
+function drawRightLegDebugLine(from, to) {
+  draw
+    .line(from.x, from.y, to.x, to.y)
+    .stroke({ width: 1.5, color: "#e11d48", dasharray: "4,3" });
 }
 
 function drawTopWall(x0, y0, w) {
@@ -1924,7 +1932,9 @@ function drawTopLabel(text, xPoint, y0, xFrom) {
   const yLine = y0 - (Number(settings.openingTopGap) || 12);
   draw.line(xFrom, yLine, xPoint, yLine).stroke({ width: 0.5, color: "black" });
   draw.line(xPoint, yLine, xPoint, y0).stroke({ width: 0.5, color: "black" });
-  const t = draw.text(String(text)).font({ size: fontSize, family: "DFKai-sb" });
+  const t = draw
+    .text(String(text))
+    .font({ size: fontSize, family: "DFKai-sb" });
   t.move(xPoint - t.bbox().width / 2, yLine - fontSize - 3);
 }
 function drawRightLabel(text, yPoint, xEdge, yFrom) {

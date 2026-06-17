@@ -19,6 +19,9 @@
       <span class="img-hint"
         >（可 Ctrl+V 貼上｜拖曳移動｜右下角縮放｜雙擊刪除）</span
       >
+      <button class="btn-img" @click="showSetUp = !showSetUp">
+        {{ showSetUp ? "收合設定" : "設定" }}
+      </button>
     </div>
 
     <!-- 中間桶身（橫向） -->
@@ -582,6 +585,14 @@
         <label
           ><input
             type="radio"
+            value="左齊桶身側板"
+            v-model="leftBottomEnd"
+            @change="redraw"
+          />齊桶身側板</label
+        >
+        <label
+          ><input
+            type="radio"
             value="左靠櫃"
             v-model="leftBottomEnd"
             @change="redraw"
@@ -649,6 +660,14 @@
         <label
           ><input
             type="radio"
+            value="右齊桶身側板"
+            v-model="rightBottomEnd"
+            @change="redraw"
+          />齊桶身側板</label
+        >
+        <label
+          ><input
+            type="radio"
             value="右靠櫃"
             v-model="rightBottomEnd"
             @change="redraw"
@@ -680,6 +699,118 @@
         <button @click="redraw">重繪</button>
         <button @click="clearAll">全部清空</button>
       </div>
+    </div>
+
+    <!-- 設定面板 -->
+    <div v-show="showSetUp" class="settings setup-panel">
+      中桶身字<input
+        type="number"
+        v-model.number="settings.midFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      左桶身字<input
+        type="number"
+        v-model.number="settings.leftFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      右桶身字<input
+        type="number"
+        v-model.number="settings.rightFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      總長字<input
+        type="number"
+        v-model.number="settings.lengthFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      深度字<input
+        type="number"
+        v-model.number="settings.depthFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      水中爐中字<input
+        type="number"
+        v-model.number="settings.openingFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      接線字<input
+        type="number"
+        v-model.number="settings.connectFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      上標線距<input
+        type="number"
+        v-model.number="settings.topMarkerGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      左標線距<input
+        type="number"
+        v-model.number="settings.leftMarkerGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      右標線距<input
+        type="number"
+        v-model.number="settings.rightMarkerGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      下深度距<input
+        type="number"
+        v-model.number="settings.armDepthGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      中分段字距<input
+        type="number"
+        v-model.number="settings.midCabinLabelGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      左分段字距<input
+        type="number"
+        v-model.number="settings.leftCabinLabelGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      右分段字距<input
+        type="number"
+        v-model.number="settings.rightCabinLabelGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      上水爐字距<input
+        type="number"
+        v-model.number="settings.openingTopGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      左水爐字距<input
+        type="number"
+        v-model.number="settings.openingLeftGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      右水爐字距<input
+        type="number"
+        v-model.number="settings.openingRightGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      <button @click="saveSettings(1)">存設定1</button>
+      <button @click="saveSettings(2)">存設定2</button>
+      <button @click="saveSettings(3)">存設定3</button>
+      <button @click="loadSettings(1)">取設定1</button>
+      <button @click="loadSettings(2)">取設定2</button>
+      <button @click="loadSettings(3)">取設定3</button>
     </div>
 
     <!-- SVG 畫布 + 圖片疊層 -->
@@ -727,6 +858,7 @@ const props = defineProps({
 const saving = ref(false);
 const saveMsg = ref("");
 const savedSignature = ref("");
+const showSetUp = ref(false);
 
 const svgContainerRef = ref(null);
 let draw = null;
@@ -800,6 +932,26 @@ const leftBottomEnd = ref("左靠牆");
 const leftBottomEndDepth = ref(null);
 const rightBottomEnd = ref("右靠牆");
 const rightBottomEndDepth = ref(null);
+
+const settings = reactive({
+  midFont: 10,
+  leftFont: 10,
+  rightFont: 10,
+  lengthFont: 16,
+  depthFont: 12,
+  openingFont: 11,
+  connectFont: 10,
+  topMarkerGap: 30,
+  leftMarkerGap: 50,
+  rightMarkerGap: 50,
+  armDepthGap: 20,
+  midCabinLabelGap: 4,
+  leftCabinLabelGap: 10,
+  rightCabinLabelGap: 12,
+  openingTopGap: 12,
+  openingLeftGap: 12,
+  openingRightGap: 12,
+});
 
 // ─── 截圖插入 ────────────────────────────────────────────
 const overlayImages = ref([]);
@@ -1101,6 +1253,21 @@ function clearAll() {
   clearRightArm();
 }
 
+function saveSettings(n) {
+  localStorage.setItem(
+    `m-shape-drawing-settings-${n}`,
+    JSON.stringify(settings),
+  );
+  alert(`設定${n}存檔完成`);
+}
+
+function loadSettings(n) {
+  const raw = localStorage.getItem(`m-shape-drawing-settings-${n}`);
+  if (!raw) return;
+  Object.assign(settings, JSON.parse(raw));
+  redraw();
+}
+
 // ─── 主繪圖 ──────────────────────────────────────────────
 function redraw() {
   if (!draw) return;
@@ -1319,14 +1486,16 @@ function drawMidCabinDividersH(
   const p = parseFloat(plus);
   const xLeftEnd = x0 + leftCornerW; // 左轉角結束
   const xRightStart = x0 + w - rightCornerW; // 右轉角開始
+  const labelSize = Math.max(6, Number(settings.midFont) || 10);
+  const labelGap = Number(settings.midCabinLabelGap) || 4;
   let x = x0;
   if (!isNaN(p) && p > 0) {
     const midX = x + p / 2;
     if (midX > xLeftEnd && midX < xRightStart) {
       draw
         .text(String(p))
-        .font({ size: 10, family: "DFKai-sb" })
-        .move(midX - 6, y0 + h + 4);
+        .font({ size: labelSize, family: "DFKai-sb" })
+        .move(midX - 6, y0 + h + labelGap);
     }
     if (x + p > xLeftEnd && x + p < xRightStart) drawTickH(x + p, y0 + h);
     x += p;
@@ -1335,8 +1504,8 @@ function drawMidCabinDividersH(
     if (midX > xLeftEnd && midX < xRightStart)
       draw
         .text(String(boxes[0]))
-        .font({ size: 10, family: "DFKai-sb" })
-        .move(midX - 8, y0 + h + 4);
+        .font({ size: labelSize, family: "DFKai-sb" })
+        .move(midX - 8, y0 + h + labelGap);
   }
   for (let i = 0; i < boxes.length; i++) {
     x += boxes[i];
@@ -1346,8 +1515,8 @@ function drawMidCabinDividersH(
       if (nextMidX > xLeftEnd && nextMidX < xRightStart)
         draw
           .text(String(boxes[i + 1]))
-          .font({ size: 10, family: "DFKai-sb" })
-          .move(nextMidX - 8, y0 + h + 4);
+          .font({ size: labelSize, family: "DFKai-sb" })
+          .move(nextMidX - 8, y0 + h + labelGap);
     }
   }
   // 內部虛線（跳過轉角區）
@@ -1366,17 +1535,19 @@ function drawCabinDividersVLeft(boxes, plus, x0, y0, hM, wM, cornerH = 0) {
   const p = parseFloat(plus);
   const yCornerEnd = y0 + cornerH;
   const xTick = x0; // 刻度在左臂左邊
-  const xLabel = x0 - 10; // 標籤在左外側
+  const labelSize = Math.max(6, Number(settings.leftFont) || 10);
+  const xLabel = x0 - (Number(settings.leftCabinLabelGap) || 10);
   let y = y0;
   if (!isNaN(p) && p > 0) {
     if (y + p > yCornerEnd) {
       drawTickV(xTick, y + p);
-      drawRotLabel(String(p), xLabel, y + p / 2, 90, 10);
+      drawRotLabel(String(p), xLabel, y + p / 2, 90, labelSize);
     }
     y += p;
   } else if (boxes.length > 0) {
     const midY = y + boxes[0] / 2;
-    if (midY > yCornerEnd) drawRotLabel(String(boxes[0]), xLabel, midY, 90, 10);
+    if (midY > yCornerEnd)
+      drawRotLabel(String(boxes[0]), xLabel, midY, 90, labelSize);
   }
   for (let i = 0; i < boxes.length; i++) {
     y += boxes[i];
@@ -1384,7 +1555,7 @@ function drawCabinDividersVLeft(boxes, plus, x0, y0, hM, wM, cornerH = 0) {
       if (y > yCornerEnd) drawTickV(xTick, y);
       const nextMidY = y + boxes[i + 1] / 2;
       if (nextMidY > yCornerEnd)
-        drawRotLabel(String(boxes[i + 1]), xLabel, nextMidY, 90, 10);
+        drawRotLabel(String(boxes[i + 1]), xLabel, nextMidY, 90, labelSize);
     }
   }
   // 內部虛線
@@ -1403,18 +1574,19 @@ function drawCabinDividersVRight(boxes, plus, x0, y0, hL, wL, cornerH = 0) {
   const p = parseFloat(plus);
   const yCornerEnd = y0 + cornerH;
   const xTick = x0 + hL; // 刻度在右臂右邊
-  const xLabel = x0 + hL + 12; // 標籤在右外側
+  const labelSize = Math.max(6, Number(settings.rightFont) || 10);
+  const xLabel = x0 + hL + (Number(settings.rightCabinLabelGap) || 12);
   let y = y0;
   if (!isNaN(p) && p > 0) {
     if (y + p > yCornerEnd) {
       drawTickVRight(xTick, y + p);
-      drawRotLabel(String(p), xLabel, y + p / 2, -90, 10);
+      drawRotLabel(String(p), xLabel, y + p / 2, -90, labelSize);
     }
     y += p;
   } else if (boxes.length > 0) {
     const midY = y + boxes[0] / 2;
     if (midY > yCornerEnd)
-      drawRotLabel(String(boxes[0]), xLabel, midY, -90, 10);
+      drawRotLabel(String(boxes[0]), xLabel, midY, -90, labelSize);
   }
   for (let i = 0; i < boxes.length; i++) {
     y += boxes[i];
@@ -1422,7 +1594,7 @@ function drawCabinDividersVRight(boxes, plus, x0, y0, hL, wL, cornerH = 0) {
       if (y > yCornerEnd) drawTickVRight(xTick, y);
       const nextMidY = y + boxes[i + 1] / 2;
       if (nextMidY > yCornerEnd)
-        drawRotLabel(String(boxes[i + 1]), xLabel, nextMidY, -90, 10);
+        drawRotLabel(String(boxes[i + 1]), xLabel, nextMidY, -90, labelSize);
     }
   }
   // 內部虛線
@@ -1457,43 +1629,47 @@ function drawRotLabel(text, cx, cy, angle = -90, fontSize = 12) {
 
 // ─── 標註 ────────────────────────────────────────────────
 function drawTopLengthMarker(x0, y0, w) {
-  const yLine = y0 - 30;
+  const markerFont = Math.max(6, Number(settings.lengthFont) || 16);
+  const yLine = y0 - (Number(settings.topMarkerGap) || 30);
   draw.line(x0, yLine, x0 + w, yLine).stroke({ width: 1, color: "black" });
   draw.line(x0, yLine - 6, x0, yLine + 6).stroke({ width: 1, color: "black" });
   draw
     .line(x0 + w, yLine - 6, x0 + w, yLine + 6)
     .stroke({ width: 1, color: "black" });
-  const t = draw.text(String(w)).font({ size: 16, family: "DFKai-sb" });
+  const t = draw.text(String(w)).font({ size: markerFont, family: "DFKai-sb" });
   const bb = t.bbox();
   t.move(x0 + w / 2 - bb.width / 2, yLine - bb.height - 4);
 }
 
 function drawLeftArmLengthMarker(x0, y0, wM) {
-  const xLine = x0 - 50;
+  const markerFont = Math.max(6, Number(settings.lengthFont) || 16);
+  const xLine = x0 - (Number(settings.leftMarkerGap) || 50);
   draw.line(xLine, y0, xLine, y0 + wM).stroke({ width: 1, color: "black" });
   draw.line(xLine - 6, y0, xLine + 6, y0).stroke({ width: 1, color: "black" });
   draw
     .line(xLine - 6, y0 + wM, xLine + 6, y0 + wM)
     .stroke({ width: 1, color: "black" });
-  const t = draw.text(String(wM)).font({ size: 16, family: "DFKai-sb" });
+  const t = draw.text(String(wM)).font({ size: markerFont, family: "DFKai-sb" });
   const bb = t.bbox();
   t.move(xLine - 8 - bb.width, y0 + wM / 2 - bb.height / 2);
 }
 
 function drawRightArmLengthMarker(xEdge, y0, wL) {
-  const xLine = xEdge + 50;
+  const markerFont = Math.max(6, Number(settings.lengthFont) || 16);
+  const xLine = xEdge + (Number(settings.rightMarkerGap) || 50);
   draw.line(xLine, y0, xLine, y0 + wL).stroke({ width: 1, color: "black" });
   draw.line(xLine - 6, y0, xLine + 6, y0).stroke({ width: 1, color: "black" });
   draw
     .line(xLine - 6, y0 + wL, xLine + 6, y0 + wL)
     .stroke({ width: 1, color: "black" });
-  const t = draw.text(String(wL)).font({ size: 16, family: "DFKai-sb" });
+  const t = draw.text(String(wL)).font({ size: markerFont, family: "DFKai-sb" });
   const bb = t.bbox();
   t.move(xLine + 8, y0 + wL / 2 - bb.height / 2);
 }
 
 // 中間段深度標示（在兩臂中間底部）
 function drawMidDepthLabel(x0, y0, h, hM, w, hL) {
+  const labelSize = Math.max(6, Number(settings.depthFont) || 12);
   const xMid = x0 + hM + (w - hM - hL) / 2;
   const xLine = xMid;
   draw
@@ -1505,14 +1681,15 @@ function drawMidDepthLabel(x0, y0, h, hM, w, hL) {
   draw
     .line(xLine - 4, y0 + h, xLine + 4, y0 + h)
     .stroke({ width: 0.5, color: "black" });
-  const t = draw.text(String(h)).font({ size: 12, family: "DFKai-sb" });
+  const t = draw.text(String(h)).font({ size: labelSize, family: "DFKai-sb" });
   const bb = t.bbox();
   t.move(xLine + 4, y0 + h / 2 - bb.height / 2);
 }
 
 // 臂深度標示（臂底部）
 function drawArmDepthLabelBottom(x0, yBottom, armDepth) {
-  const yLine = yBottom + 20;
+  const labelSize = Math.max(6, Number(settings.depthFont) || 12);
+  const yLine = yBottom + (Number(settings.armDepthGap) || 20);
   draw
     .line(x0, yLine, x0 + armDepth, yLine)
     .stroke({ width: 0.5, color: "black" });
@@ -1522,7 +1699,7 @@ function drawArmDepthLabelBottom(x0, yBottom, armDepth) {
   draw
     .line(x0 + armDepth, yLine - 4, x0 + armDepth, yLine + 4)
     .stroke({ width: 0.5, color: "black" });
-  const t = draw.text(String(armDepth)).font({ size: 12, family: "DFKai-sb" });
+  const t = draw.text(String(armDepth)).font({ size: labelSize, family: "DFKai-sb" });
   const bb = t.bbox();
   t.move(x0 + armDepth / 2 - bb.width / 2, yLine + 4);
 }
@@ -1570,6 +1747,8 @@ function drawLeftArmBottomEnd(x0, yBottom, hM) {
   if (leftBottomEnd.value === "左見光") drawTri(x0 + hM / 2, yBottom + 15, "u");
   if (leftBottomEnd.value === "左靠側板")
     drawWallHatchBottom(x0, yBottom, hM, "側板");
+  if (leftBottomEnd.value === "左齊桶身側板")
+    drawTriangleWithDiamond(x0 + hM / 2, yBottom + 12, 10);
   if (leftBottomEnd.value === "左靠櫃")
     drawWallHatchBottom(x0, yBottom, hM, "櫃");
 }
@@ -1580,8 +1759,31 @@ function drawRightArmBottomEnd(x0, yBottom, hL) {
     drawTri(x0 + hL / 2, yBottom + 15, "u");
   if (rightBottomEnd.value === "右靠側板")
     drawWallHatchBottom(x0, yBottom, hL, "側板");
+  if (rightBottomEnd.value === "右齊桶身側板")
+    drawTriangleWithDiamond(x0 + hL / 2, yBottom + 12, 10);
   if (rightBottomEnd.value === "右靠櫃")
     drawWallHatchBottom(x0, yBottom, hL, "櫃");
+}
+
+function drawTriangleWithDiamond(x, y, size) {
+  draw
+    .polygon([
+      [x, y - size / 2],
+      [x + size / 2, y + size / 2],
+      [x - size / 2, y + size / 2],
+    ])
+    .fill("none")
+    .stroke({ width: 1, color: "black" });
+  const diamondSize = size / Math.sqrt(3);
+  draw
+    .polygon([
+      [x, y - diamondSize / 2],
+      [x + diamondSize / 2, y],
+      [x, y + diamondSize / 2],
+      [x - diamondSize / 2, y],
+    ])
+    .fill("black")
+    .center(x, y + size / 6);
 }
 function drawWallHatchBottom(x, y, span, label) {
   for (let i = 0; i < span; i += 8) {
@@ -1749,31 +1951,37 @@ function drawStoveBox(x, y, w, h, r) {
 
 // ─── 引線標籤 ────────────────────────────────────────────
 function drawTopLabel(text, xPoint, y0, xFrom) {
-  const yLine = y0 - 12;
+  const fontSize = Math.max(6, Number(settings.openingFont) || 11);
+  const yLine = y0 - (Number(settings.openingTopGap) || 12);
   draw.line(xFrom, yLine, xPoint, yLine).stroke({ width: 0.5, color: "black" });
   draw.line(xPoint, yLine, xPoint, y0).stroke({ width: 0.5, color: "black" });
-  const t = draw.text(String(text)).font({ size: 11, family: "DFKai-sb" });
-  t.move(xPoint - t.bbox().width / 2, yLine - 14);
+  const t = draw
+    .text(String(text))
+    .font({ size: fontSize, family: "DFKai-sb" });
+  t.move(xPoint - t.bbox().width / 2, yLine - fontSize - 3);
 }
 function drawLeftLabel(text, yPoint, xEdge, yFrom) {
-  const xLine = xEdge - 12;
+  const fontSize = Math.max(6, Number(settings.openingFont) || 11);
+  const xLine = xEdge - (Number(settings.openingLeftGap) || 12);
   draw.line(xLine, yFrom, xLine, yPoint).stroke({ width: 0.5, color: "black" });
   draw
     .line(xEdge, yPoint, xLine, yPoint)
     .stroke({ width: 0.5, color: "black" });
-  drawRotLabel(String(text), xLine - 14, yPoint, 90, 11);
+  drawRotLabel(String(text), xLine - fontSize - 3, yPoint, 90, fontSize);
 }
 function drawRightLabel(text, yPoint, xEdge, yFrom) {
-  const xLine = xEdge + 12;
+  const fontSize = Math.max(6, Number(settings.openingFont) || 11);
+  const xLine = xEdge + (Number(settings.openingRightGap) || 12);
   draw.line(xLine, yFrom, xLine, yPoint).stroke({ width: 0.5, color: "black" });
   draw
     .line(xEdge, yPoint, xLine, yPoint)
     .stroke({ width: 0.5, color: "black" });
-  drawRotLabel(String(text), xLine + 14, yPoint, -90, 11);
+  drawRotLabel(String(text), xLine + fontSize + 3, yPoint, -90, fontSize);
 }
 
 // ─── 接線 ────────────────────────────────────────────────
 function drawCutLineH(x0, y0, h, w, ltl) {
+  const fontSize = Math.max(6, Number(settings.connectFont) || 10);
   const yMid = y0 + h + 15;
   draw.line(x0 + ltl, y0, x0 + ltl, yMid).stroke({ width: 1, color: "black" });
   draw
@@ -1784,14 +1992,15 @@ function drawCutLineH(x0, y0, h, w, ltl) {
     .stroke({ width: 1, color: "black" });
   draw
     .text(String(ltl))
-    .font({ size: 10, family: "DFKai-sb" })
+    .font({ size: fontSize, family: "DFKai-sb" })
     .move(x0 + ltl - 30, yMid + 2);
   draw
     .text(String(Math.round((w - ltl) * 100) / 100))
-    .font({ size: 10, family: "DFKai-sb" })
+    .font({ size: fontSize, family: "DFKai-sb" })
     .move(x0 + ltl + 4, yMid + 2);
 }
 function drawCutLineVLeft(x0, y0, hM, wM, ltl) {
+  const fontSize = Math.max(6, Number(settings.connectFont) || 10);
   const xMid = x0 - 15;
   draw.line(x0, y0 + ltl, xMid, y0 + ltl).stroke({ width: 1, color: "black" });
   draw
@@ -1800,16 +2009,17 @@ function drawCutLineVLeft(x0, y0, hM, wM, ltl) {
   draw
     .line(xMid, y0 + ltl + 30, xMid, y0 + ltl)
     .stroke({ width: 1, color: "black" });
-  drawRotLabel(String(ltl), xMid - 14, y0 + ltl - 15, 90, 10);
+  drawRotLabel(String(ltl), xMid - 14, y0 + ltl - 15, 90, fontSize);
   drawRotLabel(
     String(Math.round((wM - ltl) * 100) / 100),
     xMid - 14,
     y0 + ltl + 15,
     90,
-    10,
+    fontSize,
   );
 }
 function drawCutLineVRight(x0, y0, hL, wL, ltl) {
+  const fontSize = Math.max(6, Number(settings.connectFont) || 10);
   const xMid = x0 + hL + 15;
   draw.line(x0, y0 + ltl, xMid, y0 + ltl).stroke({ width: 1, color: "black" });
   draw
@@ -1818,13 +2028,13 @@ function drawCutLineVRight(x0, y0, hL, wL, ltl) {
   draw
     .line(xMid, y0 + ltl + 30, xMid, y0 + ltl)
     .stroke({ width: 1, color: "black" });
-  drawRotLabel(String(ltl), xMid + 14, y0 + ltl - 15, -90, 10);
+  drawRotLabel(String(ltl), xMid + 14, y0 + ltl - 15, -90, fontSize);
   drawRotLabel(
     String(Math.round((wL - ltl) * 100) / 100),
     xMid + 14,
     y0 + ltl + 15,
     -90,
-    10,
+    fontSize,
   );
 }
 </script>

@@ -81,6 +81,21 @@
         >
           ╱ 直線
         </button>
+        <div
+          v-show="drawTool === 'line' || selectedShapeOverlay?.type === 'line'"
+          class="line-arrow-btns"
+        >
+          <button
+            v-for="opt in LINE_ARROW_OPTIONS"
+            :key="opt.value"
+            class="line-arrow-btn"
+            :class="{ active: lineArrowStyle === opt.value }"
+            :title="opt.title"
+            @click="setLineArrowStyle(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
         <button
           class="btn-draw"
           :class="{ 'draw-on': drawTool === 'measure' }"
@@ -1145,9 +1160,9 @@
             :height="Math.abs(ovl.y2 - ovl.y1) + (ovl.width + 4) * 2"
             style="display: block; overflow: visible; pointer-events: none"
           >
-            <defs v-if="ovl.type === 'measure'">
+            <defs v-if="ovl.type === 'measure' || ovl.type === 'line'">
               <marker
-                :id="`measure-arrow-start-${ovl.id}`"
+                :id="`${ovl.type}-arrow-start-${ovl.id}`"
                 markerWidth="8"
                 markerHeight="8"
                 refX="2"
@@ -1158,7 +1173,7 @@
                 <path d="M8,0 L0,4 L8,8 z" :fill="ovl.color" />
               </marker>
               <marker
-                :id="`measure-arrow-end-${ovl.id}`"
+                :id="`${ovl.type}-arrow-end-${ovl.id}`"
                 markerWidth="8"
                 markerHeight="8"
                 refX="6"
@@ -1178,13 +1193,13 @@
               :stroke="ovl.color"
               :stroke-width="ovl.width"
               :marker-start="
-                ovl.type === 'measure'
-                  ? `url(#measure-arrow-start-${ovl.id})`
+                ovl.type === 'measure' || hasLineArrowStart(ovl)
+                  ? `url(#${ovl.type}-arrow-start-${ovl.id})`
                   : null
               "
               :marker-end="
-                ovl.type === 'measure'
-                  ? `url(#measure-arrow-end-${ovl.id})`
+                ovl.type === 'measure' || hasLineArrowEnd(ovl)
+                  ? `url(#${ovl.type}-arrow-end-${ovl.id})`
                   : null
               "
               stroke-linecap="round"
@@ -2096,6 +2111,47 @@ async function renderConfirmedCanvas(
   }
 }
 function drawMeasurementArrowheads(ctx, start, end, color, width) {
+  drawLineArrowheads(ctx, start, end, color, width, "both");
+}
+function getLineEndpointDirection(start, end) {
+  if (Number(start.x) < Number(end.x)) return "start-left";
+  if (Number(start.x) > Number(end.x)) return "end-left";
+  if (Number(start.y) <= Number(end.y)) return "start-left";
+  return "end-left";
+}
+function shouldDrawArrowAtStart(start, end, style) {
+  if (style === "both") return true;
+  if (style !== "left" && style !== "right") return false;
+  const direction = getLineEndpointDirection(start, end);
+  return style === "left"
+    ? direction === "start-left"
+    : direction === "end-left";
+}
+function shouldDrawArrowAtEnd(start, end, style) {
+  if (style === "both") return true;
+  if (style !== "left" && style !== "right") return false;
+  const direction = getLineEndpointDirection(start, end);
+  return style === "left"
+    ? direction === "end-left"
+    : direction === "start-left";
+}
+function hasLineArrowStart(shape) {
+  if (!shape || shape.type !== "line") return false;
+  return shouldDrawArrowAtStart(
+    { x: Number(shape.x1 || 0), y: Number(shape.y1 || 0) },
+    { x: Number(shape.x2 || 0), y: Number(shape.y2 || 0) },
+    shape.arrowStyle || "none",
+  );
+}
+function hasLineArrowEnd(shape) {
+  if (!shape || shape.type !== "line") return false;
+  return shouldDrawArrowAtEnd(
+    { x: Number(shape.x1 || 0), y: Number(shape.y1 || 0) },
+    { x: Number(shape.x2 || 0), y: Number(shape.y2 || 0) },
+    shape.arrowStyle || "none",
+  );
+}
+function drawLineArrowheads(ctx, start, end, color, width, style = "none") {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const len = Math.sqrt(dx * dx + dy * dy);
@@ -2119,8 +2175,12 @@ function drawMeasurementArrowheads(ctx, start, end, color, width) {
     ctx.fillStyle = color;
     ctx.fill();
   };
-  drawHead(start.x, start.y, -ux, -uy);
-  drawHead(end.x, end.y, ux, uy);
+  if (shouldDrawArrowAtStart(start, end, style)) {
+    drawHead(start.x, start.y, -ux, -uy);
+  }
+  if (shouldDrawArrowAtEnd(start, end, style)) {
+    drawHead(end.x, end.y, ux, uy);
+  }
 }
 function setMeasurementReferenceFromSelected() {
   const shape = selectedShapeOverlay.value;
@@ -2474,6 +2534,13 @@ const drawTool = ref(null); // null | 'pen' | 'erase' | 'line' | 'measure' | 're
 const quickTextDraft = ref("");
 const quickTextInputRef = ref(null);
 const rectStyle = ref("outline");
+const lineArrowStyle = ref("none");
+const LINE_ARROW_OPTIONS = [
+  { value: "none", label: "—", title: "直線無箭頭" },
+  { value: "left", label: "←", title: "左箭頭" },
+  { value: "right", label: "→", title: "右箭頭" },
+  { value: "both", label: "↔", title: "雙箭頭" },
+];
 const drawColor = ref("#e00000");
 const commonColors = ["#ffffff", "#e00000", "#2563eb", "#16a34a", "#111827"];
 const drawWidth = ref(5);
@@ -2749,6 +2816,7 @@ function syncToolbarFromShape(ovl) {
   if (!ovl) return;
   drawColor.value = ovl.color || "#e00000";
   drawWidth.value = ovl.width || 5;
+  if (ovl.type === "line") lineArrowStyle.value = ovl.arrowStyle || "none";
   if (ovl.type === "rect" || ovl.type === "ellipse") {
     rectStyle.value = ovl.rectStyle || "outline";
   }
@@ -2829,6 +2897,14 @@ function setRectStyleMode(style) {
     recordAnnotationHistory();
   }
 }
+function setLineArrowStyle(style) {
+  lineArrowStyle.value = style;
+  if (selectedShapeOverlay.value?.type === "line") {
+    selectedShapeOverlay.value.arrowStyle = style;
+    markAnnotationDirty();
+    recordAnnotationHistory();
+  }
+}
 function getShapeEndPos(start, current, constrainCircle = false) {
   if (!constrainCircle) return current;
   const dx = current.x - start.x;
@@ -2845,6 +2921,16 @@ function drawPreviewShape(ctx, type, start, end) {
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
+    if (type === "line") {
+      drawLineArrowheads(
+        ctx,
+        start,
+        end,
+        drawColor.value,
+        drawWidth.value,
+        lineArrowStyle.value,
+      );
+    }
     if (type === "measure") {
       drawMeasurementArrowheads(
         ctx,
@@ -3034,6 +3120,8 @@ function onCanvasUp(e) {
           y2: end.y,
           color: drawColor.value,
           width: drawWidth.value,
+          arrowStyle:
+            drawTool.value === "line" ? lineArrowStyle.value : undefined,
         };
         shapeOverlays.value.push(newShape);
         if (["line", "measure", "rect", "ellipse"].includes(newShape.type)) {
@@ -5840,6 +5928,32 @@ onBeforeRouteLeave(async () => {
 }
 .txt-ovl:hover .txt-ovl-rh {
   opacity: 1;
+}
+
+.line-arrow-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 6px;
+}
+.line-arrow-btn {
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 4px;
+  background: #1f2a3a;
+  color: #e5e7eb;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.line-arrow-btn.active {
+  border-color: #f59e0b;
+  background: #f59e0b;
+  color: #111827;
+  font-weight: 700;
 }
 
 /* ══ 直線/矩形疊層 ══ */
