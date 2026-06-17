@@ -21,8 +21,20 @@
           :to="`/orders/${route.params.id}/confirmation`"
           >📋 確定單</RouterLink
         >
-        <button v-if="canSendConfirmation" class="btn-aux" @click="onSendConfirmation">📨 傳確定單</button>
-        <button v-if="canIssue" class="btn-primary btn-issue" @click="showIssuanceDialog = true">✅ 發單</button>
+        <button
+          v-if="canSendConfirmation"
+          class="btn-aux"
+          @click="onSendConfirmation"
+        >
+          📨 傳確定單
+        </button>
+        <button
+          v-if="canIssue"
+          class="btn-primary btn-issue"
+          @click="showIssuanceDialog = true"
+        >
+          ✅ 發單
+        </button>
         <button class="btn-secondary" @click="$router.back()">取消</button>
         <button class="btn-primary" :disabled="saving" @click="onSave">
           {{ saving ? "儲存中..." : "儲存" }}
@@ -190,8 +202,12 @@
         <header class="card-head">
           <h3>計價（由繪圖帶入）</h3>
           <div class="pricing-toolbar">
-            <button class="btn-mini" type="button" @click="addPricingItem">+ 新增項目</button>
-            <button class="btn-mini" type="button" @click="recalcPricingTotals">重算合計</button>
+            <button class="btn-mini" type="button" @click="addPricingItem">
+              + 新增項目
+            </button>
+            <button class="btn-mini" type="button" @click="recalcPricingTotals">
+              重算合計
+            </button>
             <button
               v-if="isEdit"
               class="btn-mini"
@@ -215,14 +231,28 @@
             <div class="pricing-history-head">
               <span>客戶歷史單價</span>
               <span v-if="customerPricing.defaultPricePerCm" class="muted small"
-                >預設 {{ customerPricing.defaultPricePerCm.toLocaleString() }} /cm</span
+                >預設
+                {{
+                  customerPricing.defaultPricePerCm.toLocaleString()
+                }}
+                /cm</span
               >
             </div>
             <div v-if="suggestedPrices.length" class="pricing-suggestions">
-              <div v-for="s in suggestedPrices" :key="s.key" class="pricing-sugg-item">
+              <div
+                v-for="s in suggestedPrices"
+                :key="s.key"
+                class="pricing-sugg-item"
+              >
                 <span class="muted small">{{ s.label }}</span>
                 <strong>{{ s.price.toLocaleString() }} /cm</strong>
-                <button class="btn-mini" type="button" @click="form.pricePerCm = s.price">套用</button>
+                <button
+                  class="btn-mini"
+                  type="button"
+                  @click="form.pricePerCm = s.price"
+                >
+                  套用
+                </button>
               </div>
             </div>
           </div>
@@ -261,7 +291,12 @@
                   />
                 </td>
                 <td>
-                  <input v-model="row.unit" class="pricing-input" type="text" placeholder="單位" />
+                  <input
+                    v-model="row.unit"
+                    class="pricing-input"
+                    type="text"
+                    placeholder="單位"
+                  />
                 </td>
                 <td class="num">
                   <input
@@ -277,84 +312,64 @@
                   {{ formatPricingFormula(row) }}
                 </td>
                 <td class="num">
-                  <input v-model.number="row.amount" class="pricing-input num" type="number" min="0" step="1" />
+                  <input
+                    v-model.number="row.amount"
+                    class="pricing-input num"
+                    type="number"
+                    min="0"
+                    step="1"
+                  />
                 </td>
                 <td>
                   <div class="pricing-row-actions">
-                    <button class="btn-mini" type="button" @click="removePricingItem(idx)">刪除</button>
+                    <button
+                      class="btn-mini"
+                      type="button"
+                      @click="removePricingItem(idx)"
+                    >
+                      刪除
+                    </button>
                   </div>
                 </td>
               </tr>
               <tr v-if="!editablePricingRows.length">
-                <td colspan="7" class="muted small">尚未有計價項目，請按「新增項目」或「一鍵帶入繪圖資料」。</td>
+                <td colspan="7" class="muted small">
+                  尚未有計價項目，請按「新增項目」或「一鍵帶入繪圖資料」。
+                </td>
               </tr>
             </tbody>
           </table>
           <div class="pricing-summary">
             <span>小計：{{ fmtCurrency(pricingSubtotal) }}</span>
             <span>稅額：{{ fmtCurrency(pricingTaxAmount) }}</span>
-            <span class="total">含稅總計：{{ fmtCurrency(pricingGrandTotal) }}</span>
-          </div>
-
-          <div class="pricing-calculation" style="margin-top:12px;padding:12px;background:#f5f5f5;border-radius:4px;font-size:12px;color:#555;line-height:1.6">
-            <div v-if="pricingFormulaDisplay" style="display:flex;flex-direction:column;gap:8px">
-              <!-- 台面小計 -->
-              <div v-if="pricingFormulaDisplay.mainItems.length" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <span><strong>台面：</strong></span>
-                <span v-for="(item, idx) in pricingFormulaDisplay.mainItems" :key="idx" style="display:flex;gap:4px;align-items:center">
-                  <span v-if="idx > 0">+</span>
-                  <span>{{ formatPricingFormula(item) }}</span>
-                </span>
-                <span style="color:#999">=</span>
-                <span><strong>{{ fmtCurrency(pricingFormulaDisplay.mainSubtotal) }}</strong></span>
-              </div>
-              
-              <!-- 開孔小計 -->
-              <div v-if="pricingFormulaDisplay.cutoutItems.length" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <span><strong>開孔：</strong></span>
-                <span v-for="(item, idx) in pricingFormulaDisplay.cutoutItems" :key="idx" style="display:flex;gap:4px;align-items:center">
-                  <span v-if="idx > 0">+</span>
-                  <span>{{ formatPricingFormula(item) }}</span>
-                </span>
-                <span style="color:#999">=</span>
-                <span><strong>{{ fmtCurrency(pricingFormulaDisplay.cutoutSubtotal) }}</strong></span>
-              </div>
-              
-              <!-- 小計 -->
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid #ddd">
-                <span v-if="pricingFormulaDisplay.mainItems.length && pricingFormulaDisplay.cutoutItems.length">
-                  {{ fmtCurrency(pricingFormulaDisplay.mainSubtotal) }} + {{ fmtCurrency(pricingFormulaDisplay.cutoutSubtotal) }} =
-                </span>
-                <span><strong style="color:#000;font-size:13px">小計：{{ fmtCurrency(pricingFormulaDisplay.subtotal) }}</strong></span>
-              </div>
-              
-              <!-- 稅額 -->
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <span>{{ fmtCurrency(pricingFormulaDisplay.subtotal) }} × {{ (pricingFormulaDisplay.taxRate * 100).toFixed(0) }}% =</span>
-                <span><strong style="color:#000;font-size:13px">稅額：{{ fmtCurrency(pricingFormulaDisplay.taxAmount) }}</strong></span>
-              </div>
-              
-              <!-- 含稅總計 -->
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid #ddd">
-                <span>{{ fmtCurrency(pricingFormulaDisplay.subtotal) }} + {{ fmtCurrency(pricingFormulaDisplay.taxAmount) }} =</span>
-                <span style="font-weight:600;color:#d9534f;font-size:14px">含稅總計：{{ fmtCurrency(pricingFormulaDisplay.grandTotal) }}</span>
-              </div>
-            </div>
-            <div v-else style="color:#999;font-style:italic">
-              尚無計價項目
-            </div>
+            <span class="total"
+              >含稅總計：{{ fmtCurrency(pricingGrandTotal) }}</span
+            >
           </div>
 
           <div class="pricing-edit-grid">
             <div class="row">
               <label>深度標準 (cm)</label>
               <div class="inline">
-                <select v-model.number="form.depthStandard" style="width:80px">
+                <select v-model.number="form.depthStandard" style="width: 80px">
                   <option :value="60">60</option>
                   <option :value="65">65</option>
                 </select>
-                <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#555;font-weight:normal">
-                  <input type="checkbox" v-model="form.depthProportional" style="width:auto;height:auto" />
+                <label
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    font-size: 12px;
+                    color: #555;
+                    font-weight: normal;
+                  "
+                >
+                  <input
+                    type="checkbox"
+                    v-model="form.depthProportional"
+                    style="width: auto; height: auto"
+                  />
                   超深比例換算
                 </label>
               </div>
@@ -362,7 +377,12 @@
             <div class="row">
               <label>單價 / cm</label>
               <div class="inline">
-                <input v-model.number="form.pricePerCm" type="number" min="0" style="width: 120px" />
+                <input
+                  v-model.number="form.pricePerCm"
+                  type="number"
+                  min="0"
+                  style="width: 120px"
+                />
                 <button
                   v-if="customerPricing?.defaultPricePerCm"
                   class="btn-mini"
@@ -376,24 +396,106 @@
             <div class="row">
               <label>未稅總價</label>
               <div class="inline">
-                <input v-model.number="form.total" type="number" min="0" style="width: 140px" />
+                <input
+                  v-model.number="form.total"
+                  type="number"
+                  min="0"
+                  style="width: 140px"
+                />
                 <button
                   v-if="form.pricePerCm && form.countertop?.totalCm"
                   class="btn-mini"
                   type="button"
-                  @click="form.total = Math.round(form.pricePerCm * form.countertop.totalCm)"
+                  @click="
+                    form.total = Math.round(
+                      form.pricePerCm * form.countertop.totalCm,
+                    )
+                  "
                 >
                   以長度計算
                 </button>
               </div>
+              <!-- 計價區顯示 -->
+              <div
+                style="
+                  margin-top: 8px;
+                  padding: 8px;
+                  background: #f5f5f5;
+                  border-radius: 4px;
+                  font-size: 13px;
+                  color: #333;
+                  line-height: 1.8;
+                  font-family: monospace;
+                  width: 100%;
+                "
+              >
+                <div
+                  v-if="pricingFormulaDisplay"
+                  style="display: flex; flex-direction: column; gap: 2px"
+                >
+                  <!-- 基礎計算 -->
+                  <div v-if="pricingFormulaDisplay.mainItems.length">
+                    <span
+                      v-for="(item, idx) in pricingFormulaDisplay.mainItems"
+                      :key="idx"
+                    >
+                      <span v-if="idx > 0">+</span>@{{ item.unitPrice }}×{{
+                        item.qty
+                      }}={{ item.qty * item.unitPrice }}
+                    </span>
+                  </div>
+
+                  <!-- 下嵌 -->
+                  <div v-if="pricingFormulaDisplay.sinkItems.length">
+                    下嵌{{ fmtCurrency(pricingFormulaDisplay.sinkSubtotal) }}
+                  </div>
+
+                  <!-- 上掛 + 合計 -->
+                  <div
+                    style="
+                      display: flex;
+                      gap: 20px;
+                      justify-content: space-between;
+                      align-items: center;
+                    "
+                  >
+                    <div v-if="pricingFormulaDisplay.stoveItems.length">
+                      上掛{{ fmtCurrency(pricingFormulaDisplay.stoveSubtotal) }}
+                    </div>
+                    <div v-else style="flex: 1"></div>
+                    <div style="font-weight: 700; color: #d9534f">
+                      合計{{ fmtCurrency(pricingFormulaDisplay.subtotal) }}
+                    </div>
+                  </div>
+
+                  <!-- 其他開孔 -->
+                  <div v-if="pricingFormulaDisplay.otherCutoutItems.length">
+                    其他{{
+                      fmtCurrency(pricingFormulaDisplay.otherCutoutSubtotal)
+                    }}
+                  </div>
+                </div>
+                <div v-else style="color: #999; font-style: italic">
+                  尚無計價項目
+                </div>
+              </div>
             </div>
             <div class="row">
               <label>訂金</label>
-              <input v-model.number="form.depositPaid" type="number" min="0" style="width: 140px" />
+              <input
+                v-model.number="form.depositPaid"
+                type="number"
+                min="0"
+                style="width: 140px"
+              />
             </div>
             <div class="row">
               <label>付款備註</label>
-              <input v-model="form.paymentNotes" type="text" placeholder="例如：尾款貨到收現" />
+              <input
+                v-model="form.paymentNotes"
+                type="text"
+                placeholder="例如：尾款貨到收現"
+              />
             </div>
           </div>
         </div>
@@ -407,13 +509,15 @@
         <div class="attach-section">
           <div class="attach-head">
             <span class="attach-label">原始圖檔</span>
-            <button class="btn-mini" @click="designFileInputRef.click()">+ 上傳</button>
+            <button class="btn-mini" @click="designFileInputRef.click()">
+              + 上傳
+            </button>
             <input
               ref="designFileInputRef"
               type="file"
               accept="image/*,.pdf,.dwg,.dxf,.ai,.eps,.cdr"
               multiple
-              style="display:none"
+              style="display: none"
               @change="onDesignFiles"
             />
           </div>
@@ -421,7 +525,13 @@
           <ul v-if="designFiles.length" class="file-list">
             <li v-for="f in designFiles" :key="f.id">
               <a :href="f.url" target="_blank" rel="noopener">{{ f.name }}</a>
-              <button class="btn-del" title="刪除" @click="deleteAttachment('designFiles', f)">×</button>
+              <button
+                class="btn-del"
+                title="刪除"
+                @click="deleteAttachment('designFiles', f)"
+              >
+                ×
+              </button>
             </li>
           </ul>
           <p v-else-if="!designUploading" class="muted small">尚無原始圖檔</p>
@@ -431,13 +541,15 @@
         <div class="attach-section">
           <div class="attach-head">
             <span class="attach-label">打板照</span>
-            <button class="btn-mini" @click="samplePhotoInputRef.click()">+ 上傳</button>
+            <button class="btn-mini" @click="samplePhotoInputRef.click()">
+              + 上傳
+            </button>
             <input
               ref="samplePhotoInputRef"
               type="file"
               accept="image/*"
               multiple
-              style="display:none"
+              style="display: none"
               @change="onSamplePhotos"
             />
           </div>
@@ -445,7 +557,13 @@
           <div v-if="samplePhotos.length" class="photo-grid">
             <div v-for="f in samplePhotos" :key="f.id" class="photo-thumb">
               <img :src="f.url" :alt="f.name" @click="lightboxUrl = f.url" />
-              <button class="thumb-del" title="刪除" @click="deleteAttachment('samplePhotos', f)">×</button>
+              <button
+                class="thumb-del"
+                title="刪除"
+                @click="deleteAttachment('samplePhotos', f)"
+              >
+                ×
+              </button>
             </div>
           </div>
           <p v-else-if="!sampleUploading" class="muted small">尚無打板照</p>
@@ -509,8 +627,16 @@
             + 新增水槽
           </button>
         </header>
-        <datalist v-for="(_, di) in form.sinks" :key="'sdl-'+di" :id="'sink-dl-'+di">
-          <option v-for="m in sinkModels" :key="m.id" :value="(m.brand ? m.brand + ' ' : '') + m.model" />
+        <datalist
+          v-for="(_, di) in form.sinks"
+          :key="'sdl-' + di"
+          :id="'sink-dl-' + di"
+        >
+          <option
+            v-for="m in sinkModels"
+            :key="m.id"
+            :value="(m.brand ? m.brand + ' ' : '') + m.model"
+          />
         </datalist>
         <div v-for="(s, i) in form.sinks" :key="i" class="sink-row">
           <div class="sink-row-main">
@@ -608,8 +734,16 @@
             + 新增爐子
           </button>
         </header>
-        <datalist v-for="(_, di) in form.stoves" :key="'stdl-'+di" :id="'stove-dl-'+di">
-          <option v-for="m in stoveModels" :key="m.id" :value="(m.brand ? m.brand + ' ' : '') + m.model" />
+        <datalist
+          v-for="(_, di) in form.stoves"
+          :key="'stdl-' + di"
+          :id="'stove-dl-' + di"
+        >
+          <option
+            v-for="m in stoveModels"
+            :key="m.id"
+            :value="(m.brand ? m.brand + ' ' : '') + m.model"
+          />
         </datalist>
         <div v-for="(s, i) in form.stoves" :key="i" class="sub-row">
           <input
@@ -654,14 +788,18 @@
           <label>打板人員</label>
           <select v-model="form.templatingStaff">
             <option value="">-- 選擇 --</option>
-            <option v-for="s in staffDept1" :key="s.id" :value="s.name">{{ s.name }}</option>
+            <option v-for="s in staffDept1" :key="s.id" :value="s.name">
+              {{ s.name }}
+            </option>
           </select>
         </div>
         <div class="row">
           <label>對圖人員</label>
           <select v-model="form.drawingStaff">
             <option value="">-- 選擇 --</option>
-            <option v-for="s in staffDept1" :key="s.id" :value="s.name">{{ s.name }}</option>
+            <option v-for="s in staffDept1" :key="s.id" :value="s.name">
+              {{ s.name }}
+            </option>
           </select>
         </div>
         <div class="row">
@@ -684,13 +822,26 @@
         </div>
         <div class="row" v-if="userRole === 'admin' || userRole === '管理者'">
           <label>測試標記</label>
-          <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" v-model="form.isTestData" style="width:auto;height:auto" />
-            <span style="color:#e55;">此為測試資料（上線前可於管理介面批次清除）</span>
+          <label
+            style="
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              font-weight: normal;
+              cursor: pointer;
+            "
+          >
+            <input
+              type="checkbox"
+              v-model="form.isTestData"
+              style="width: auto; height: auto"
+            />
+            <span style="color: #e55"
+              >此為測試資料（上線前可於管理介面批次清除）</span
+            >
           </label>
         </div>
       </section>
-
     </div>
 
     <!-- 燈箱 -->
@@ -755,17 +906,26 @@ const orderStatus = ref("");
 const pendingSignSnapshot = ref(null);
 const pendingSignDrawingVersions = ref({});
 const showIssuanceDialog = ref(false);
-const canSendConfirmation = computed(() => isEdit.value && (!orderStatus.value || orderStatus.value === "draft"));
-const canIssue = computed(() => isEdit.value && orderStatus.value === "pendingSign");
+const canSendConfirmation = computed(
+  () => isEdit.value && (!orderStatus.value || orderStatus.value === "draft"),
+);
+const canIssue = computed(
+  () => isEdit.value && orderStatus.value === "pendingSign",
+);
 
 async function onSendConfirmation() {
-  if (!confirm("確定要傳送確定單給客戶簽回嗎？\n（系統將記錄目前資料快照，狀態改為「待客戶簽回」）")) return;
+  if (
+    !confirm(
+      "確定要傳送確定單給客戶簽回嗎？\n（系統將記錄目前資料快照，狀態改為「待客戶簽回」）",
+    )
+  )
+    return;
   try {
     await updateSalesOrder(route.params.id, toPayload());
     const snapshot = toPayload();
     await sendConfirmation(route.params.id, snapshot);
     pendingSignSnapshot.value = snapshot;
-    pendingSignDrawingVersions.value = {};  // 傳確定單後 firebase 側已記錄最新版本，這裡清空讓 dialog 重新從 Firestore 載
+    pendingSignDrawingVersions.value = {}; // 傳確定單後 firebase 側已記錄最新版本，這裡清空讓 dialog 重新從 Firestore 載
     orderStatus.value = "pendingSign";
     alert("已傳送確定單！狀態更新為「待客戶簽回」");
   } catch (e) {
@@ -797,7 +957,11 @@ async function onDesignFiles(e) {
   designUploading.value = true;
   try {
     for (const file of files) {
-      const item = await uploadOrderAttachment(route.params.id, "designFiles", file);
+      const item = await uploadOrderAttachment(
+        route.params.id,
+        "designFiles",
+        file,
+      );
       designFiles.value.unshift(item);
     }
   } catch (err) {
@@ -814,7 +978,11 @@ async function onSamplePhotos(e) {
   sampleUploading.value = true;
   try {
     for (const file of files) {
-      const item = await uploadOrderAttachment(route.params.id, "samplePhotos", file);
+      const item = await uploadOrderAttachment(
+        route.params.id,
+        "samplePhotos",
+        file,
+      );
       samplePhotos.value.unshift(item);
     }
   } catch (err) {
@@ -988,7 +1156,10 @@ function refreshSavedFormSignature() {
 }
 
 const hasUnsavedChanges = computed(
-  () => formReady.value && !loading.value && buildFormSignature() !== savedFormSignature.value,
+  () =>
+    formReady.value &&
+    !loading.value &&
+    buildFormSignature() !== savedFormSignature.value,
 );
 
 function handleBeforeUnload(event) {
@@ -1057,7 +1228,11 @@ function fillMissingUnitPrices(rows, defaultPrice) {
   if (!Array.isArray(rows) || !defaultPrice) return rows;
   return rows.map((row) => {
     if (row.unitPrice === 0 || !row.unitPrice) {
-      return { ...row, unitPrice: defaultPrice, amount: Math.round((row.qty || 0) * defaultPrice) };
+      return {
+        ...row,
+        unitPrice: defaultPrice,
+        amount: Math.round((row.qty || 0) * defaultPrice),
+      };
     }
     return row;
   });
@@ -1114,18 +1289,30 @@ function formatCmNumber(value) {
 
 function sumPositiveList(values) {
   if (!Array.isArray(values)) return 0;
-  const total = values.reduce((sum, value) => sum + parseLoosePositive(value), 0);
+  const total = values.reduce(
+    (sum, value) => sum + parseLoosePositive(value),
+    0,
+  );
   return Math.round(total * 100) / 100;
 }
 
-function calcDepthFactor(actualDepth, standard, proportional, backHeight = 4, frontHeight = 4) {
+function calcDepthFactor(
+  actualDepth,
+  standard,
+  proportional,
+  backHeight = 4,
+  frontHeight = 4,
+) {
   if (!proportional) return 1;
   const d = parseLoosePositive(actualDepth);
   const threshold = parseLoosePositive(standard) || 60;
   const base = 60;
   if (!d) return 1;
   const back = parseLoosePositive(backHeight) || 4;
-  const front = (frontHeight != null && Number.isFinite(Number(frontHeight))) ? Math.max(Number(frontHeight), 0) : 4;
+  const front =
+    frontHeight != null && Number.isFinite(Number(frontHeight))
+      ? Math.max(Number(frontHeight), 0)
+      : 4;
   const adjustedDepth = Math.max(front + back + d - 8, 0);
   if (adjustedDepth <= threshold) return 1;
   return Math.round((adjustedDepth / base) * 1000) / 1000;
@@ -1136,7 +1323,8 @@ function getDrawingLengthByType(type, state, depthOpts) {
   const std = parseLoosePositive(depthOpts?.standard) || 60;
   const prop = depthOpts?.proportional !== false;
   const back = parseLoosePositive(state?.backHeight ?? 4) || 4;
-  const rawThick = state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
+  const rawThick =
+    state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
   const front = rawThick <= 1.5 ? 0 : rawThick || 4;
   if (normalized === "straight") {
     const rawLen = sumPositiveList(state?.cabins || []);
@@ -1146,7 +1334,11 @@ function getDrawingLengthByType(type, state, depthOpts) {
   if (normalized === "l-shape") {
     const left = sumPositiveList(state?.leftCabins || []);
     const right = sumPositiveList(state?.rightCabins || []);
-    const corner = Math.min(parseLoosePositive(state?.leftDepth ?? 0), parseLoosePositive(state?.rightDepth ?? 0)) / 2;
+    const corner =
+      Math.min(
+        parseLoosePositive(state?.leftDepth ?? 0),
+        parseLoosePositive(state?.rightDepth ?? 0),
+      ) / 2;
     const fl = calcDepthFactor(state?.leftDepth ?? 60, std, prop, back, front);
     const fr = calcDepthFactor(state?.rightDepth ?? 60, std, prop, back, front);
     return Math.round(left * fl + right * fr - corner);
@@ -1156,12 +1348,28 @@ function getDrawingLengthByType(type, state, depthOpts) {
     const left = sumPositiveList(state?.leftArmCabins || []);
     const right = sumPositiveList(state?.rightArmCabins || []);
     const midDepth = parseLoosePositive(state?.midDepth ?? 0);
-    const leftCorner = Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0)) / 2;
-    const rightCorner = Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0)) / 2;
+    const leftCorner =
+      Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0)) / 2;
+    const rightCorner =
+      Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0)) / 2;
     const fm = calcDepthFactor(state?.midDepth ?? 60, std, prop, back, front);
-    const fl = calcDepthFactor(state?.leftArmDepth ?? 60, std, prop, back, front);
-    const fr = calcDepthFactor(state?.rightArmDepth ?? 60, std, prop, back, front);
-    return Math.round(mid * fm + left * fl + right * fr - leftCorner - rightCorner);
+    const fl = calcDepthFactor(
+      state?.leftArmDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
+    const fr = calcDepthFactor(
+      state?.rightArmDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
+    return Math.round(
+      mid * fm + left * fl + right * fr - leftCorner - rightCorner,
+    );
   }
   if (normalized === "island") {
     const rawLen = deriveIslandTotalLengthFromState(state);
@@ -1171,14 +1379,24 @@ function getDrawingLengthByType(type, state, depthOpts) {
   return 0;
 }
 
-function depthScaledTerm(length, actualDepth, standard, proportional, backHeight = 4, frontHeight = 4) {
+function depthScaledTerm(
+  length,
+  actualDepth,
+  standard,
+  proportional,
+  backHeight = 4,
+  frontHeight = 4,
+) {
   const len = parseLoosePositive(length);
   if (!len) return "0";
   const threshold = parseLoosePositive(standard) || 60;
   const base = 60;
   const d = parseLoosePositive(actualDepth);
   const back = parseLoosePositive(backHeight) || 4;
-  const front = (frontHeight != null && Number.isFinite(Number(frontHeight))) ? Math.max(Number(frontHeight), 0) : 4;
+  const front =
+    frontHeight != null && Number.isFinite(Number(frontHeight))
+      ? Math.max(Number(frontHeight), 0)
+      : 4;
   if (!proportional || !d) return formatCmNumber(len);
   const totalUse = front + back + d;
   const adjustedDepth = Math.max(totalUse - 8, 0);
@@ -1191,18 +1409,43 @@ function getDrawingLengthFormula(type, state, depthOpts) {
   const std = parseLoosePositive(depthOpts?.standard) || 60;
   const prop = depthOpts?.proportional !== false;
   const back = parseLoosePositive(state?.backHeight ?? 4) || 4;
-  const rawThick = state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
+  const rawThick =
+    state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
   const front = rawThick <= 1.5 ? 0 : rawThick || 4;
   if (normalized === "straight") {
     const rawLen = sumPositiveList(state?.cabins || []);
-    return depthScaledTerm(rawLen, state?.depthVal ?? 60, std, prop, back, front);
+    return depthScaledTerm(
+      rawLen,
+      state?.depthVal ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
   }
   if (normalized === "l-shape") {
     const left = sumPositiveList(state?.leftCabins || []);
     const right = sumPositiveList(state?.rightCabins || []);
-    const shallow = Math.min(parseLoosePositive(state?.leftDepth ?? 0), parseLoosePositive(state?.rightDepth ?? 0));
-    const leftExpr = depthScaledTerm(left, state?.leftDepth ?? 60, std, prop, back, front);
-    const rightExpr = depthScaledTerm(right, state?.rightDepth ?? 60, std, prop, back, front);
+    const shallow = Math.min(
+      parseLoosePositive(state?.leftDepth ?? 0),
+      parseLoosePositive(state?.rightDepth ?? 0),
+    );
+    const leftExpr = depthScaledTerm(
+      left,
+      state?.leftDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
+    const rightExpr = depthScaledTerm(
+      right,
+      state?.rightDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
     return `${leftExpr}+${rightExpr}-${formatCmNumber(shallow / 2)}(轉角)`;
   }
   if (normalized === "m-shape") {
@@ -1210,20 +1453,71 @@ function getDrawingLengthFormula(type, state, depthOpts) {
     const left = sumPositiveList(state?.leftArmCabins || []);
     const right = sumPositiveList(state?.rightArmCabins || []);
     const midDepth = parseLoosePositive(state?.midDepth ?? 0);
-    const leftShallow = Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0));
-    const rightShallow = Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0));
-    const midExpr = depthScaledTerm(mid, state?.midDepth ?? 60, std, prop, back, front);
-    const leftExpr = depthScaledTerm(left, state?.leftArmDepth ?? 60, std, prop, back, front);
-    const rightExpr = depthScaledTerm(right, state?.rightArmDepth ?? 60, std, prop, back, front);
+    const leftShallow = Math.min(
+      midDepth,
+      parseLoosePositive(state?.leftArmDepth ?? 0),
+    );
+    const rightShallow = Math.min(
+      midDepth,
+      parseLoosePositive(state?.rightArmDepth ?? 0),
+    );
+    const midExpr = depthScaledTerm(
+      mid,
+      state?.midDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
+    const leftExpr = depthScaledTerm(
+      left,
+      state?.leftArmDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
+    const rightExpr = depthScaledTerm(
+      right,
+      state?.rightArmDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
     return `${midExpr}+${leftExpr}+${rightExpr}-(${formatCmNumber(leftShallow)}/2+${formatCmNumber(rightShallow)}/2)`;
   }
   if (normalized === "island") {
     const f = state?.form || {};
-    const rawLen = [f.plusLeft, f.box1, f.box2, f.box3, f.box4, f.box5, f.box6, f.box7, f.plusRight, f.frontWrap, f.backWrap]
+    const rawLen = [
+      f.plusLeft,
+      f.box1,
+      f.box2,
+      f.box3,
+      f.box4,
+      f.box5,
+      f.box6,
+      f.box7,
+      f.plusRight,
+      f.frontWrap,
+      f.backWrap,
+    ]
       .map((v) => parseLoosePositive(v))
       .filter((v) => v > 0)
       .reduce((sum, v) => sum + v, 0);
-    const parts = [f.plusLeft, f.box1, f.box2, f.box3, f.box4, f.box5, f.box6, f.box7, f.plusRight, f.frontWrap, f.backWrap]
+    const parts = [
+      f.plusLeft,
+      f.box1,
+      f.box2,
+      f.box3,
+      f.box4,
+      f.box5,
+      f.box6,
+      f.box7,
+      f.plusRight,
+      f.frontWrap,
+      f.backWrap,
+    ]
       .map((v) => parseLoosePositive(v))
       .filter((v) => v > 0)
       .map((v) => formatCmNumber(v));
@@ -1231,7 +1525,11 @@ function getDrawingLengthFormula(type, state, depthOpts) {
     const d = state?.form?.depth ?? 60;
     const islandExpr = depthScaledTerm(rawLen, d, std, prop, back, front);
     if (!islandExpr.includes("×")) return base;
-    const totalUse = formatCmNumber((parseLoosePositive(front) || 4) + (parseLoosePositive(back) || 4) + (parseLoosePositive(d) || 60));
+    const totalUse = formatCmNumber(
+      (parseLoosePositive(front) || 4) +
+        (parseLoosePositive(back) || 4) +
+        (parseLoosePositive(d) || 60),
+    );
     return `(${base})×((${totalUse}-8)/60)`;
   }
   return "";
@@ -1240,7 +1538,9 @@ function getDrawingLengthFormula(type, state, depthOpts) {
 function getDrawingCutoutItems(type, state) {
   const normalized = normalizeDrawingType(type);
   if (normalized === "straight") {
-    return [state?.sink1, state?.sink2, state?.stove1, state?.stove2].filter(Boolean);
+    return [state?.sink1, state?.sink2, state?.stove1, state?.stove2].filter(
+      Boolean,
+    );
   }
   if (normalized === "l-shape") {
     return [
@@ -1301,10 +1601,16 @@ function buildCutoutLineItemsFromState(type, state, materialType) {
   items.forEach((item, index) => {
     if (!item?.enabled) return;
     const isStove = Object.prototype.hasOwnProperty.call(item, "stoveLength");
-    const len = parseLoosePositive(isStove ? item?.stoveLength : item?.sinkLength);
-    const dep = parseLoosePositive(isStove ? item?.stoveDepth : item?.sinkDepth);
+    const len = parseLoosePositive(
+      isStove ? item?.stoveLength : item?.sinkLength,
+    );
+    const dep = parseLoosePositive(
+      isStove ? item?.stoveDepth : item?.sinkDepth,
+    );
     const sizeText = len && dep ? ` ${len}x${dep}cm` : "";
-    const method = String(item?.method || "").trim() || (isStove ? defaultStoveMethod : defaultSinkMethod);
+    const method =
+      String(item?.method || "").trim() ||
+      (isStove ? defaultStoveMethod : defaultSinkMethod);
     const baseLabel = isStove ? "爐具開孔" : "水槽開孔";
     rows.push(
       normalizePricingItem({
@@ -1331,12 +1637,21 @@ function buildLineItemsFromDrawingState(drawings, orderData) {
 
   const rows = [];
   const typeCounts = new Map();
-  const stoneText = Array.isArray(orderData?.stones) && orderData.stones.length
-    ? `${orderData.stones[0]?.brand || ""} ${orderData.stones[0]?.color || ""}`.trim()
-    : "";
-  const unitPrice = Number(orderData?.pricePerCm) || Number(customerPricing.value?.defaultPricePerCm) || 0;
+  const stoneText =
+    Array.isArray(orderData?.stones) && orderData.stones.length
+      ? `${orderData.stones[0]?.brand || ""} ${orderData.stones[0]?.color || ""}`.trim()
+      : "";
+  const unitPrice =
+    Number(orderData?.pricePerCm) ||
+    Number(customerPricing.value?.defaultPricePerCm) ||
+    0;
 
-  const depthOpts = { standard: orderData?.depthStandard ?? form.value?.depthStandard ?? 60, proportional: orderData?.depthProportional !== false && form.value?.depthProportional !== false };
+  const depthOpts = {
+    standard: orderData?.depthStandard ?? form.value?.depthStandard ?? 60,
+    proportional:
+      orderData?.depthProportional !== false &&
+      form.value?.depthProportional !== false,
+  };
 
   for (const drawing of list) {
     if (!drawing?.state) continue;
@@ -1344,9 +1659,17 @@ function buildLineItemsFromDrawingState(drawings, orderData) {
     const normalizedType = normalizeDrawingType(drawing?.type);
     const seq = (typeCounts.get(normalizedType) || 0) + 1;
     typeCounts.set(normalizedType, seq);
-    const totalLength = getDrawingLengthByType(drawing?.type, drawing.state, depthOpts);
+    const totalLength = getDrawingLengthByType(
+      drawing?.type,
+      drawing.state,
+      depthOpts,
+    );
     if (totalLength > 0) {
-      const formula = getDrawingLengthFormula(drawing?.type, drawing.state, depthOpts);
+      const formula = getDrawingLengthFormula(
+        drawing?.type,
+        drawing.state,
+        depthOpts,
+      );
       rows.push(
         normalizePricingItem({
           description: `${label}#${seq}（${formula}=${formatCmNumber(totalLength)}cm）${stoneText ? ` ${stoneText}` : ""}`,
@@ -1358,7 +1681,13 @@ function buildLineItemsFromDrawingState(drawings, orderData) {
       );
     }
 
-    rows.push(...buildCutoutLineItemsFromState(drawing?.type, drawing.state, orderData?.stones?.[0]?.materialType));
+    rows.push(
+      ...buildCutoutLineItemsFromState(
+        drawing?.type,
+        drawing.state,
+        orderData?.stones?.[0]?.materialType,
+      ),
+    );
   }
 
   return rows;
@@ -1413,18 +1742,42 @@ const pricingTaxAmount = computed(() => {
 const pricingFormulaDisplay = computed(() => {
   const rows = pricingRows.value;
   if (!rows.length) return null;
-  
-  const mainItems = rows.filter(r => String(r.unit || "").trim() === "cm");
-  const cutoutItems = rows.filter(r => String(r.unit || "").trim() !== "cm");
-  
+
+  const mainItems = rows.filter((r) => String(r.unit || "").trim() === "cm");
+  const cutoutItems = rows.filter((r) => String(r.unit || "").trim() !== "cm");
+
+  // 分類開孔項目：下嵌（水槽）和上掛（爐子）
+  const sinkItems = cutoutItems.filter((r) =>
+    /水槽/.test(String(r.description || "")),
+  );
+  const stoveItems = cutoutItems.filter((r) =>
+    /(火爐|爐|爐子|爐台|爐口|爐頭|爐位|瓦斯爐|瓦斯灶|電陶爐|電磁爐|感應爐|IH)/.test(
+      String(r.description || ""),
+    ),
+  );
+  const otherCutoutItems = cutoutItems.filter(
+    (r) => !sinkItems.includes(r) && !stoveItems.includes(r),
+  );
+
   const mainSubtotal = mainItems.reduce((sum, r) => sum + toNum(r.amount), 0);
-  const cutoutSubtotal = cutoutItems.reduce((sum, r) => sum + toNum(r.amount), 0);
+  const sinkSubtotal = sinkItems.reduce((sum, r) => sum + toNum(r.amount), 0);
+  const stoveSubtotal = stoveItems.reduce((sum, r) => sum + toNum(r.amount), 0);
+  const otherCutoutSubtotal = otherCutoutItems.reduce(
+    (sum, r) => sum + toNum(r.amount),
+    0,
+  );
+  const cutoutSubtotal = sinkSubtotal + stoveSubtotal + otherCutoutSubtotal;
   const taxRate = Number(form.value?.taxRate) || 0.05;
-  
+
   return {
     mainItems,
-    cutoutItems,
+    sinkItems,
+    stoveItems,
+    otherCutoutItems,
     mainSubtotal,
+    sinkSubtotal,
+    stoveSubtotal,
+    otherCutoutSubtotal,
     cutoutSubtotal,
     subtotal: pricingSubtotal.value,
     taxRate,
@@ -1467,7 +1820,13 @@ function formatPricingFormula(row) {
 function addPricingItem() {
   if (!Array.isArray(form.value.lineItems)) form.value.lineItems = [];
   form.value.lineItems.push(
-    normalizePricingItem({ description: "", qty: 1, unit: "式", unitPrice: 0, amount: 0 }),
+    normalizePricingItem({
+      description: "",
+      qty: 1,
+      unit: "式",
+      unitPrice: 0,
+      amount: 0,
+    }),
   );
 }
 
@@ -1477,7 +1836,10 @@ function removePricingItem(index) {
 }
 
 function recalcPricingTotals() {
-  const subtotal = pricingRows.value.reduce((sum, row) => sum + toNum(row.amount), 0);
+  const subtotal = pricingRows.value.reduce(
+    (sum, row) => sum + toNum(row.amount),
+    0,
+  );
   const taxRate = Number(form.value.taxRate);
   const rate = Number.isFinite(taxRate) ? taxRate : 0.05;
   form.value.subtotal = subtotal;
@@ -1488,7 +1850,9 @@ function recalcPricingTotals() {
 function formatPricingRowPreview(row, idx) {
   const item = normalizePricingItem(row);
   const desc = item.description || `項目${idx + 1}`;
-  const qtyText = Number.isFinite(Number(item.qty)) ? Number(item.qty).toLocaleString("zh-TW") : "0";
+  const qtyText = Number.isFinite(Number(item.qty))
+    ? Number(item.qty).toLocaleString("zh-TW")
+    : "0";
   const unitText = item.unit || "式";
   const unitPriceText = Number(item.unitPrice || 0).toLocaleString("zh-TW");
   const amountText = Number(item.amount || 0).toLocaleString("zh-TW");
@@ -1497,7 +1861,9 @@ function formatPricingRowPreview(row, idx) {
 
 function buildPricingImportPreviewText(rows) {
   if (!Array.isArray(rows) || !rows.length) return "（無可帶入項目）";
-  const lines = rows.slice(0, 20).map((row, idx) => formatPricingRowPreview(row, idx));
+  const lines = rows
+    .slice(0, 20)
+    .map((row, idx) => formatPricingRowPreview(row, idx));
   if (rows.length > 20) {
     lines.push(`...其餘 ${rows.length - 20} 項省略`);
   }
@@ -1531,7 +1897,9 @@ async function importPricingFromDrawing() {
     rows = rows.map((newRow) => {
       // 先嘗試用 description 匹配
       const matchedOld = oldItems.find(
-        (old) => String(old.description || "").trim() === String(newRow.description || "").trim()
+        (old) =>
+          String(old.description || "").trim() ===
+          String(newRow.description || "").trim(),
       );
       if (matchedOld && Number(matchedOld.unitPrice) > 0) {
         return {
@@ -1547,13 +1915,21 @@ async function importPricingFromDrawing() {
 
     const taxRate = Number(latest?.taxRate);
     if (Number.isFinite(taxRate)) form.value.taxRate = taxRate;
-    if (Number.isFinite(Number(latest?.pricePerCm))) form.value.pricePerCm = Number(latest.pricePerCm);
+    if (Number.isFinite(Number(latest?.pricePerCm)))
+      form.value.pricePerCm = Number(latest.pricePerCm);
 
-    if (Number.isFinite(Number(latest?.subtotal))) form.value.subtotal = Number(latest.subtotal);
-    if (Number.isFinite(Number(latest?.total))) form.value.total = Number(latest.total);
-    if (Number.isFinite(Number(latest?.grandTotal))) form.value.grandTotal = Number(latest.grandTotal);
+    if (Number.isFinite(Number(latest?.subtotal)))
+      form.value.subtotal = Number(latest.subtotal);
+    if (Number.isFinite(Number(latest?.total)))
+      form.value.total = Number(latest.total);
+    if (Number.isFinite(Number(latest?.grandTotal)))
+      form.value.grandTotal = Number(latest.grandTotal);
 
-    if (!Number.isFinite(Number(form.value.subtotal)) || !Number.isFinite(Number(form.value.grandTotal)) || rows.length) {
+    if (
+      !Number.isFinite(Number(form.value.subtotal)) ||
+      !Number.isFinite(Number(form.value.grandTotal)) ||
+      rows.length
+    ) {
       recalcPricingTotals();
     }
 
@@ -1578,10 +1954,15 @@ async function pickCustomer(c) {
   if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {
     form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
     // 補充 lineItems 中為 0 的 unitPrice
-    form.value.lineItems = fillMissingUnitPrices(form.value.lineItems, customerPricing.value.defaultPricePerCm);
+    form.value.lineItems = fillMissingUnitPrices(
+      form.value.lineItems,
+      customerPricing.value.defaultPricePerCm,
+    );
   }
-  if (customerPricing.value?.depthStandard) form.value.depthStandard = Number(customerPricing.value.depthStandard);
-  if (customerPricing.value?.depthProportional !== undefined) form.value.depthProportional = customerPricing.value.depthProportional;
+  if (customerPricing.value?.depthStandard)
+    form.value.depthStandard = Number(customerPricing.value.depthStandard);
+  if (customerPricing.value?.depthProportional !== undefined)
+    form.value.depthProportional = customerPricing.value.depthProportional;
 }
 
 function toggleSpecialMethod(name, checked) {
@@ -1654,7 +2035,7 @@ function onSinkTextChange(i, text) {
   const t = text.trim();
   // Try to match against inventory list (by "Brand Model" or just "Model")
   const m = sinkModels.value.find(
-    (x) => ((x.brand ? x.brand + " " : "") + x.model) === t || x.model === t
+    (x) => (x.brand ? x.brand + " " : "") + x.model === t || x.model === t,
   );
   if (m) {
     s.modelId = m.id;
@@ -1679,7 +2060,7 @@ function onStoveTextChange(i, text) {
   const s = form.value.stoves[i];
   const t = text.trim();
   const m = stoveModels.value.find(
-    (x) => ((x.brand ? x.brand + " " : "") + x.model) === t || x.model === t
+    (x) => (x.brand ? x.brand + " " : "") + x.model === t || x.model === t,
   );
   if (m) {
     s.modelId = m.id;
@@ -1704,7 +2085,8 @@ function toDateInputStr(val) {
   if (val?.toDate) d = val.toDate();
   else {
     const n = Number(val);
-    if (!isNaN(n) && n > 0 && n < 100000) d = new Date((n - 25569) * 86400 * 1000);
+    if (!isNaN(n) && n > 0 && n < 100000)
+      d = new Date((n - 25569) * 86400 * 1000);
     else if (!isNaN(n) && n >= 1000000000000) d = new Date(n);
     else d = new Date(String(val).slice(0, 10));
   }
@@ -1733,7 +2115,9 @@ function toPayload() {
     stones: f.stones.map((s) => ({ ...s })),
     countertop: { ...f.countertop },
     rearTreatment: f.rearTreatment || "flush",
-    specialMethods: Array.isArray(f.specialMethods) ? [...f.specialMethods] : [],
+    specialMethods: Array.isArray(f.specialMethods)
+      ? [...f.specialMethods]
+      : [],
     sinks: f.sinks.map((s) => ({ ...s })),
     stoves: f.stoves.map((s) => ({ ...s })),
     cutMethod: f.cutMethod || "factory",
@@ -1743,7 +2127,11 @@ function toPayload() {
     finishingDate: trimDate(f.finishingDate),
     templatingStaff: f.templatingStaff || "",
     drawingStaff: f.drawingStaff || "",
-    installStaff: Array.isArray(f.installStaff) ? f.installStaff : (f.installStaff ? [f.installStaff] : []),
+    installStaff: Array.isArray(f.installStaff)
+      ? f.installStaff
+      : f.installStaff
+        ? [f.installStaff]
+        : [],
     promisedAt: trimDate(f.promisedAt),
     sinkReceivedAt: trimDate(f.sinkReceivedAt),
     specialNotes: f.specialNotes || "",
@@ -1799,7 +2187,10 @@ async function onSave({
         await updateCustomerPricing(form.value.customerId, pricingPayload);
         customerPricing.value = await getCustomerPricing(form.value.customerId);
       } catch (pricingErr) {
-        console.warn("updateCustomerPricing skipped during order save", pricingErr);
+        console.warn(
+          "updateCustomerPricing skipped during order save",
+          pricingErr,
+        );
         customerPricingSyncFailed = true;
       }
     };
@@ -1817,7 +2208,10 @@ async function onSave({
           usedPrices.add(Number(item.unitPrice));
         }
       }
-      const mainPrice = usedPrices.size === 1 ? Array.from(usedPrices)[0] : Number(form.value.pricePerCm);
+      const mainPrice =
+        usedPrices.size === 1
+          ? Array.from(usedPrices)[0]
+          : Number(form.value.pricePerCm);
       await syncCustomerPricingSafely({
         customerName: form.value.customerName,
         stonePrices,
@@ -1847,7 +2241,11 @@ async function onSave({
     }
     if (showSuccess) {
       if (isEdit.value) {
-        alert(customerPricingSyncFailed ? "已更新訂單，但客戶價格偏好未同步" : "已更新");
+        alert(
+          customerPricingSyncFailed
+            ? "已更新訂單，但客戶價格偏好未同步"
+            : "已更新",
+        );
       } else {
         const createdId = route.params.id || "";
         alert(
@@ -1932,7 +2330,9 @@ async function loadAll() {
             : [],
           installStaff: Array.isArray(doc.installStaff)
             ? doc.installStaff
-            : (doc.installStaff ? [doc.installStaff] : []),
+            : doc.installStaff
+              ? [doc.installStaff]
+              : [],
         });
         customerKeyword.value =
           `${doc.customerId || ""} ${doc.customerName || ""}`.trim();
@@ -1947,16 +2347,35 @@ async function loadAll() {
           form.value.finishingDate = toDateInputStr(form.value.finishingDate);
         }
         if (form.value.customerId) {
-          customerPricing.value = await getCustomerPricing(form.value.customerId);
-          if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {
+          customerPricing.value = await getCustomerPricing(
+            form.value.customerId,
+          );
+          if (
+            customerPricing.value?.defaultPricePerCm &&
+            !form.value.pricePerCm
+          ) {
             form.value.pricePerCm = customerPricing.value.defaultPricePerCm;
           }
           // 補充 lineItems 中為 0 的 unitPrice
-          if (customerPricing.value?.defaultPricePerCm && form.value.lineItems?.length) {
-            form.value.lineItems = fillMissingUnitPrices(form.value.lineItems, customerPricing.value.defaultPricePerCm);
+          if (
+            customerPricing.value?.defaultPricePerCm &&
+            form.value.lineItems?.length
+          ) {
+            form.value.lineItems = fillMissingUnitPrices(
+              form.value.lineItems,
+              customerPricing.value.defaultPricePerCm,
+            );
           }
-          if (customerPricing.value?.depthStandard && !doc.depthStandard) form.value.depthStandard = Number(customerPricing.value.depthStandard);
-          if (customerPricing.value?.depthProportional !== undefined && doc.depthProportional === undefined) form.value.depthProportional = customerPricing.value.depthProportional;
+          if (customerPricing.value?.depthStandard && !doc.depthStandard)
+            form.value.depthStandard = Number(
+              customerPricing.value.depthStandard,
+            );
+          if (
+            customerPricing.value?.depthProportional !== undefined &&
+            doc.depthProportional === undefined
+          )
+            form.value.depthProportional =
+              customerPricing.value.depthProportional;
         }
       }
     }
@@ -1988,7 +2407,8 @@ onBeforeUnmount(() => {
 });
 
 onBeforeRouteLeave(async () => {
-  if (!isEdit.value || !formReady.value || !hasUnsavedChanges.value) return true;
+  if (!isEdit.value || !formReady.value || !hasUnsavedChanges.value)
+    return true;
   return await onSave({
     showSuccess: false,
     showFailure: true,
@@ -2357,7 +2777,7 @@ onBeforeRouteLeave(async () => {
   position: absolute;
   top: 2px;
   right: 2px;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0, 0, 0, 0.55);
   color: #fff;
   border: 0;
   border-radius: 50%;
@@ -2378,7 +2798,7 @@ onBeforeRouteLeave(async () => {
 .lightbox {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.85);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2388,7 +2808,7 @@ onBeforeRouteLeave(async () => {
   max-width: 90vw;
   max-height: 90vh;
   border-radius: 4px;
-  box-shadow: 0 4px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
 }
 .lb-close {
   position: absolute;

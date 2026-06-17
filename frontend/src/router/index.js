@@ -19,17 +19,25 @@ import OrderSettingsView from "../views/OrderSettingsView.vue";
 import OrdersView from "../views/OrdersView.vue";
 import OrderImportView from "../views/OrderImportView.vue";
 import DispatchView from "../views/DispatchView.vue";
+import StoveModelsView from "../views/StoveModelsView.vue";
 import OrderDrawingWrapper from "../views/drawing/OrderDrawingWrapper.vue";
 import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
 import OrderOriginalReviewView from "../views/drawing/OrderOriginalReviewView.vue";
 import CustomerMgmtView from "../views/CustomerMgmtView.vue";
 import QuotePageView from "../views/QuotePageView.vue";
 import { auth } from "../firebase";
-import { getUserByUid, authReadyPromise, getRoutePermissionsConfig } from "../firebase";
-import { DEFAULT_ROUTE_PERMISSIONS, findPermission } from "../config/routePermissions";
+import {
+  getUserByUid,
+  authReadyPromise,
+  getRoutePermissionsConfig,
+} from "../firebase";
+import {
+  DEFAULT_ROUTE_PERMISSIONS,
+  findPermission,
+} from "../config/routePermissions";
 
 // 記憶體快取：Firestore 設定讀取一次後存在此，null 表示「尚未載入」
-let _permCache = null;  // false = 已確認 Firestore 無資料；陣列 = 已取得設定
+let _permCache = null; // false = 已確認 Firestore 無資料；陣列 = 已取得設定
 async function getEffectivePermissions() {
   if (_permCache !== null) return _permCache;
   try {
@@ -183,6 +191,16 @@ const router = createRouter({
       meta: { roles: ["admin", "管理者"], depts: ["1"], title: "發單作業" },
     },
     {
+      path: "/orders/product-models",
+      name: "order-product-models",
+      component: StoveModelsView,
+      meta: {
+        roles: ["admin", "管理者"],
+        depts: ["1"],
+        title: "水槽/爐子型號管理",
+      },
+    },
+    {
       path: "/orders/import",
       name: "order-import",
       component: OrderImportView,
@@ -192,13 +210,21 @@ const router = createRouter({
       path: "/customers",
       name: "customers",
       component: CustomerMgmtView,
-      meta: { roles: ["員工", "admin", "管理者"], depts: ["1"], title: "客戶管理" },
+      meta: {
+        roles: ["員工", "admin", "管理者"],
+        depts: ["1"],
+        title: "客戶管理",
+      },
     },
     {
       path: "/quote",
       name: "quote",
       component: QuotePageView,
-      meta: { roles: ["員工", "admin", "管理者"], depts: ["1"], title: "估價單" },
+      meta: {
+        roles: ["員工", "admin", "管理者"],
+        depts: ["1"],
+        title: "估價單",
+      },
     },
     {
       path: "/orders/:id/drawing",
@@ -210,7 +236,12 @@ const router = createRouter({
       path: "/orders/:id/confirmation",
       name: "order-confirmation",
       component: OrderConfirmationView,
-      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "生產確定單" },
+      meta: {
+        roles: ["admin", "管理者"],
+        depts: ["1"],
+        title: "生產確定單",
+        printLayout: true,
+      },
     },
     {
       path: "/orders/:id/original-review",

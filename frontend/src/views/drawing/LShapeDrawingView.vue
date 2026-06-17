@@ -24,6 +24,9 @@
         重繪右含轉角
       </button>
       <button @click="setCorner(null)">取消轉角接線</button>
+      <button @click="showSetUp = !showSetUp">
+        {{ showSetUp ? "隱藏設定" : "顯示設定" }}
+      </button>
     </div>
 
     <!-- 左段（橫向）桶身 -->
@@ -56,6 +59,14 @@
         type="number"
         v-model.number="leftConnect"
         class="number"
+        @change="redraw"
+      />
+      字大小<input
+        type="number"
+        v-model.number="settings.leftFont"
+        class="number small-number"
+        min="6"
+        max="24"
         @change="redraw"
       />
       <button @click="clearLeft">清空左段</button>
@@ -93,6 +104,19 @@
         class="number"
         @change="redraw"
       />
+      字大小<input
+        type="number"
+        v-model.number="settings.rightFont"
+        class="number small-number"
+        min="6"
+        max="24"
+        @change="redraw"
+      />
+      字向<select v-model="rightTextDirection" @change="redraw">
+        <option value="cw">順時針</option>
+        <option value="ccw">逆時針</option>
+        <option value="horizontal">不旋轉</option>
+      </select>
       <button @click="clearRight">清空右段</button>
     </div>
 
@@ -373,6 +397,14 @@
         <label
           ><input
             type="radio"
+            value="左齊桶身側板"
+            v-model="leftEnd"
+            @change="redraw"
+          />齊桶身側板</label
+        >
+        <label
+          ><input
+            type="radio"
             value="左靠櫃"
             v-model="leftEnd"
             @change="redraw"
@@ -449,6 +481,14 @@
             v-model="rightEnd"
             @change="redraw"
           />右靠側板</label
+        >
+        <label
+          ><input
+            type="radio"
+            value="右齊桶身側板"
+            v-model="rightEnd"
+            @change="redraw"
+          />齊桶身側板</label
         >
         <label
           ><input
@@ -535,8 +575,7 @@
           step="0.1"
           class="number"
           @change="redraw"
-        />公分
-        枱面厚度<input
+        />公分 枱面厚度<input
           type="number"
           v-model.number="counterThick"
           step="0.1"
@@ -548,6 +587,82 @@
         <button @click="redraw">重繪</button>
         <button @click="clearAll">全部清空</button>
       </div>
+    </div>
+
+    <!-- 設定面板 -->
+    <div v-show="showSetUp" class="setup-panel">
+      左桶身字<input
+        type="number"
+        v-model.number="settings.leftFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      右桶身字<input
+        type="number"
+        v-model.number="settings.rightFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      水中爐中字<input
+        type="number"
+        v-model.number="settings.openingFont"
+        class="number small-number"
+        @change="redraw"
+      />
+      上標線距<input
+        type="number"
+        v-model.number="settings.topMarkerGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      右標線距<input
+        type="number"
+        v-model.number="settings.rightMarkerGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      左深度距<input
+        type="number"
+        v-model.number="settings.leftDepthGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      下深度距<input
+        type="number"
+        v-model.number="settings.bottomDepthGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      左分段字距<input
+        type="number"
+        v-model.number="settings.leftCabinLabelGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      右分段字距<input
+        type="number"
+        v-model.number="settings.rightCabinLabelGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      左水爐字距<input
+        type="number"
+        v-model.number="settings.openingTopGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      右水爐字距<input
+        type="number"
+        v-model.number="settings.openingRightGap"
+        class="number small-number"
+        @change="redraw"
+      />
+      <button @click="saveSettings(1)">存設定1</button>
+      <button @click="saveSettings(2)">存設定2</button>
+      <button @click="saveSettings(3)">存設定3</button>
+      <button @click="loadSettings(1)">取設定1</button>
+      <button @click="loadSettings(2)">取設定2</button>
+      <button @click="loadSettings(3)">取設定3</button>
     </div>
 
     <!-- SVG 畫布 -->
@@ -570,6 +685,7 @@ const props = defineProps({
 const saving = ref(false);
 const saveMsg = ref("");
 const savedSignature = ref("");
+const showSetUp = ref(true);
 
 const svgContainerRef = ref(null);
 let draw = null;
@@ -580,12 +696,15 @@ const leftDepth = ref(60);
 const leftPlus = ref(null);
 const leftConnect = ref(null);
 const leftCutToggled = ref(false);
+const leftTextFontSize = ref(10);
 
 const rightCabins = ref([60, 90, 90, null, null, null, null]);
 const rightDepth = ref(60);
 const rightPlus = ref(null);
 const rightConnect = ref(null);
 const rightCutToggled = ref(false);
+const rightTextFontSize = ref(10);
+const rightTextDirection = ref("cw");
 
 // 轉角歸屬：'left' = 左段含轉角（接線在右段上方）；'right' = 右段含轉角（接線在左段右側）
 const cornerSide = ref(null);
@@ -643,6 +762,25 @@ const backstop = ref(false);
 const backHeight = ref(4);
 const counterThick = ref(4);
 
+const settings = reactive({
+  leftFont: 10,
+  rightFont: 10,
+  topMarkerGap: 30,
+  rightMarkerGap: 40,
+  leftDepthGap: 22,
+  bottomDepthGap: 22,
+  leftCabinLabelGap: 4,
+  rightCabinLabelGap: 10,
+  openingFont: 11,
+  openingTopGap: 12,
+  openingRightGap: 12,
+});
+
+function syncTextSettingsFromPanel() {
+  leftTextFontSize.value = settings.leftFont;
+  rightTextFontSize.value = settings.rightFont;
+}
+
 // ─── 繪圖座標常數 ────────────────────────────────────────
 // L 型佈局：
 //   水平段(左段)：從 (x0, y0) 向右延伸，深度 leftDepth 向下
@@ -659,11 +797,14 @@ function getSnapshot() {
     leftPlus: leftPlus.value,
     leftConnect: leftConnect.value,
     leftCutToggled: leftCutToggled.value,
+    leftTextFontSize: leftTextFontSize.value,
     rightCabins: [...rightCabins.value],
     rightDepth: rightDepth.value,
     rightPlus: rightPlus.value,
     rightConnect: rightConnect.value,
     rightCutToggled: rightCutToggled.value,
+    rightTextFontSize: rightTextFontSize.value,
+    rightTextDirection: rightTextDirection.value,
     cornerSide: cornerSide.value,
     leftSinks: leftSinks.map((s) => ({ ...s })),
     leftStoves: leftStoves.map((s) => ({ ...s })),
@@ -679,6 +820,7 @@ function getSnapshot() {
     backstop: backstop.value,
     backHeight: backHeight.value,
     counterThick: counterThick.value,
+    settings: { ...settings },
     svgContent: draw ? draw.svg() : "",
   };
 }
@@ -704,6 +846,8 @@ function restoreSnapshot(snap) {
   if (snap.leftPlus != null) leftPlus.value = snap.leftPlus;
   if (snap.leftConnect != null) leftConnect.value = snap.leftConnect;
   if (snap.leftCutToggled != null) leftCutToggled.value = snap.leftCutToggled;
+  if (snap.leftTextFontSize != null)
+    leftTextFontSize.value = snap.leftTextFontSize;
   if (Array.isArray(snap.rightCabins))
     rightCabins.value = [...snap.rightCabins];
   if (snap.rightDepth != null) rightDepth.value = snap.rightDepth;
@@ -711,6 +855,10 @@ function restoreSnapshot(snap) {
   if (snap.rightConnect != null) rightConnect.value = snap.rightConnect;
   if (snap.rightCutToggled != null)
     rightCutToggled.value = snap.rightCutToggled;
+  if (snap.rightTextFontSize != null)
+    rightTextFontSize.value = snap.rightTextFontSize;
+  if (snap.rightTextDirection != null)
+    rightTextDirection.value = snap.rightTextDirection;
   if (snap.cornerSide !== undefined) cornerSide.value = snap.cornerSide;
   if (snap.leftEnd != null) leftEnd.value = snap.leftEnd;
   if (snap.leftEndDepth != null) leftEndDepth.value = snap.leftEndDepth;
@@ -720,6 +868,13 @@ function restoreSnapshot(snap) {
   if (snap.backstop != null) backstop.value = snap.backstop;
   if (snap.backHeight != null) backHeight.value = snap.backHeight;
   if (snap.counterThick != null) counterThick.value = snap.counterThick;
+  if (snap.settings && typeof snap.settings === "object") {
+    Object.assign(settings, snap.settings);
+    syncTextSettingsFromPanel();
+  } else {
+    settings.leftFont = leftTextFontSize.value;
+    settings.rightFont = rightTextFontSize.value;
+  }
   if (snap.leftSideLeg && typeof snap.leftSideLeg === "object") {
     Object.assign(leftSideLeg, snap.leftSideLeg);
   }
@@ -839,6 +994,7 @@ function toggleRightCut() {
 
 function redraw() {
   if (!draw) return;
+  syncTextSettingsFromPanel();
   draw.clear();
 
   const w = sumCabins(leftCabins.value, leftPlus.value);
@@ -1068,22 +1224,24 @@ function drawLShape(x0, y0, w, h, wL, hL) {
 function drawCabinDividersH(boxes, plus, x0, y0, h, w, cornerW = 0) {
   const p = parseFloat(plus);
   const xCornerStart = x0 + w - cornerW;
+  const labelSize = Math.max(6, Number(leftTextFontSize.value) || 10);
+  const labelGap = Number(settings.leftCabinLabelGap) || 4;
   let x = x0;
   if (!isNaN(p) && p > 0) {
     if (x + p < xCornerStart) {
       drawTickH(x + p, y0 + h);
       draw
         .text(String(p))
-        .font({ size: 10, family: "DFKai-sb" })
-        .move(x - 4, y0 + h + 4);
+        .font({ size: labelSize, family: "DFKai-sb" })
+        .move(x - 4, y0 + h + labelGap);
     }
     x += p;
   } else if (boxes.length > 0) {
     if (x + boxes[0] < xCornerStart || x + boxes[0] / 2 <= xCornerStart) {
       draw
         .text(String(boxes[0]))
-        .font({ size: 10, family: "DFKai-sb" })
-        .move(x + boxes[0] / 2 - 8, y0 + h + 4);
+        .font({ size: labelSize, family: "DFKai-sb" })
+        .move(x + boxes[0] / 2 - 8, y0 + h + labelGap);
     }
   }
   for (let i = 0; i < boxes.length; i++) {
@@ -1094,8 +1252,8 @@ function drawCabinDividersH(boxes, plus, x0, y0, h, w, cornerW = 0) {
       if (nextMidX <= xCornerStart) {
         draw
           .text(String(boxes[i + 1]))
-          .font({ size: 10, family: "DFKai-sb" })
-          .move(nextMidX - 8, y0 + h + 4);
+          .font({ size: labelSize, family: "DFKai-sb" })
+          .move(nextMidX - 8, y0 + h + labelGap);
       }
     }
   }
@@ -1116,17 +1274,25 @@ function drawCabinDividersV(boxes, plus, x0, y0, hL, wL, cornerH = 0) {
   const p = parseFloat(plus);
   const yCornerEnd = y0 + cornerH;
   const xTick = x0; // 刻度画在右段左邊（櫃前）
-  const xLabel = x0 - 10; // 文字位於左邊外側
+  const xLabel = x0 - (Number(settings.rightCabinLabelGap) || 10); // 文字位於左邊外側
+  const labelSize = Math.max(6, Number(rightTextFontSize.value) || 10);
+  const labelAngle = getRightTextAngle();
   let y = y0;
   if (!isNaN(p) && p > 0) {
     if (y + p > yCornerEnd) {
       drawTickV(xTick, y + p);
-      drawRotLabel(String(p), xLabel, y + p / 2, 90, 10);
+      drawRotLabel(String(p), xLabel, y + p / 2, labelAngle, labelSize);
     }
     y += p;
   } else if (boxes.length > 0) {
     if (y + boxes[0] > yCornerEnd && y + boxes[0] / 2 >= yCornerEnd) {
-      drawRotLabel(String(boxes[0]), xLabel, y + boxes[0] / 2, 90, 10);
+      drawRotLabel(
+        String(boxes[0]),
+        xLabel,
+        y + boxes[0] / 2,
+        labelAngle,
+        labelSize,
+      );
     }
   }
   for (let i = 0; i < boxes.length; i++) {
@@ -1135,7 +1301,13 @@ function drawCabinDividersV(boxes, plus, x0, y0, hL, wL, cornerH = 0) {
       if (y >= yCornerEnd) drawTickV(xTick, y);
       const nextMidY = y + boxes[i + 1] / 2;
       if (nextMidY >= yCornerEnd) {
-        drawRotLabel(String(boxes[i + 1]), xLabel, nextMidY, 90, 10);
+        drawRotLabel(
+          String(boxes[i + 1]),
+          xLabel,
+          nextMidY,
+          labelAngle,
+          labelSize,
+        );
       }
     }
   }
@@ -1163,6 +1335,12 @@ function drawTextRot(text, x, y) {
   t.rotate(90, x, y);
 }
 
+function getRightTextAngle() {
+  if (rightTextDirection.value === "ccw") return -90;
+  if (rightTextDirection.value === "horizontal") return 0;
+  return 90;
+}
+
 function drawText(text, x, y, size = 10, color = "black") {
   draw
     .text(String(text))
@@ -1182,36 +1360,43 @@ function drawRotLabel(text, cx, cy, angle = -90, fontSize = 12) {
 
 // ─── 標註 ────────────────────────────────────────────────
 function drawTopLengthMarker(x0, y0, w) {
-  const yLine = y0 - 30;
+  const yLine = y0 - (Number(settings.topMarkerGap) || 30);
   draw.line(x0, yLine, x0 + w, yLine).stroke({ width: 1, color: "black" });
   draw.line(x0, yLine - 6, x0, yLine + 6).stroke({ width: 1, color: "black" });
   draw
     .line(x0 + w, yLine - 6, x0 + w, yLine + 6)
     .stroke({ width: 1, color: "black" });
-  const t = draw.text(String(w)).font({ size: 16, family: "DFKai-sb" });
+  const t = draw
+    .text(String(w))
+    .font({
+      size: Math.max(10, Number(leftTextFontSize.value) || 10) + 6,
+      family: "DFKai-sb",
+    });
   const bb = t.bbox();
   t.move(x0 + w / 2 - bb.width / 2, yLine - bb.height - 4);
 }
 
 function drawRightLengthMarker(xEdge, y0, wL) {
-  const xLine = xEdge + 40;
+  const xLine = xEdge + (Number(settings.rightMarkerGap) || 40);
   draw.line(xLine, y0, xLine, y0 + wL).stroke({ width: 1, color: "black" });
   draw.line(xLine - 6, y0, xLine + 6, y0).stroke({ width: 1, color: "black" });
   draw
     .line(xLine - 6, y0 + wL, xLine + 6, y0 + wL)
     .stroke({ width: 1, color: "black" });
   // 竖立文字（旋转90度），置於引線右側 - like "火中" label
-  const t = draw.text(String(wL)).font({ size: 16, family: "DFKai-sb" });
-  const bb = t.bbox();
-  // Position text center, then rotate 90 degrees clockwise
   const centerX = xLine + 20;
   const centerY = y0 + wL / 2;
-  t.move(centerX - bb.width / 2, centerY - bb.height / 2);
-  t.rotate(90, centerX, centerY);
+  drawRotLabel(
+    String(wL),
+    centerX,
+    centerY,
+    getRightTextAngle(),
+    Math.max(10, Number(rightTextFontSize.value) || 16) + 6,
+  );
 }
 
 function drawLeftDepthLabel(x0, y0, h) {
-  const xLine = x0 - 22;
+  const xLine = x0 - (Number(settings.leftDepthGap) || 22);
   draw.line(xLine, y0, xLine, y0 + h).stroke({ width: 0.5, color: "black" });
   draw
     .line(xLine - 4, y0, xLine + 4, y0)
@@ -1226,7 +1411,7 @@ function drawLeftDepthLabel(x0, y0, h) {
 }
 
 function drawBottomDepthLabel(x0, yBottom, hL) {
-  const yLine = yBottom + 22;
+  const yLine = yBottom + (Number(settings.bottomDepthGap) || 22);
   draw.line(x0, yLine, x0 + hL, yLine).stroke({ width: 0.5, color: "black" });
   draw
     .line(x0, yLine - 4, x0, yLine + 4)
@@ -1244,6 +1429,8 @@ function drawLeftEnd(x0, y0, h) {
   if (leftEnd.value === "左靠牆") drawWallHatchLeft(x0, y0, h, "牆");
   if (leftEnd.value === "左見光") drawTri(x0 - 15, y0 + h / 2, "r");
   if (leftEnd.value === "左靠側板") drawWallHatchLeft(x0, y0, h, "側板");
+  if (leftEnd.value === "左齊桶身側板")
+    drawTriangleWithDiamond(x0 - 12, y0 + h / 2, 10);
   if (leftEnd.value === "左靠櫃") drawWallHatchLeft(x0, y0, h, "櫃");
   if (leftEnd.value === "左側落腳") drawLeftSideLeg(x0, y0, h);
 }
@@ -1252,8 +1439,31 @@ function drawRightEnd(x0, yBottom, hL) {
   if (rightEnd.value === "右見光") drawTri(x0 + hL / 2, yBottom + 15, "u");
   if (rightEnd.value === "右靠側板")
     drawWallHatchBottom(x0, yBottom, hL, "側板");
+  if (rightEnd.value === "右齊桶身側板")
+    drawTriangleWithDiamond(x0 + hL / 2, yBottom + 12, 10);
   if (rightEnd.value === "右靠櫃") drawWallHatchBottom(x0, yBottom, hL, "櫃");
   if (rightEnd.value === "右側落腳") drawRightSideLeg(x0, yBottom);
+}
+
+function drawTriangleWithDiamond(x, y, size) {
+  draw
+    .polygon([
+      [x, y - size / 2],
+      [x + size / 2, y + size / 2],
+      [x - size / 2, y + size / 2],
+    ])
+    .fill("none")
+    .stroke({ width: 1, color: "black" });
+  const diamondSize = size / Math.sqrt(3);
+  draw
+    .polygon([
+      [x, y - diamondSize / 2],
+      [x + diamondSize / 2, y],
+      [x, y + diamondSize / 2],
+      [x - diamondSize / 2, y],
+    ])
+    .fill("black")
+    .center(x, y + size / 6);
 }
 
 function drawWallHatchLeft(x, y, h, label) {
@@ -1316,6 +1526,19 @@ function drawLegAngledTextCentered(text, cx, cy, size, angle) {
   const box = node.bbox();
   node.move(cx - box.width / 2, cy - box.height / 2);
   node.rotate(-angle, cx, cy);
+}
+
+function saveSettings(n) {
+  localStorage.setItem(`l-shape-drawing-settings-${n}`, JSON.stringify(settings));
+  alert(`設定${n}存檔完成`);
+}
+
+function loadSettings(n) {
+  const raw = localStorage.getItem(`l-shape-drawing-settings-${n}`);
+  if (!raw) return;
+  Object.assign(settings, JSON.parse(raw));
+  syncTextSettingsFromPanel();
+  redraw();
 }
 
 function drawLeftSideLeg(x0, y0, h) {
@@ -1697,22 +1920,24 @@ function drawStoveBoxVertical(x, y, w, h, r) {
 }
 
 function drawTopLabel(text, xPoint, y0, xFrom) {
-  const yLine = y0 - 12;
+  const fontSize = Math.max(6, Number(settings.openingFont) || 11);
+  const yLine = y0 - (Number(settings.openingTopGap) || 12);
   draw.line(xFrom, yLine, xPoint, yLine).stroke({ width: 0.5, color: "black" });
   draw.line(xPoint, yLine, xPoint, y0).stroke({ width: 0.5, color: "black" });
-  const t = draw.text(String(text)).font({ size: 11, family: "DFKai-sb" });
-  t.move(xPoint - t.bbox().width / 2, yLine - 14);
+  const t = draw.text(String(text)).font({ size: fontSize, family: "DFKai-sb" });
+  t.move(xPoint - t.bbox().width / 2, yLine - fontSize - 3);
 }
 function drawRightLabel(text, yPoint, xEdge, yFrom) {
   // 與左段一致：所有右段標註共用同一條引線 xLine，
   // 文字放在各自 yPoint 處（類似左段文字放在 xPoint 處）
-  const xLine = xEdge + 12;
+  const fontSize = Math.max(6, Number(settings.openingFont) || 11);
+  const xLine = xEdge + (Number(settings.openingRightGap) || 12);
   draw.line(xLine, yFrom, xLine, yPoint).stroke({ width: 0.5, color: "black" });
   draw
     .line(xEdge, yPoint, xLine, yPoint)
     .stroke({ width: 0.5, color: "black" });
   // 旋轉文字位於引線右外側，高度對齊 yPoint
-  drawRotLabel(String(text), xLine + 14, yPoint, 90, 11);
+  drawRotLabel(String(text), xLine + fontSize + 3, yPoint, 90, fontSize);
 }
 
 // ─── 接線 ────────────────────────────────────────────────

@@ -2,7 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-body, .result-container {
+body,
+.result-container {
   font-family: "DFKai-SB", "標楷體", DFKai-SB, "KaiTi", "Noto Serif TC", serif;
   margin: 0px;
   padding: 0px;
@@ -27,7 +28,8 @@ table {
   border-spacing: 0;
 }
 
-th, td {
+th,
+td {
   border: 0.5px solid #999;
   padding: 8px;
   white-space: normal;
@@ -63,7 +65,8 @@ td.text-left.whitespace-pre-line {
 }
 
 /* ✅ 標題與文字區塊 */
-h1, h3 {
+h1,
+h3 {
   text-align: center;
   margin-top: 5px;
 }
@@ -96,25 +99,54 @@ h1, h3 {
   font-size: 12px;
   margin: 0;
   padding: 0;
-
 }
 
 /* ✅ 固定欄寬 */
-.w120 { width: 120px; }
-.w110 { width: 110px; }
-.w100 { width: 100px; }
-.w90  { width: 90px; }
-.w80  { width: 80px; }
-.w70  { width: 70px; }
-.w65  { width: 65px; }
-.w60  { width: 60px; }
-.w55  { width: 55px; }
-.w50  { width: 50px; }
-.w45  { width: 45px; }
-.w40  { width: 40px; }
-.w35  { width: 35px; }
-.w30  { width: 30px; }
-.w25  { width: 25px; }
+.w120 {
+  width: 120px;
+}
+.w110 {
+  width: 110px;
+}
+.w100 {
+  width: 100px;
+}
+.w90 {
+  width: 90px;
+}
+.w80 {
+  width: 80px;
+}
+.w70 {
+  width: 70px;
+}
+.w65 {
+  width: 65px;
+}
+.w60 {
+  width: 60px;
+}
+.w55 {
+  width: 55px;
+}
+.w50 {
+  width: 50px;
+}
+.w45 {
+  width: 45px;
+}
+.w40 {
+  width: 40px;
+}
+.w35 {
+  width: 35px;
+}
+.w30 {
+  width: 30px;
+}
+.w25 {
+  width: 25px;
+}
 
 .note {
   font-size: 12px;
@@ -130,7 +162,9 @@ h1, h3 {
   width: 130px;
 }
 
-.wide-col { width: 120px; }
+.wide-col {
+  width: 120px;
+}
 
 .text-left {
   text-align: left !important;
@@ -163,18 +197,17 @@ h1, h3 {
   .result-container {
     padding: 10px;
     font-size: 13px;
-    
   }
 
   table {
-    
     display: block;
     overflow-x: auto;
     white-space: nowrap;
     width: 95%;
   }
 
-  th, td {
+  th,
+  td {
     padding: 2px;
     font-size: 13px;
     text-align: left !important;
@@ -186,13 +219,9 @@ h1, h3 {
 }
 
 /* ✅ 列印優化，防止手機列印內容不見 */
-@page {
-  margin: 10mm 12mm;
-  size: A4 portrait;
-}
-
 @media print {
-  html, body {
+  html,
+  body {
     overflow: visible !important;
     height: auto !important;
     margin: 0;
@@ -220,15 +249,14 @@ h1, h3 {
     border-spacing: 0;
   }
 
-  th, td {
-    
+  th,
+  td {
     box-sizing: border-box !important;
- 
+
     border: 1px solid black !important;
     padding: 4px !important;
     white-space: pre-wrap;
     word-wrap: break-word;
-    
   }
 
   th {
@@ -243,7 +271,12 @@ h1, h3 {
     print-color-adjust: exact !important;
   }
 
-  table, thead, tbody, tr, th, td {
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     visibility: visible !important;
@@ -266,9 +299,6 @@ h1, h3 {
   }
 }
 
-
-
-
 :root {
   --color-red-500: rgb(239, 68, 68);
   --color-red-600: rgb(220, 38, 38);
@@ -288,11 +318,10 @@ h1, h3 {
   --color-gray-100: rgb(243, 244, 246);
   --color-gray-200: rgb(229, 231, 235);
   --color-gray-300: rgb(209, 213, 219);
-  --color-gray-400:   #9ca3af;
-  --color-gray-500:   #6b7280;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
   --color-gray-600: rgb(75, 85, 99);
   --color-gray-700: rgb(55, 65, 81);
- 
 }
 
 th .resize-handle {

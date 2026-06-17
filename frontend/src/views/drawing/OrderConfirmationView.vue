@@ -278,8 +278,8 @@
         >
           ↺ 文字轉向
         </button>
-        <button class="btn-print" @click="doPrint" title="列印或輸出 PDF">
-          🖨️ 列印 / PDF
+        <button class="btn-print" @click="doPrint" title="直接以瀏覽器列印">
+          🖨️ 列印
         </button>
         <button
           class="btn-save"
@@ -518,7 +518,7 @@
                         預　交　日
                       </td>
                       <td
-                        class="val font-adjustable"
+                        class="val font-adjustable promised-at-box"
                         colspan="3"
                         :style="fieldFontStyle('promisedAt', 13)"
                         title="單擊放大 1 點，雙擊縮小 1 點"
@@ -844,8 +844,75 @@
                 </div>
               </div>
               <div class="price-val-col">
+                <!-- 簡潔計價格式（像 PDF 一樣） -->
                 <div
-                  v-if="priceBreakdown.lines.length"
+                  v-if="
+                    priceFormulaDisplay && priceFormulaDisplay.mainItems.length
+                  "
+                  class="font-adjustable"
+                  :style="[
+                    fieldFontStyle('priceFormulaDisplay', 17),
+                    {
+                      padding: '4px',
+                      color: '#333',
+                      lineHeight: '1.6',
+                      fontFamily: 'monospace',
+                      overflow: 'visible',
+                      whiteSpace: 'normal',
+                      cursor: 'pointer',
+                    },
+                  ]"
+                  title="單擊放大 1 點，雙擊縮小 1 點"
+                  @click="onFieldFontClick('priceFormulaDisplay', 17)"
+                  @dblclick="onFieldFontDoubleClick('priceFormulaDisplay', 17)"
+                >
+                  <!-- 基礎計算 -->
+                  <div v-if="priceFormulaDisplay.mainItems.length">
+                    <span
+                      v-for="(item, idx) in priceFormulaDisplay.mainItems"
+                      :key="idx"
+                    >
+                      <span v-if="idx > 0">+</span>@{{ item.unitPrice }}×{{
+                        item.qty
+                      }}={{ item.qty * item.unitPrice }}
+                    </span>
+                  </div>
+
+                  <!-- 下嵌 -->
+                  <div v-if="priceFormulaDisplay.sinkItems.length">
+                    下嵌{{ priceFormulaDisplay.sinkSubtotal.toLocaleString() }}
+                  </div>
+
+                  <!-- 上掛 + 合計 -->
+                  <div
+                    style="
+                      display: flex;
+                      gap: 12px;
+                      justify-content: space-between;
+                      align-items: center;
+                    "
+                  >
+                    <div v-if="priceFormulaDisplay.stoveItems.length">
+                      上掛{{
+                        priceFormulaDisplay.stoveSubtotal.toLocaleString()
+                      }}
+                    </div>
+                    <div v-else style="flex: 1"></div>
+                    <div style="font-weight: 700; color: #d9534f">
+                      合計{{ priceFormulaDisplay.subtotal.toLocaleString() }}
+                    </div>
+                  </div>
+
+                  <!-- 其他開孔 -->
+                  <div v-if="priceFormulaDisplay.otherCutoutItems.length">
+                    其他{{
+                      priceFormulaDisplay.otherCutoutSubtotal.toLocaleString()
+                    }}
+                  </div>
+                </div>
+                <!-- 舊格式（計價明細表格） -->
+                <div
+                  v-else-if="priceBreakdown.lines.length"
                   :class="[
                     'price-grid',
                     `price-grid--cols-${priceBreakdown.columnCount}`,
@@ -884,18 +951,8 @@
                     合計 <span>{{ priceBreakdown.total }}</span>
                   </div>
                 </div>
+                <!-- 純數字顯示 -->
                 <span v-else class="price-val">{{ untaxedPriceDisplay }}</span>
-                <!-- 計算公式 -->
-                <div v-if="priceFormulaDisplay && !priceBreakdown.lines.length" class="price-formula-display" style="margin-top: 8px; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 12px; color: #555; line-height: 1.6;">
-                  <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                    <span>{{ priceFormulaDisplay.subtotal.toLocaleString() }}</span>
-                    <span>+</span>
-                    <span>{{ priceFormulaDisplay.taxAmount.toLocaleString() }}</span>
-                    <span>=</span>
-                    <span style="font-weight: 600; color: #000; font-size: 13px;">{{ priceFormulaDisplay.grandTotal.toLocaleString() }}</span>
-                    <span style="color: #999; font-size: 11px;">（稅率 {{ (priceFormulaDisplay.taxRate * 100).toFixed(0) }}%）</span>
-                  </div>
-                </div>
               </div>
               <div class="sig-col">
                 <div class="sig-box">
@@ -1366,7 +1423,6 @@ import {
   updateCustomerPricing,
   uploadOverlayImage,
   uploadConfirmedPdf,
-  generateBackendConfirmedPdf as generatePdfViaBackendApi,
   downloadConfirmedPdfComparison,
   refreshConfirmedPdfDownloadUrl,
 } from "../../firebase";
@@ -1430,7 +1486,7 @@ const untaxedPriceDisplay = computed(() => {
 const priceFormulaDisplay = computed(() => {
   const o = order.value;
   if (!o) return null;
-  
+
   // 計算未稅小計
   let subtotal = o.subtotal;
   if (subtotal == null) subtotal = o.total;
@@ -1439,12 +1495,57 @@ const priceFormulaDisplay = computed(() => {
   }
   if (subtotal == null) subtotal = 0;
   subtotal = Number(subtotal) || 0;
-  
+
+  // 分類項目
+  const lineItems = Array.isArray(o.lineItems) ? o.lineItems : [];
+  const mainItems = lineItems.filter(
+    (r) => String(r.unit || "").trim() === "cm",
+  );
+  const sinkItems = lineItems.filter((r) =>
+    /水槽/.test(String(r.description || "")),
+  );
+  const stoveItems = lineItems.filter((r) =>
+    /(火爐|爐|爐子|爐台|爐口|爐頭|爐位|瓦斯爐|瓦斯灶|電陶爐|電磁爐|感應爐|IH)/.test(
+      String(r.description || ""),
+    ),
+  );
+  const otherCutoutItems = lineItems.filter(
+    (r) =>
+      String(r.unit || "").trim() !== "cm" &&
+      !sinkItems.includes(r) &&
+      !stoveItems.includes(r),
+  );
+
+  const mainSubtotal = mainItems.reduce(
+    (s, r) => s + (Number(r.amount) || 0),
+    0,
+  );
+  const sinkSubtotal = sinkItems.reduce(
+    (s, r) => s + (Number(r.amount) || 0),
+    0,
+  );
+  const stoveSubtotal = stoveItems.reduce(
+    (s, r) => s + (Number(r.amount) || 0),
+    0,
+  );
+  const otherCutoutSubtotal = otherCutoutItems.reduce(
+    (s, r) => s + (Number(r.amount) || 0),
+    0,
+  );
+
   const taxRate = Number(o.taxRate) || 0.05;
   const taxAmount = Math.round(subtotal * taxRate);
   const grandTotal = subtotal + taxAmount;
-  
+
   return {
+    mainItems,
+    sinkItems,
+    stoveItems,
+    otherCutoutItems,
+    mainSubtotal,
+    sinkSubtotal,
+    stoveSubtotal,
+    otherCutoutSubtotal,
     subtotal,
     taxRate,
     taxAmount,
@@ -1693,7 +1794,7 @@ const EDGE_CHOICES = [
 const cabinetReadyVertText = computed(() => {
   const yesMark = cf.cabinetReady === "yes" ? "☑" : "□";
   const noMark = cf.cabinetReady === "no" ? "☑" : "□";
-  return splitVert(`桶身${yesMark}是${noMark}否裝`);
+  return splitVert(`桶身${yesMark}是否${noMark}裝`);
 });
 
 const edgeRowCompact = computed(
@@ -2157,8 +2258,9 @@ function onFieldFontDoubleClick(key, fallback = 13, legacyKey = "") {
 
 function getFontPresetStorageKey(slot) {
   const uid =
-    String(fontPresetUserUid.value || auth.currentUser?.uid || "guest").trim() ||
-    "guest";
+    String(
+      fontPresetUserUid.value || auth.currentUser?.uid || "guest",
+    ).trim() || "guest";
   return `order-confirmation-font-preset-${uid}-${slot}`;
 }
 
@@ -2214,7 +2316,10 @@ function saveFontPreset(slot) {
       stoneFontSize: clampFieldFontSize(cf.stoneFontSize) || 15,
       fieldFontSizes: sanitizeFieldFontSizes(cf.fieldFontSizes),
     };
-    localStorage.setItem(getFontPresetStorageKey(slot), JSON.stringify(payload));
+    localStorage.setItem(
+      getFontPresetStorageKey(slot),
+      JSON.stringify(payload),
+    );
     refreshFontPresetStatus();
     setTransientMsg(`✅ 已儲存字體設定 ${slot}`);
   } catch {
@@ -3176,6 +3281,11 @@ function onAnnotPointerDown(e) {
 function onAnnotKeydown(e) {
   const target = e.target;
   const tagName = target?.tagName?.toLowerCase?.() || "";
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "p") {
+    e.preventDefault();
+    void doPrint();
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
     if (textBox.value.visible) return;
     if (
@@ -3385,7 +3495,7 @@ function onMouseMove(e) {
       _activeImg.x = _aiOrigX + dx;
       _activeImg.y = _aiOrigY + dy;
     } else {
-      _activeImg.w = Math.max(60, _aiOrigW + dx);
+      _activeImg.w = Math.max(8, _aiOrigW + dx);
     }
     markAnnotationDirty();
   }
@@ -3925,22 +4035,134 @@ function handleConfirmationVisibilityChange() {
 }
 
 async function doPrint() {
-  const win = window.open("", "_blank");
-  if (!win) return;
-  try {
-    win.document.write(
-      '<title>生產確定單 PDF</title><p style="font-family:sans-serif;padding:16px">PDF 產生中…</p>',
-    );
-    win.document.close();
-    // Use backend PDF generation instead of frontend canvas
-    const blob = await generatePdfViaBackendApi(orderId.value);
-    const url = URL.createObjectURL(blob);
-    win.location.replace(url);
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (e) {
-    console.error("列印PDF產生失敗", e);
-    win.close();
+  const pageEl = pageRef.value;
+  if (!pageEl) return;
+
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  document.body.appendChild(iframe);
+
+  const cloneHead = Array.from(
+    document.querySelectorAll('link[rel="stylesheet"], style'),
+  )
+    .map((node) => node.outerHTML)
+    .join("\n");
+
+  const printPageHtml = pageEl.outerHTML;
+  const printOverrideCss = `
+    @page { size: A4 landscape; margin: 0; }
+    * {
+      box-sizing: border-box !important;
+    }
+    html, body {
+      width: 297mm !important;
+      height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+      background: #fff !important;
+      position: fixed !important;
+      left: 0 !important;
+      top: 0 !important;
+    }
+    .conf-root,
+    .page-wrap,
+    .a4-page {
+      width: 297mm !important;
+      height: 210mm !important;
+      max-width: 297mm !important;
+      max-height: 210mm !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      display: block !important;
+      flex: none !important;
+      transform: none !important;
+      clip-path: none !important;
+      box-shadow: none !important;
+      page-break-inside: avoid !important;
+      page-break-after: avoid !important;
+      break-inside: avoid-page !important;
+      break-after: avoid-page !important;
+      overflow: hidden !important;
+    }
+    .conf-root {
+      min-height: auto !important;
+      background: #fff !important;
+    }
+    .a4-page {
+      position: fixed !important;
+      left: 0 !important;
+      top: 0 !important;
+      right: auto !important;
+      bottom: auto !important;
+    }
+    .no-print,
+    .conf-toolbar {
+      display: none !important;
+    }
+    .drawing-blk {
+      outline: none !important;
+    }
+    .body-row,
+    .upper-body {
+      overflow: hidden !important;
+    }
+  `;
+
+  const doc = iframe.contentDocument;
+  if (!doc) {
+    document.body.removeChild(iframe);
+    return;
   }
+
+  doc.open();
+  doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <base href="${document.baseURI}" />
+        ${cloneHead}
+        <style>${printOverrideCss}</style>
+      </head>
+      <body>
+        ${printPageHtml}
+      </body>
+    </html>
+  `);
+  doc.close();
+
+  const waitForImages = () => {
+    const images = Array.from(doc.images || []);
+    return Promise.all(
+      images.map((img) =>
+        img.complete
+          ? Promise.resolve()
+          : new Promise((resolve) => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            }),
+      ),
+    );
+  };
+
+  await waitForImages();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const cleanup = () => {
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+  };
+
+  iframe.contentWindow?.focus();
+  iframe.contentWindow?.print();
+  setTimeout(cleanup, 500);
 }
 
 onMounted(() => {
@@ -4699,6 +4921,9 @@ onBeforeRouteLeave(async () => {
   border-top: inherit;
   border-bottom: inherit;
 }
+.promised-at-box {
+  border: 3px solid #000 !important;
+}
 .fields-tbl tr.edge-row td {
   height: 84px;
   padding-top: 0;
@@ -5297,7 +5522,7 @@ onBeforeRouteLeave(async () => {
 /* ══ 底部傳真 ══ */
 .fax-strip {
   position: absolute;
-  bottom: 2px;
+  bottom: 0;
   right: 8px;
   font-size: 12px;
   font-weight: 700;
@@ -5837,29 +6062,89 @@ onBeforeRouteLeave(async () => {
 }
 
 /* ══ 列印 ══ */
+@page {
+  size: A4 landscape;
+  margin: 0;
+}
+
 @media print {
-  .no-print {
+  * {
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  html,
+  body {
+    width: 297mm !important;
+    height: 210mm !important;
+    overflow: hidden !important;
+    display: block !important;
+  }
+
+  .no-print,
+  .conf-toolbar {
     display: none !important;
   }
-  .conf-root {
-    background: #fff;
-  }
-  .page-wrap {
-    padding: 0;
-    overflow: visible;
-  }
+
+  .conf-root,
+  .page-wrap,
   .a4-page {
-    box-shadow: none;
-    width: 297mm;
-    height: 210mm;
-    overflow: hidden;
+    width: 297mm !important;
+    height: 210mm !important;
+    overflow: hidden !important;
   }
+
+  .conf-root {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+
+  .page-wrap {
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    flex: none !important;
+  }
+
+  .a4-page {
+    margin: 0 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-inside: avoid-page !important;
+    break-after: avoid-page !important;
+    flex-shrink: 0 !important;
+    position: relative !important;
+    clip-path: inset(0) !important;
+  }
+
   .drawing-blk {
     outline: none !important;
   }
-  @page {
-    size: A4 landscape;
-    margin: 0;
+
+  .body-row,
+  .upper-body {
+    overflow: hidden !important;
+  }
+
+  canvas {
+    width: 297mm !important;
+    height: 210mm !important;
+    max-width: 297mm !important;
+    max-height: 210mm !important;
+    clip-path: inset(0) !important;
+  }
+
+  .a4-page * {
+    max-width: 297mm !important;
+  }
+
+  body::after {
+    content: "" !important;
+    display: none !important;
   }
 }
 </style>

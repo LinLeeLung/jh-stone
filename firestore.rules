@@ -178,6 +178,20 @@ service cloud.firestore {
       allow delete: if isAdminOrManager();
     }
 
+    // Attendance correction requests (忘記打卡補登): staff submit own;
+    // admin/manager + approver(主管/HR) review and approve/reject.
+    match /attendanceCorrectionRequests/{docId} {
+      allow create: if (isStaff() || isMobileStaff())
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow read: if isLeaveApprover()
+        || ((isStaff() || isMobileStaff()) && resource.data.uid == request.auth.uid);
+      allow update: if isLeaveApprover();
+      allow delete: if (isStaff() || isMobileStaff())
+        && resource.data.uid == request.auth.uid
+        && resource.data.status == 'pending';
+    }
+
     // Leave requests: staff submit own; admin/manager review all
     match /leaveRequests/{docId} {
       allow create: if (isStaff() || isMobileStaff())

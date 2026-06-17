@@ -3,6 +3,9 @@
     <header class="page-header">
       <h2>訂單列表</h2>
       <div class="header-actions">
+        <RouterLink v-if="isAdmin" class="btn-aux" to="/orders/product-models"
+          >水槽/爐子型號</RouterLink
+        >
         <RouterLink v-if="canDispatch" class="btn-aux" to="/orders/dispatch"
           >📋 發單作業</RouterLink
         >
