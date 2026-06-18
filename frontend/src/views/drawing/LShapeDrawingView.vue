@@ -1142,7 +1142,14 @@ function drawLShape(x0, y0, w, h, wL, hL) {
     const hideACLine =
       leftEnd.value === "左側落腳" && leftSideLeg.method === "H1";
     const hideRightBottomFrontLine =
-      rightEnd.value === "右側落腳" && rightSideLeg.method === "H1";
+      rightEnd.value === "右側落腳" &&
+      (rightSideLeg.method === "H1" || rightSideLeg.method === "H2");
+    const hideRightInnerVerticalLine =
+      rightEnd.value === "右側落腳" && rightSideLeg.method === "H2";
+    const rightBottomFrontEndX =
+      rightEnd.value === "右側落腳" && rightSideLeg.method === "K1"
+        ? x0 + w - TABLETOP_THICKNESS
+        : x0 + w;
     const acLineColor = "black";
 
     draw
@@ -1168,12 +1175,18 @@ function drawLShape(x0, y0, w, h, wL, hL) {
     draw
       .line(leftFaceX, frontBottomY, innerCornerX, frontBottomY)
       .stroke({ width: 1, color: "black" });
-    draw
-      .line(innerCornerX, y0 + wL, innerCornerX, bottomFrontY)
-      .stroke({ width: 1, color: "black" });
+    if (!hideRightInnerVerticalLine) {
+      draw
+        .line(innerCornerX, y0 + wL, innerCornerX, bottomFrontY)
+        .stroke({ width: 1, color: "black" });
+    } else {
+      draw
+        .line(x0 + w - hL, y0 + wL, innerCornerX, y0 + wL)
+        .stroke({ width: 1, color: "black" });
+    }
     if (!hideRightBottomFrontLine) {
       draw
-        .line(innerCornerX, bottomFrontY, x0 + w, bottomFrontY)
+        .line(innerCornerX, bottomFrontY, rightBottomFrontEndX, bottomFrontY)
         .stroke({ width: 1, color: "black" });
     }
     draw
@@ -1595,15 +1608,9 @@ function drawLeftSideLeg(x0, y0, h) {
   const pa = legPoint(p2.x + 18, p2.y - Math.tan(angleRad) * 18 - 2 - dh);
   const pb = legPoint(p9.x + 18, p9.y - Math.tan(angleRad) * 18 - 2 - dh2);
 
-  if (legMethod === "H1" || legMethod === "H2") {
-    drawLegLine(legBackTop, p1);
-    drawLegLine(p1, p2);
-    drawLegLine(p2, p6);
-  } else {
-    drawLegLine(legBackTop, p1);
-    drawLegLine(p1, p2);
-    drawLegLine(p2, p6);
-  }
+  drawLegLine(legMethod === "H2" ? p0 : legBackTop, p1);
+  drawLegLine(p1, p2);
+  drawLegLine(p2, p6);
 
   if (legMethod === "K1" || legMethod === "H1" || legMethod === "H2") {
     drawLegLine(p2, k1P3);
@@ -1690,7 +1697,14 @@ function drawRightSideLeg(x0, yBottom) {
   const pa = legPoint(p2.x + 18, p2.y - Math.tan(angleRad) * 18 - 2 - dh);
   const pb = legPoint(p9.x + 18, p9.y - Math.tan(angleRad) * 18 - 2 - dh2);
 
-  drawLegLine(toWorld(legBackTop), toWorld(p1));
+  drawLegLine(
+    toWorld(
+      legMethod === "K1" || legMethod === "H1" || legMethod === "H2"
+        ? p0
+        : legBackTop,
+    ),
+    toWorld(p1),
+  );
   drawLegLine(toWorld(p1), toWorld(p2));
   drawLegLine(toWorld(p2), toWorld(p6));
 
@@ -1701,8 +1715,6 @@ function drawRightSideLeg(x0, yBottom) {
   if (legMethod === "H2") {
     drawLegLine(toWorld(p0), toWorld(k1P4));
   }
-
-  drawRightLegDebugPoint("KP", toWorld(p1));
 
   if (frontWrap > 0) {
     drawLegDashedLine(toWorld(p7), toWorld(p8));
@@ -1732,7 +1744,13 @@ function drawRightSideLeg(x0, yBottom) {
   drawLegLine(toWorld(p26), toWorld(p29));
 }
 
-function drawRightLegDebugPoint(label, point) {
+function drawLegEndpointMarkers(points, startLabel = 1) {
+  points.forEach((point, index) => {
+    drawLegEndpointMarker(point, String(startLabel + index));
+  });
+}
+
+function drawLegEndpointMarker(point, label) {
   const color = "#e11d48";
   draw
     .circle(8)
@@ -1745,12 +1763,6 @@ function drawRightLegDebugPoint(label, point) {
     .font({ size: 6, family: "Arial", weight: "bold" })
     .fill(color)
     .move(point.x + 5, point.y - 10);
-}
-
-function drawRightLegDebugLine(from, to) {
-  draw
-    .line(from.x, from.y, to.x, to.y)
-    .stroke({ width: 1.5, color: "#e11d48", dasharray: "4,3" });
 }
 
 function drawTopWall(x0, y0, w) {

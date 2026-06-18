@@ -397,10 +397,11 @@
               <label>未稅總價</label>
               <div class="inline">
                 <input
-                  v-model.number="form.total"
+                  :value="pricingUntaxedInputValue"
                   type="number"
                   min="0"
                   style="width: 140px"
+                  @input="onUntaxedTotalInput"
                 />
                 <button
                   v-if="form.pricePerCm && form.countertop?.totalCm"
@@ -469,6 +470,10 @@
                   </div>
 
                   <!-- 其他開孔 -->
+                  <div v-if="pricingFormulaDisplay.legLaborItems.length">
+                    平接{{ fmtCurrency(pricingFormulaDisplay.legLaborSubtotal) }}
+                  </div>
+
                   <div v-if="pricingFormulaDisplay.otherCutoutItems.length">
                     其他{{
                       fmtCurrency(pricingFormulaDisplay.otherCutoutSubtotal)
@@ -1372,9 +1377,27 @@ function getDrawingLengthByType(type, state, depthOpts) {
     );
   }
   if (normalized === "island") {
-    const rawLen = deriveIslandTotalLengthFromState(state);
-    const f = calcDepthFactor(state?.form?.depth ?? 60, std, prop, back, front);
-    return Math.round(rawLen * f);
+    const islandForm = state?.form || {};
+    const bodyTotal = deriveIslandBodyLengthFromState(state);
+    const bodyFactor = calcDepthFactor(
+      islandForm.depth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+    );
+    const legCount = getIslandLegCount(islandForm.legMode);
+    const legFactor = calcIslandLegDepthFactor(
+      islandForm.depth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+      islandForm.frontWrap,
+      islandForm.backWrap,
+    );
+    const legTotal = parseLoosePositive(islandForm.legHeight) * legFactor * legCount;
+    return Math.round(bodyTotal * bodyFactor + legTotal);
   }
   return 0;
 }
@@ -1402,6 +1425,60 @@ function depthScaledTerm(
   const adjustedDepth = Math.max(totalUse - 8, 0);
   if (adjustedDepth <= threshold) return formatCmNumber(len);
   return `${formatCmNumber(len)}×((${formatCmNumber(totalUse)}-8)/${formatCmNumber(base)})`;
+}
+
+function calcIslandLegDepthFactor(
+  actualDepth,
+  standard,
+  proportional,
+  backHeight = 4,
+  frontHeight = 4,
+  frontWrap = 0,
+  backWrap = 0,
+) {
+  if (!proportional) return 1;
+  const d = parseLoosePositive(actualDepth);
+  const threshold = parseLoosePositive(standard) || 60;
+  if (!d) return 1;
+  const totalUse =
+    d +
+    (parseLoosePositive(frontHeight) || 4) +
+    (parseLoosePositive(backHeight) || 4) +
+    parseLoosePositive(frontWrap) +
+    parseLoosePositive(backWrap);
+  const adjustedDepth = Math.max(totalUse - 8, 0);
+  if (adjustedDepth <= threshold) return 1;
+  return Math.round((adjustedDepth / 60) * 1000) / 1000;
+}
+
+function islandLegDepthScaledTerm(
+  legHeight,
+  actualDepth,
+  standard,
+  proportional,
+  backHeight = 4,
+  frontHeight = 4,
+  frontWrap = 0,
+  backWrap = 0,
+  legCount = 1,
+) {
+  const height = parseLoosePositive(legHeight);
+  if (!height) return "";
+  const count = parseLoosePositive(legCount);
+  const d = parseLoosePositive(actualDepth);
+  const threshold = parseLoosePositive(standard) || 60;
+  const totalUse =
+    d +
+    (parseLoosePositive(frontHeight) || 4) +
+    (parseLoosePositive(backHeight) || 4) +
+    parseLoosePositive(frontWrap) +
+    parseLoosePositive(backWrap);
+  const adjustedDepth = Math.max(totalUse - 8, 0);
+  const countText = count > 1 ? `×${formatCmNumber(count)}` : "";
+  if (!proportional || !d || adjustedDepth <= threshold) {
+    return `${formatCmNumber(height)}${countText}`;
+  }
+  return `${formatCmNumber(height)}×((${formatCmNumber(d)}+${formatCmNumber(frontHeight)}+${formatCmNumber(backHeight)}+${formatCmNumber(frontWrap)}+${formatCmNumber(backWrap)}-8)/60)${countText}`;
 }
 
 function getDrawingLengthFormula(type, state, depthOpts) {
@@ -1489,7 +1566,8 @@ function getDrawingLengthFormula(type, state, depthOpts) {
   }
   if (normalized === "island") {
     const f = state?.form || {};
-    const rawLen = [
+    const bodyTotal = deriveIslandBodyLengthFromState(state);
+    const bodyParts = [
       f.plusLeft,
       f.box1,
       f.box2,
@@ -1499,38 +1577,36 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       f.box6,
       f.box7,
       f.plusRight,
-      f.frontWrap,
-      f.backWrap,
-    ]
-      .map((v) => parseLoosePositive(v))
-      .filter((v) => v > 0)
-      .reduce((sum, v) => sum + v, 0);
-    const parts = [
-      f.plusLeft,
-      f.box1,
-      f.box2,
-      f.box3,
-      f.box4,
-      f.box5,
-      f.box6,
-      f.box7,
-      f.plusRight,
-      f.frontWrap,
-      f.backWrap,
     ]
       .map((v) => parseLoosePositive(v))
       .filter((v) => v > 0)
       .map((v) => formatCmNumber(v));
-    const base = parts.join("+") || formatCmNumber(rawLen);
-    const d = state?.form?.depth ?? 60;
-    const islandExpr = depthScaledTerm(rawLen, d, std, prop, back, front);
-    if (!islandExpr.includes("×")) return base;
-    const totalUse = formatCmNumber(
-      (parseLoosePositive(front) || 4) +
-        (parseLoosePositive(back) || 4) +
-        (parseLoosePositive(d) || 60),
+    const bodyBase = formatCmNumber(bodyTotal) || bodyParts.join("+");
+    const bodyExpr = depthScaledTerm(
+      bodyTotal,
+      f.depth ?? 60,
+      std,
+      prop,
+      back,
+      front,
     );
-    return `(${base})×((${totalUse}-8)/60)`;
+    const bodyFormula =
+      bodyExpr === formatCmNumber(bodyTotal) ? bodyBase : bodyExpr;
+    const legCount = getIslandLegCount(f.legMode);
+    const legExpr = legCount
+      ? islandLegDepthScaledTerm(
+          f.legHeight,
+          f.depth ?? 60,
+          std,
+          prop,
+          back,
+          front,
+          f.frontWrap,
+          f.backWrap,
+          legCount,
+        )
+      : "";
+    return [bodyFormula, legExpr].filter(Boolean).join("+");
   }
   return "";
 }
@@ -1569,9 +1645,15 @@ function getDrawingCutoutItems(type, state) {
   return [];
 }
 
-function deriveIslandTotalLengthFromState(state) {
+function getIslandLegCount(mode) {
+  if (mode === "B") return 2;
+  if (mode === "L" || mode === "R") return 1;
+  return 0;
+}
+
+function deriveIslandBodyLengthFromState(state) {
   const f = state?.form || {};
-  const parts = [
+  const total = [
     f.plusLeft,
     f.box1,
     f.box2,
@@ -1581,10 +1663,25 @@ function deriveIslandTotalLengthFromState(state) {
     f.box6,
     f.box7,
     f.plusRight,
+  ].reduce((sum, val) => sum + parseLoosePositive(val), 0);
+  return Math.round(total * 100) / 100;
+}
+
+function deriveIslandTotalLengthFromState(state) {
+  const f = state?.form || {};
+  const bodyTotal = deriveIslandBodyLengthFromState(state);
+  const legCount = getIslandLegCount(f.legMode);
+  const legFactor = calcIslandLegDepthFactor(
+    f.depth ?? 60,
+    60,
+    true,
+    4,
+    4,
     f.frontWrap,
     f.backWrap,
-  ];
-  const total = parts.reduce((sum, val) => sum + parseLoosePositive(val), 0);
+  );
+  const legTotal = parseLoosePositive(f.legHeight) * legFactor * legCount;
+  const total = bodyTotal + legTotal;
   return Math.round(total * 100) / 100;
 }
 
@@ -1626,14 +1723,24 @@ function buildCutoutLineItemsFromState(type, state, materialType) {
   return rows;
 }
 
+function buildIslandLegLaborLineItemsFromState(type, state) {
+  if (!isIslandDrawing(type)) return [];
+  const legCount = getIslandLegCount(state?.form?.legMode);
+  if (!legCount) return [];
+  const label = getDrawingTypeLabel(type);
+  return [
+    normalizePricingItem({
+      description: `${label}側腳平接工資（6000×${legCount}）`,
+      qty: legCount,
+      unit: "片",
+      unitPrice: 6000,
+      amount: 6000 * legCount,
+    }),
+  ];
+}
+
 function buildLineItemsFromDrawingState(drawings, orderData) {
   const list = Array.isArray(drawings) ? drawings : [];
-
-  // 若某種圖面 state 已帶 lineItems，直接優先使用
-  for (const d of list) {
-    const rows = normalizePricingItems(d?.state?.lineItems || []);
-    if (rows.length) return rows;
-  }
 
   const rows = [];
   const typeCounts = new Map();
@@ -1681,6 +1788,8 @@ function buildLineItemsFromDrawingState(drawings, orderData) {
       );
     }
 
+    rows.push(...buildIslandLegLaborLineItemsFromState(drawing?.type, drawing.state));
+
     rows.push(
       ...buildCutoutLineItemsFromState(
         drawing?.type,
@@ -1690,7 +1799,15 @@ function buildLineItemsFromDrawingState(drawings, orderData) {
     );
   }
 
-  return rows;
+  if (rows.length) return rows;
+
+  // 舊版繪圖 state 可能保存過半截 lineItems；沒有可由尺寸重建時才回退使用。
+  for (const d of list) {
+    const fallbackRows = normalizePricingItems(d?.state?.lineItems || []);
+    if (fallbackRows.length) return fallbackRows;
+  }
+
+  return [];
 }
 
 const editablePricingRows = computed(() => {
@@ -1739,6 +1856,26 @@ const pricingTaxAmount = computed(() => {
   return diff > 0 ? diff : 0;
 });
 
+const pricingUntaxedInputValue = computed(() => {
+  if (pricingRows.value.length) return pricingSubtotal.value;
+  return form.value?.total ?? "";
+});
+
+function onUntaxedTotalInput(event) {
+  if (pricingRows.value.length) return;
+  form.value.total = Number(event?.target?.value) || 0;
+}
+
+function syncTotalsFromPricingRows() {
+  if (!pricingRows.value.length) return;
+  const subtotal = pricingSubtotal.value;
+  const taxRate = Number(form.value.taxRate);
+  const rate = Number.isFinite(taxRate) ? taxRate : 0.05;
+  form.value.subtotal = subtotal;
+  form.value.total = subtotal;
+  form.value.grandTotal = Math.round(subtotal * (1 + rate));
+}
+
 const pricingFormulaDisplay = computed(() => {
   const rows = pricingRows.value;
   if (!rows.length) return null;
@@ -1755,28 +1892,41 @@ const pricingFormulaDisplay = computed(() => {
       String(r.description || ""),
     ),
   );
+  const legLaborItems = cutoutItems.filter((r) =>
+    /(側腳|平接|工資)/.test(String(r.description || "")),
+  );
   const otherCutoutItems = cutoutItems.filter(
-    (r) => !sinkItems.includes(r) && !stoveItems.includes(r),
+    (r) =>
+      !sinkItems.includes(r) &&
+      !stoveItems.includes(r) &&
+      !legLaborItems.includes(r),
   );
 
   const mainSubtotal = mainItems.reduce((sum, r) => sum + toNum(r.amount), 0);
   const sinkSubtotal = sinkItems.reduce((sum, r) => sum + toNum(r.amount), 0);
   const stoveSubtotal = stoveItems.reduce((sum, r) => sum + toNum(r.amount), 0);
+  const legLaborSubtotal = legLaborItems.reduce(
+    (sum, r) => sum + toNum(r.amount),
+    0,
+  );
   const otherCutoutSubtotal = otherCutoutItems.reduce(
     (sum, r) => sum + toNum(r.amount),
     0,
   );
-  const cutoutSubtotal = sinkSubtotal + stoveSubtotal + otherCutoutSubtotal;
+  const cutoutSubtotal =
+    sinkSubtotal + stoveSubtotal + legLaborSubtotal + otherCutoutSubtotal;
   const taxRate = Number(form.value?.taxRate) || 0.05;
 
   return {
     mainItems,
     sinkItems,
     stoveItems,
+    legLaborItems,
     otherCutoutItems,
     mainSubtotal,
     sinkSubtotal,
     stoveSubtotal,
+    legLaborSubtotal,
     otherCutoutSubtotal,
     cutoutSubtotal,
     subtotal: pricingSubtotal.value,
@@ -1836,15 +1986,7 @@ function removePricingItem(index) {
 }
 
 function recalcPricingTotals() {
-  const subtotal = pricingRows.value.reduce(
-    (sum, row) => sum + toNum(row.amount),
-    0,
-  );
-  const taxRate = Number(form.value.taxRate);
-  const rate = Number.isFinite(taxRate) ? taxRate : 0.05;
-  form.value.subtotal = subtotal;
-  form.value.total = subtotal;
-  form.value.grandTotal = Math.round(subtotal * (1 + rate));
+  syncTotalsFromPricingRows();
 }
 
 function formatPricingRowPreview(row, idx) {
@@ -1868,6 +2010,15 @@ function buildPricingImportPreviewText(rows) {
     lines.push(`...其餘 ${rows.length - 20} 項省略`);
   }
   return lines.join("\n");
+}
+
+function getPricingRowMatchKey(row) {
+  const desc = String(row?.description || row?.name || "").trim();
+  return (
+    desc.match(/^(.*?#\d+)/)?.[1] ||
+    desc.match(/^(.*?(?:水槽|爐具)開孔\d+)/)?.[1] ||
+    ""
+  );
 }
 
 async function importPricingFromDrawing() {
@@ -1896,10 +2047,12 @@ async function importPricingFromDrawing() {
     const oldItems = form.value.lineItems || [];
     rows = rows.map((newRow) => {
       // 先嘗試用 description 匹配
+      const newMatchKey = getPricingRowMatchKey(newRow);
       const matchedOld = oldItems.find(
         (old) =>
           String(old.description || "").trim() ===
-          String(newRow.description || "").trim(),
+            String(newRow.description || "").trim() ||
+          (newMatchKey && getPricingRowMatchKey(old) === newMatchKey),
       );
       if (matchedOld && Number(matchedOld.unitPrice) > 0) {
         return {
@@ -2171,6 +2324,7 @@ async function onSave({
   saving.value = true;
   try {
     form.value.lineItems = normalizePricingItems(form.value.lineItems);
+    syncTotalsFromPricingRows();
     const payload = toPayload();
     let customerPricingSyncFailed = false;
     if (isEdit.value) {

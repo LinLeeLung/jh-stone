@@ -887,42 +887,54 @@
                       v-for="(item, idx) in priceFormulaDisplay.mainItems"
                       :key="idx"
                     >
-                      <span v-if="idx > 0">+</span>@{{ item.unitPrice }}×{{
-                        item.qty
-                      }}={{ item.qty * item.unitPrice }}
+                      <span v-if="idx > 0">+</span>{{ item.calcText }}
                     </span>
                   </div>
 
-                  <!-- 下嵌 -->
-                  <div v-if="priceFormulaDisplay.sinkItems.length">
-                    下嵌{{ priceFormulaDisplay.sinkSubtotal.toLocaleString() }}
-                  </div>
-
-                  <!-- 上掛 + 合計 -->
+                  <!-- 開孔 / 工資 -->
                   <div
+                    v-if="
+                      priceFormulaDisplay.sinkItems.length ||
+                      priceFormulaDisplay.stoveItems.length ||
+                      priceFormulaDisplay.legLaborItems.length ||
+                      priceFormulaDisplay.otherCutoutItems.length
+                    "
                     style="
                       display: flex;
                       gap: 12px;
-                      justify-content: space-between;
+                      flex-wrap: wrap;
                       align-items: center;
                     "
                   >
-                    <div v-if="priceFormulaDisplay.stoveItems.length">
-                      上掛{{
-                        priceFormulaDisplay.stoveSubtotal.toLocaleString()
+                    <span v-if="priceFormulaDisplay.sinkItems.length">
+                      下嵌{{ priceFormulaDisplay.sinkSubtotal.toLocaleString() }}
+                    </span>
+                    <span v-if="priceFormulaDisplay.stoveItems.length">
+                      上掛{{ priceFormulaDisplay.stoveSubtotal.toLocaleString() }}
+                    </span>
+                    <span v-if="priceFormulaDisplay.legLaborItems.length">
+                      平接{{
+                        priceFormulaDisplay.legLaborSubtotal.toLocaleString()
                       }}
-                    </div>
-                    <div v-else style="flex: 1"></div>
+                    </span>
+                    <span v-if="priceFormulaDisplay.otherCutoutItems.length">
+                      其他{{
+                        priceFormulaDisplay.otherCutoutSubtotal.toLocaleString()
+                      }}
+                    </span>
+                  </div>
+
+                  <!-- 合計 -->
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: flex-end;
+                      align-items: center;
+                    "
+                  >
                     <div style="font-weight: 700; color: #d9534f">
                       合計{{ priceFormulaDisplay.subtotal.toLocaleString() }}
                     </div>
-                  </div>
-
-                  <!-- 其他開孔 -->
-                  <div v-if="priceFormulaDisplay.otherCutoutItems.length">
-                    其他{{
-                      priceFormulaDisplay.otherCutoutSubtotal.toLocaleString()
-                    }}
                   </div>
                 </div>
                 <!-- 舊格式（計價明細表格） -->
@@ -1483,17 +1495,92 @@ const issueOperatorDisplay = computed(() => {
   return issuedByDisplayName.value;
 });
 
-// 未稅價顯示：優先取 subtotal（lineItems 小計）→ total（手動輸入）→ lineItems 加總 → grandTotal
+function lineItemsSubtotal(orderData) {
+  const items = Array.isArray(orderData?.lineItems) ? orderData.lineItems : [];
+  if (!items.length) return null;
+  const subtotal = items.reduce((sum, item) => {
+    const amount = Number(item?.amount);
+    if (Number.isFinite(amount)) return sum + amount;
+    const qty = Number(item?.qty) || 0;
+    const unitPrice = Number(item?.unitPrice) || 0;
+    return sum + Math.round(qty * unitPrice);
+  }, 0);
+  return subtotal > 0 ? subtotal : null;
+}
+
+function untaxedSubtotalValue(orderData) {
+  if (!orderData) return 0;
+  const lineSubtotal = lineItemsSubtotal(orderData);
+  if (lineSubtotal != null) return lineSubtotal;
+  const subtotal = Number(orderData.subtotal);
+  if (Number.isFinite(subtotal) && subtotal > 0) return subtotal;
+  const total = Number(orderData.total);
+  if (Number.isFinite(total) && total > 0) return total;
+  const grandTotal = Number(orderData.grandTotal);
+  return Number.isFinite(grandTotal) && grandTotal > 0 ? grandTotal : 0;
+}
+
+// 從描述中抽出「第一組完整括號」內的計算式
+// 例：L型#1（270+240-30(轉角)=480cm） 鈦鋼石...(12mm)
+function extractPricingFormula(s) {
+  const text = String(s || "");
+  const open = text.search(/[（(]/);
+  if (open < 0) return "";
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "(" || ch === "（") depth += 1;
+    if (ch === ")" || ch === "）") {
+      depth -= 1;
+      if (depth === 0) return text.slice(open + 1, i).trim();
+    }
+  }
+  return "";
+}
+
+function normalizeFormulaText(value) {
+  const normalized = String(value || "")
+    .replace(/cm\s*$/i, "")
+    .replace(/乘以|乘/g, "×")
+    .replace(/[xX*＊]/g, "×")
+    .replace(/[÷／]/g, "/")
+    .replace(/\s+/g, "")
+    .trim();
+  return compactIslandBodyFormula(normalized);
+}
+
+function compactIslandBodyFormula(value) {
+  return String(value || "").replace(
+    /^((?:\d+(?:\.\d+)?\+){2,}\d+(?:\.\d+)?)(\+\d+(?:\.\d+)?×\(\()/,
+    (_match, bodyExpr, legExprStart) => {
+      const bodyTotal = bodyExpr
+        .split("+")
+        .reduce((sum, part) => sum + (Number(part) || 0), 0);
+      return `${formatQty(bodyTotal)}${legExprStart}`;
+    },
+  );
+}
+
+function formatQty(value) {
+  const n = Number(value) || 0;
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+
+function formatMainPriceCalc(item) {
+  const qty = Number(item?.qty) || 0;
+  const unitPrice = Number(item?.unitPrice) || 0;
+  const amount = Number(item?.amount) || Math.round(qty * unitPrice);
+  const formula = normalizeFormulaText(extractPricingFormula(item?.description));
+  const qtyText = formatQty(qty);
+  const base = formula ? `(${formula})` : qtyText;
+  return `${base}×${unitPrice}=${amount.toLocaleString()}`;
+}
+
+// 未稅價顯示：有 lineItems 時優先取明細小計，避免 subtotal/total 舊值殘留
 const untaxedPriceDisplay = computed(() => {
   const o = order.value;
   if (!o) return "";
-  let v = o.subtotal;
-  if (v == null) v = o.total;
-  if (v == null && Array.isArray(o.lineItems) && o.lineItems.length) {
-    v = o.lineItems.reduce((s, li) => s + (Number(li.amount) || 0), 0);
-  }
-  if (v == null) v = o.grandTotal;
-  const n = Number(v);
+  const n = untaxedSubtotalValue(o);
   return n > 0 ? n.toLocaleString() : "";
 });
 
@@ -1502,20 +1589,16 @@ const priceFormulaDisplay = computed(() => {
   const o = order.value;
   if (!o) return null;
 
-  // 計算未稅小計
-  let subtotal = o.subtotal;
-  if (subtotal == null) subtotal = o.total;
-  if (subtotal == null && Array.isArray(o.lineItems) && o.lineItems.length) {
-    subtotal = o.lineItems.reduce((s, li) => s + (Number(li.amount) || 0), 0);
-  }
-  if (subtotal == null) subtotal = 0;
-  subtotal = Number(subtotal) || 0;
+  const subtotal = untaxedSubtotalValue(o);
 
   // 分類項目
   const lineItems = Array.isArray(o.lineItems) ? o.lineItems : [];
-  const mainItems = lineItems.filter(
-    (r) => String(r.unit || "").trim() === "cm",
-  );
+  const mainItems = lineItems
+    .filter((r) => String(r.unit || "").trim() === "cm")
+    .map((r) => ({
+      ...r,
+      calcText: formatMainPriceCalc(r),
+    }));
   const sinkItems = lineItems.filter((r) =>
     /水槽/.test(String(r.description || "")),
   );
@@ -1524,11 +1607,15 @@ const priceFormulaDisplay = computed(() => {
       String(r.description || ""),
     ),
   );
+  const legLaborItems = lineItems.filter((r) =>
+    /(側腳|平接|工資)/.test(String(r.description || "")),
+  );
   const otherCutoutItems = lineItems.filter(
     (r) =>
       String(r.unit || "").trim() !== "cm" &&
       !sinkItems.includes(r) &&
-      !stoveItems.includes(r),
+      !stoveItems.includes(r) &&
+      !legLaborItems.includes(r),
   );
 
   const mainSubtotal = mainItems.reduce(
@@ -1540,6 +1627,10 @@ const priceFormulaDisplay = computed(() => {
     0,
   );
   const stoveSubtotal = stoveItems.reduce(
+    (s, r) => s + (Number(r.amount) || 0),
+    0,
+  );
+  const legLaborSubtotal = legLaborItems.reduce(
     (s, r) => s + (Number(r.amount) || 0),
     0,
   );
@@ -1556,10 +1647,12 @@ const priceFormulaDisplay = computed(() => {
     mainItems,
     sinkItems,
     stoveItems,
+    legLaborItems,
     otherCutoutItems,
     mainSubtotal,
     sinkSubtotal,
     stoveSubtotal,
+    legLaborSubtotal,
     otherCutoutSubtotal,
     subtotal,
     taxRate,
@@ -1593,27 +1686,6 @@ const priceBreakdown = computed(() => {
     String(s || "")
       .replace(/\s+[A-Z]{2,}[\w\s\u4e00-\u9fff\u3000-\u303f]*$/u, "")
       .trim();
-
-  // 從描述中抽出「第一組完整括號」內的計算式
-  // 例：L型#1（270+240-30(轉角)=480cm） 鈦鋼石...(12mm)
-  // 只取 270+240-30(轉角)=480cm，避免把後段材質括號混進來
-  const extractFormula = (s) => {
-    const text = String(s || "");
-    const open = text.search(/[（(]/);
-    if (open < 0) return "";
-    let depth = 0;
-    for (let i = open; i < text.length; i += 1) {
-      const ch = text[i];
-      if (ch === "(" || ch === "（") depth += 1;
-      if (ch === ")" || ch === "）") {
-        depth -= 1;
-        if (depth === 0) {
-          return text.slice(open + 1, i).trim();
-        }
-      }
-    }
-    return "";
-  };
 
   // 僅保留算式中的數字與運算符號，移除中文與其他說明文字
   const toNumericFormula = (value) => {
@@ -1707,7 +1779,7 @@ const priceBreakdown = computed(() => {
     const displayName = stripStone(name) || name;
     const unit = li.unit || "";
     const key = `${displayName}__${up}__${unit}`;
-    const formula = extractFormula(li.description);
+    const formula = extractPricingFormula(li.description);
     const g = groups.get(key) || {
       name: displayName,
       unit,
