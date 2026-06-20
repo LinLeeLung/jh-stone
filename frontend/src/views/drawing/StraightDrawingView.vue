@@ -351,6 +351,51 @@
             @change="redraw"
           />
         </label>
+        <label
+          ><input
+            type="radio"
+            v-model="leftOption"
+            value="左側落腳"
+            @change="handleSideLegOptionChange('left')"
+          />側落腳</label
+        >
+        <template v-if="leftOption === '左側落腳'">
+          腳高<input
+            type="number"
+            class="number"
+            v-model.number="leftSideLeg.height"
+            @change="redraw"
+          />
+          深<input
+            type="number"
+            class="number"
+            v-model.number="leftSideLeg.depth"
+            @change="markSideLegDepthCustom(leftSideLeg)"
+          />
+          厚<input
+            type="number"
+            class="number"
+            v-model.number="leftSideLeg.thickness"
+            @change="redraw"
+          />
+          倒包<input
+            type="number"
+            class="number"
+            v-model.number="leftSideLeg.wrap"
+            @change="redraw"
+          />
+          倒包字<input
+            type="number"
+            class="number"
+            v-model.number="leftSideLeg.wrapFontSize"
+            @change="redraw"
+          />
+          工法<select v-model="leftSideLeg.method" @change="redraw">
+            <option value="K1">K1</option>
+            <option value="H1">H1</option>
+            <option value="H2">H2</option>
+          </select>
+        </template>
         <br />
         <!-- 右側 -->
         <label
@@ -400,6 +445,51 @@
             @change="redraw"
           />
         </label>
+        <label
+          ><input
+            type="radio"
+            v-model="rightOption"
+            value="右側落腳"
+            @change="handleSideLegOptionChange('right')"
+          />側落腳</label
+        >
+        <template v-if="rightOption === '右側落腳'">
+          腳高<input
+            type="number"
+            class="number"
+            v-model.number="rightSideLeg.height"
+            @change="redraw"
+          />
+          深<input
+            type="number"
+            class="number"
+            v-model.number="rightSideLeg.depth"
+            @change="markSideLegDepthCustom(rightSideLeg)"
+          />
+          厚<input
+            type="number"
+            class="number"
+            v-model.number="rightSideLeg.thickness"
+            @change="redraw"
+          />
+          倒包<input
+            type="number"
+            class="number"
+            v-model.number="rightSideLeg.wrap"
+            @change="redraw"
+          />
+          倒包字<input
+            type="number"
+            class="number"
+            v-model.number="rightSideLeg.wrapFontSize"
+            @change="redraw"
+          />
+          工法<select v-model="rightSideLeg.method" @change="redraw">
+            <option value="K1">K1</option>
+            <option value="H1">H1</option>
+            <option value="H2">H2</option>
+          </select>
+        </template>
         <br />
         <!-- 後側 -->
         <label
@@ -734,7 +824,7 @@ const connectValue = ref(210);
 const isCutlineToggled = ref(false);
 
 const sink1 = reactive({
-  enabled: true,
+  enabled: false,
   position: "水中",
   center: 255,
   sinkLength: 67.8,
@@ -768,7 +858,7 @@ const stove1 = reactive({
   dig: 7,
 });
 const stove2 = reactive({
-  enabled: true,
+  enabled: false,
   position: "火中",
   dis: 45,
   stoveLength: 67,
@@ -782,6 +872,24 @@ const rightOption = ref("右靠牆");
 const backOption = ref("後靠牆");
 const slabDepthLeft = ref(null);
 const slabDepthRight = ref(null);
+const leftSideLeg = reactive({
+  height: 85,
+  depth: 60,
+  thickness: 4,
+  wrap: 12,
+  wrapFontSize: 10,
+  method: "K1",
+  depthCustom: false,
+});
+const rightSideLeg = reactive({
+  height: 85,
+  depth: 60,
+  thickness: 4,
+  wrap: 12,
+  wrapFontSize: 10,
+  method: "K1",
+  depthCustom: false,
+});
 const backstop = ref(true);
 const backHeight = ref(4);
 
@@ -866,6 +974,8 @@ function getSnapshot() {
     backOption: backOption.value,
     slabDepthLeft: slabDepthLeft.value,
     slabDepthRight: slabDepthRight.value,
+    leftSideLeg: { ...leftSideLeg },
+    rightSideLeg: { ...rightSideLeg },
     backstop: backstop.value,
     backHeight: backHeight.value,
     frontType: frontType.value,
@@ -912,6 +1022,12 @@ function restoreSnapshot(snap) {
   if (snap.backOption != null) backOption.value = snap.backOption;
   if (snap.slabDepthLeft != null) slabDepthLeft.value = snap.slabDepthLeft;
   if (snap.slabDepthRight != null) slabDepthRight.value = snap.slabDepthRight;
+  if (snap.leftSideLeg && typeof snap.leftSideLeg === "object") {
+    Object.assign(leftSideLeg, snap.leftSideLeg);
+  }
+  if (snap.rightSideLeg && typeof snap.rightSideLeg === "object") {
+    Object.assign(rightSideLeg, snap.rightSideLeg);
+  }
   if (snap.backstop != null) backstop.value = snap.backstop;
   if (snap.backHeight != null) backHeight.value = snap.backHeight;
   if (snap.frontType != null) frontType.value = snap.frontType;
@@ -980,6 +1096,20 @@ function preFillFromOrder(ord) {
     if (t2.holeDepthMm) stove2.stoveDepth = t2.holeDepthMm / 10;
     if (t2.holeRadiusMm) stove2.R = t2.holeRadiusMm / 10;
   }
+}
+
+function markSideLegDepthCustom(leg) {
+  leg.depthCustom = true;
+  redraw();
+}
+
+function syncSideLegDefaultDepth(leg) {
+  if (!leg.depthCustom) leg.depth = Number(depthVal.value) || 60;
+}
+
+function handleSideLegOptionChange(side) {
+  syncSideLegDefaultDepth(side === "left" ? leftSideLeg : rightSideLeg);
+  redraw();
 }
 
 async function saveDrawing() {
@@ -1063,6 +1193,8 @@ function redraw() {
   if (leftOption.value === "左見光") drawLeftOpen();
   if (leftOption.value === "左齊桶身")
     drawTriangleWithDiamond(_startx - 10, _starty + _depth / 2, 10);
+  if (leftOption.value === "左側落腳")
+    drawLeftSideLeg(_startx, _starty, _depth);
 
   if (rightOption.value === "右靠牆")
     drawRightWall(
@@ -1090,6 +1222,8 @@ function redraw() {
   if (rightOption.value === "右見光") drawRightOpen();
   if (rightOption.value === "右齊桶身")
     drawTriangleWithDiamond(_startx + _length + 10, _starty + _depth / 2, 10);
+  if (rightOption.value === "右側落腳")
+    drawRightSideLeg(_startx + _length, _starty + _depth);
 
   if (backstop.value) drawBackStop();
 
@@ -1585,6 +1719,325 @@ function drawBackStop() {
   draw
     .line(_startx, _starty + 2, _startx + _length, _starty + 2)
     .stroke({ width: 1, color: "black" });
+}
+
+function legPoint(x, y) {
+  return { x, y };
+}
+
+function legPad(point, angleDeg, distance) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return legPoint(
+    point.x + Math.cos(rad) * distance,
+    point.y - Math.sin(rad) * distance,
+  );
+}
+
+function drawLegLine(a, b) {
+  draw.line(a.x, a.y, b.x, b.y).stroke({ width: 1, color: "black" });
+}
+
+function drawLegDashedLine(a, b) {
+  draw
+    .line(a.x, a.y, b.x, b.y)
+    .stroke({ width: 1, color: "black", dasharray: "5,4" });
+}
+
+function drawLegText(text, x, y, size = 8) {
+  draw.text(String(text)).font({ size, family: "DFKai-sb" }).move(x, y);
+}
+
+function drawLegAngledText(text, x, y, size, angle) {
+  const node = draw.text(String(text)).font({ size, family: "DFKai-sb" });
+  node.move(x, y);
+  node.rotate(-angle, x, y);
+}
+
+function drawLegAngledTextCentered(text, cx, cy, size, angle) {
+  const node = draw.text(String(text)).font({ size, family: "DFKai-sb" });
+  const box = node.bbox();
+  node.move(cx - box.width / 2, cy - box.height / 2);
+  node.rotate(-angle, cx, cy);
+}
+
+function getLegPointOnLineAtY(a, b, y) {
+  if (Math.abs(b.y - a.y) < 0.001) return legPoint(b.x, y);
+  const ratio = (y - a.y) / (b.y - a.y);
+  return legPoint(a.x + (b.x - a.x) * ratio, y);
+}
+
+function getLegDiagonalPointAtY(start, angleDeg, y) {
+  const rad = (angleDeg * Math.PI) / 180;
+  const sin = Math.sin(rad);
+  if (Math.abs(sin) < 0.001) return legPoint(start.x, y);
+  const distance = (start.y - y) / sin;
+  return legPad(start, angleDeg, distance);
+}
+
+function legDistanceBetween(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function getSideLegValues(leg) {
+  return {
+    depth: Math.max(0, parseFloat(leg.depth) || 0),
+    thickness: Math.max(0, parseFloat(leg.thickness) || 0),
+    height: Math.max(0, parseFloat(leg.height) || 0),
+    wrap: Math.max(0, parseFloat(leg.wrap) || 0),
+    wrapFontSize: Math.max(1, parseFloat(leg.wrapFontSize) || 6),
+    method: leg.method || "K1",
+  };
+}
+
+function drawLeftSideLeg(x0, y0, h) {
+  const leg = getSideLegValues(leftSideLeg);
+  if (leg.depth <= 0 || leg.thickness <= 0 || leg.height <= 0) return;
+  const frontWrap = leg.wrap;
+  const backWrap = backOption.value === "後靠牆" ? 0 : leg.wrap;
+  const legAngle = 45;
+  const angleRad = (legAngle * Math.PI) / 180;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  const tabletopThickness = Math.max(0, parseFloat(counterThick.value) || 0);
+  const legFrontY = y0 + h;
+  const legTopY = legFrontY - leg.depth;
+  const p0 = legPoint(x0, legTopY);
+  const p1 = legPoint(p0.x - leg.height * cos, p0.y + leg.height * sin);
+  const legBackTop = legPoint(
+    p0.x - tabletopThickness * cos,
+    p0.y + tabletopThickness * sin,
+  );
+  const p2 = legPoint(p1.x, p1.y + leg.depth);
+  const p6 = legPoint(p0.x, legFrontY);
+  const p7 = legPoint(p2.x, p2.y - frontWrap);
+  const p8 = legPoint(p0.x, p0.y + leg.depth - frontWrap);
+  const p9 = legPoint(p1.x, p1.y + backWrap);
+  const p10 = legPoint(p0.x, p0.y + backWrap);
+  const p21 = legPoint(p2.x, p2.y + 10);
+  const k1P3 = legPoint(p2.x + leg.thickness, p2.y);
+  const k1Length = Math.max(
+    0,
+    leg.height - (sin === 0 ? tabletopThickness : tabletopThickness / sin),
+  );
+  const k1P4 = legPoint(k1P3.x + k1Length * cos, k1P3.y - k1Length * sin);
+  const p22 = legPoint(p1.x, p1.y - 55);
+  const p24 = { x: p22.x, y: p22.y - 5 };
+  const p26 = legPoint(p0.x, p0.y - 50);
+  const p28 = legPad(p24, legAngle, 10);
+  const p29 = legPad(p26, legAngle + 180, 10);
+  const p30 = legPad(p28, legAngle, 30);
+  const p31 = { x: (p24.x + p30.x) / 2, y: (p24.y + p30.y) / 2 };
+  const dh = (frontWrap - 12) / 2;
+  const dh2 = (backWrap - 12) / 2;
+  const pa = legPoint(p2.x + 18, p2.y - Math.tan(angleRad) * 18 - 2 - dh);
+  const pb = legPoint(p9.x + 18, p9.y - Math.tan(angleRad) * 18 - 2 - dh2);
+
+  drawLegLine(leg.method === "H2" ? p0 : legBackTop, p1);
+  drawLegLine(p1, p2);
+  drawLegLine(p2, p6);
+  if (["K1", "H1", "H2"].includes(leg.method)) {
+    drawLegLine(k1P3, k1P4);
+  }
+  if (["K1", "H1", "H2"].includes(leg.method)) {
+    const k1TabletopBottomStart = legPoint(k1P4.x - leg.thickness, k1P4.y);
+    const k1TabletopBottomEnd = legPoint(
+      k1TabletopBottomStart.x + _length,
+      k1TabletopBottomStart.y,
+    );
+    const k1TabletopBackStart = legPoint(
+      k1TabletopBottomStart.x,
+      k1TabletopBottomStart.y - _depth,
+    );
+    drawLegLine(
+      leg.method === "H2" ? k1P4 : k1TabletopBottomStart,
+      k1TabletopBottomEnd,
+    );
+    if (leg.method === "K1") {
+      drawLegLine(k1TabletopBottomStart, k1TabletopBackStart);
+    }
+    drawLegLine(k1TabletopBackStart, legPoint(x0, y0));
+    if (rightOption.value !== "右側落腳") {
+      drawLegLine(k1TabletopBottomEnd, legPoint(x0 + _length, y0 + h));
+    }
+    const k1Point7 = getLegDiagonalPointAtY(k1P4, legAngle, p2.y);
+    const k1Point8 = getLegDiagonalPointAtY(
+      k1TabletopBottomStart,
+      legAngle,
+      p2.y,
+    );
+    drawLegLine(k1Point7, k1Point8);
+    if (leg.method === "K1" && backWrap > 0) {
+      drawLegDashedLine(
+        legPoint(k1P4.x, k1P4.y + backWrap),
+        legPoint(k1TabletopBottomStart.x, k1TabletopBottomStart.y + backWrap),
+      );
+    }
+    if (leg.method === "H2") {
+      drawLegLine(legPoint(x0, y0 + h), k1P4);
+    }
+  }
+  if (frontWrap > 0) {
+    const frontWrapEnd =
+      leg.method === "K1" ? legPad(p8, legAngle + 180, tabletopThickness) : p8;
+    drawLegDashedLine(p7, frontWrapEnd);
+    const frontWrapTextPoint = ["K1", "H1", "H2"].includes(leg.method)
+      ? legPoint(pa.x, pa.y + 12)
+      : pa;
+    drawLegAngledText(
+      `${frontWrap}倒包石`,
+      frontWrapTextPoint.x,
+      frontWrapTextPoint.y,
+      leg.wrapFontSize,
+      legAngle,
+    );
+  }
+  if (backWrap > 0) {
+    drawLegDashedLine(p9, p10);
+    drawLegAngledText(
+      `${backWrap}倒包石`,
+      pb.x,
+      pb.y,
+      leg.wrapFontSize,
+      legAngle,
+    );
+  }
+  drawLegText(String(leg.thickness), p21.x, p21.y, 8);
+  drawLegAngledTextCentered(
+    String(leg.height),
+    p31.x + 8,
+    p31.y - 8,
+    16,
+    legAngle,
+  );
+  drawLegLine(p22, { x: p22.x, y: p22.y - 10 });
+  drawLegLine(p24, p28);
+  drawLegLine(p26, p29);
+}
+
+function drawRightSideLeg(x0, yBottom) {
+  const leg = getSideLegValues(rightSideLeg);
+  if (leg.depth <= 0 || leg.thickness <= 0 || leg.height <= 0) return;
+  const frontWrap = leg.wrap;
+  const backWrap = backOption.value === "後靠牆" ? 0 : leg.wrap;
+  const legAngle = 45;
+  const rightLegAngle = 180 - legAngle;
+  const angleRad = (legAngle * Math.PI) / 180;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  const tabletopThickness = Math.max(0, parseFloat(counterThick.value) || 0);
+  const yTop = yBottom - _depth;
+  const legTopY = yBottom - leg.depth;
+  const p0 = legPoint(x0, legTopY);
+  const p1 = legPoint(p0.x + leg.height * cos, p0.y + leg.height * sin);
+  const legBackTop = legPoint(
+    p0.x + tabletopThickness * cos,
+    p0.y + tabletopThickness * sin,
+  );
+  const p2 = legPoint(p1.x, p1.y + leg.depth);
+  const p6 = legPoint(p0.x, yBottom);
+  const p7 = legPoint(p2.x, p2.y - frontWrap);
+  const p8 = legPoint(p0.x, p0.y + leg.depth - frontWrap);
+  const p9 = legPoint(p1.x, p1.y + backWrap);
+  const p10 = legPoint(p0.x, p0.y + backWrap);
+  const p21 = legPoint(p2.x, p2.y + 10);
+  const k1P3 = legPoint(p2.x - leg.thickness, p2.y);
+  const k1Length = Math.max(
+    0,
+    leg.height - (sin === 0 ? tabletopThickness : tabletopThickness / sin),
+  );
+  const k1P4 = legPoint(k1P3.x - k1Length * cos, k1P3.y - k1Length * sin);
+  const p22 = legPoint(p1.x, p1.y - 55);
+  const p24 = { x: p22.x, y: p22.y - 5 };
+  const p26 = legPoint(p0.x, p0.y - 50);
+  const p28 = legPad(p24, rightLegAngle, 10);
+  const p29 = legPad(p26, rightLegAngle + 180, 10);
+  const p30 = legPad(p28, rightLegAngle, 30);
+  const p31 = { x: (p24.x + p30.x) / 2, y: (p24.y + p30.y) / 2 };
+
+  const dh = (frontWrap - 12) / 2;
+  const dh2 = (backWrap - 12) / 2;
+  const pa = legPoint(p2.x - 18, p2.y - Math.tan(angleRad) * 18 - 2 - dh);
+  const pb = legPoint(p9.x - 18, p9.y - Math.tan(angleRad) * 18 - 2 - dh2);
+
+  drawLegLine(leg.method === "H2" ? p0 : legBackTop, p1);
+  drawLegLine(p1, p2);
+  drawLegLine(p2, p6);
+  if (["K1", "H1", "H2"].includes(leg.method)) {
+    drawLegLine(k1P3, k1P4);
+  }
+  if (["K1", "H1", "H2"].includes(leg.method)) {
+    const tabletopBottomStart = legPoint(k1P4.x + leg.thickness, k1P4.y);
+    const tabletopBottomEnd = legPoint(
+      tabletopBottomStart.x - _length,
+      tabletopBottomStart.y,
+    );
+    const tabletopBackStart = legPoint(
+      tabletopBottomStart.x,
+      tabletopBottomStart.y - _depth,
+    );
+    drawLegLine(
+      leg.method === "H2" ? k1P4 : tabletopBottomStart,
+      tabletopBottomEnd,
+    );
+    if (leg.method === "K1") {
+      drawLegLine(tabletopBottomStart, tabletopBackStart);
+    }
+    drawLegLine(tabletopBackStart, legPoint(x0, yTop));
+    if (leftOption.value !== "左側落腳") {
+      drawLegLine(tabletopBottomEnd, legPoint(x0 - _length, yBottom));
+    }
+    const point7 = getLegDiagonalPointAtY(k1P4, rightLegAngle, p2.y);
+    const point8 = getLegDiagonalPointAtY(
+      tabletopBottomStart,
+      rightLegAngle,
+      p2.y,
+    );
+    drawLegLine(point7, point8);
+    if (leg.method === "H2") {
+      drawLegLine(legPoint(x0, yBottom), k1P4);
+    }
+  }
+
+  if (frontWrap > 0) {
+    const frontWrapEnd =
+      leg.method === "K1"
+        ? legPad(p8, rightLegAngle + 180, tabletopThickness)
+        : p8;
+    drawLegDashedLine(p7, frontWrapEnd);
+    const frontWrapMid = legPoint((p7.x + p8.x) / 2, (p7.y + p8.y) / 2);
+    const frontWrapTextPoint = ["K1", "H1", "H2"].includes(leg.method)
+      ? legPoint(frontWrapMid.x - 18, frontWrapMid.y + 3)
+      : pa;
+    drawLegAngledText(
+      `${frontWrap}倒包石`,
+      frontWrapTextPoint.x,
+      frontWrapTextPoint.y,
+      leg.wrapFontSize,
+      rightLegAngle + 180,
+    );
+  }
+  if (backWrap > 0) {
+    drawLegDashedLine(p9, p10);
+    drawLegAngledText(
+      `${backWrap}倒包石`,
+      pb.x,
+      pb.y,
+      leg.wrapFontSize,
+      rightLegAngle,
+    );
+  }
+  drawLegText(String(leg.thickness), p21.x - 18, p21.y, 8);
+  drawLegAngledTextCentered(
+    String(leg.height),
+    p31.x - 8,
+    p31.y - 8,
+    16,
+    rightLegAngle + 180,
+  );
+
+  drawLegLine(p22, legPoint(p22.x, p22.y - 10));
+  drawLegLine(p24, p28);
+  drawLegLine(p26, p29);
 }
 
 function drawLeftWall(x1, y1, _x2, y2) {

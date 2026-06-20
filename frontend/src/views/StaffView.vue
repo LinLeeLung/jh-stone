@@ -92,7 +92,9 @@
               <td>{{ s.title }}</td>
               <td>{{ s.startDate }}</td>
               <td>{{ s.salaryType }}</td>
-              <td>{{ maskSensitive(s, s.baseSalary?.toLocaleString() || "—") }}</td>
+              <td>
+                {{ maskSensitive(s, s.baseSalary?.toLocaleString() || "—") }}
+              </td>
               <td>
                 <span
                   :class="[
@@ -219,7 +221,9 @@
             >部門
             <input v-model="form.dept" list="dept-list" />
             <datalist id="dept-list">
-              <option v-for="d in depts" :key="d" :value="d">{{ deptLabel(d) }}</option>
+              <option v-for="d in depts" :key="d" :value="d">
+                {{ deptLabel(d) }}
+              </option>
             </datalist>
           </label>
           <label
@@ -336,10 +340,7 @@
           </label>
           <label
             >其他減項原因
-            <input
-              v-model="form.otherDeductionNote"
-              placeholder="可備註原因"
-            />
+            <input v-model="form.otherDeductionNote" placeholder="可備註原因" />
           </label>
           <label
             >銀行 / 分行
@@ -394,8 +395,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import * as XLSX from "xlsx";
-import { db, auth, getUserByUid, authReadyPromise, userHasAnyRole } from "../firebase";
+import {
+  db,
+  auth,
+  getUserByUid,
+  authReadyPromise,
+  userHasAnyRole,
+} from "../firebase";
 import {
   collection,
   getDocs,
@@ -407,6 +413,13 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
+
+let XLSX;
+
+async function loadXlsx() {
+  if (!XLSX) XLSX = await import("xlsx");
+  return XLSX;
+}
 
 // ── 欄位定義（系統欄位 ↔ Excel 標題對應）───────────────────
 const FIELDS = [
@@ -461,8 +474,10 @@ const AUTO_MAP = {
   員工姓名: "name",
   身份證: "idNo",
   身分證: "idNo",
-  身份證字號: "idNo",  配偶: "spouse",
-  扶養人數: "numDependents",  生日: "birthday",
+  身份證字號: "idNo",
+  配偶: "spouse",
+  扶養人數: "numDependents",
+  生日: "birthday",
   出生日期: "birthday",
   手機: "phone",
   電話: "phone",
@@ -539,9 +554,11 @@ const sensitiveView = ref("hidden");
 const saving = ref(false);
 const errMsg = ref("");
 
-const deptMap = { "1": "辦公室", "2": "安裝", "3": "廠內", "4": "外勞" };
+const deptMap = { 1: "辦公室", 2: "安裝", 3: "廠內", 4: "外勞" };
 const depts = ["1", "2", "3", "4"];
-function deptLabel(v) { return deptMap[String(v)] ? `${v} ${deptMap[String(v)]}` : (v || "—"); }
+function deptLabel(v) {
+  return deptMap[String(v)] ? `${v} ${deptMap[String(v)]}` : v || "—";
+}
 
 // ── 筛選 + 排序 ────────────────────────────────────────────
 const sortKey = ref("empNo");
@@ -648,8 +665,9 @@ function onFileChange(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = (ev) => {
+  reader.onload = async (ev) => {
     try {
+      await loadXlsx();
       const wb = XLSX.read(ev.target.result, {
         type: "array",
         cellDates: true,
@@ -875,17 +893,29 @@ async function syncStaffToUser(s) {
       const currentRole = String(user.role || "").trim();
       const nextRoles = currentRoles.length
         ? currentRoles
-        : (currentRole && currentRole !== "遊客" ? [currentRole] : ["員工"]);
-      const nextActiveRole = String(user.activeRole || currentRole || "").trim();
+        : currentRole && currentRole !== "遊客"
+          ? [currentRole]
+          : ["員工"];
+      const nextActiveRole = String(
+        user.activeRole || currentRole || "",
+      ).trim();
       await updateDoc(doc(db, "Users", d.id), {
         staffRole: s.staffRole || "",
         dept: s.dept || "",
         empNo: s.empNo || "",
-        departments: s.dept ? [String(s.dept)] : (Array.isArray(user.departments) ? user.departments : []),
+        departments: s.dept
+          ? [String(s.dept)]
+          : Array.isArray(user.departments)
+            ? user.departments
+            : [],
         activeDepartment: s.dept || user.activeDepartment || "",
         roles: nextRoles,
-        activeRole: nextActiveRole && nextRoles.includes(nextActiveRole) ? nextActiveRole : nextRoles[0],
-        role: currentRole && currentRole !== "遊客" ? currentRole : nextRoles[0],
+        activeRole:
+          nextActiveRole && nextRoles.includes(nextActiveRole)
+            ? nextActiveRole
+            : nextRoles[0],
+        role:
+          currentRole && currentRole !== "遊客" ? currentRole : nextRoles[0],
       });
     }
   } catch (e) {

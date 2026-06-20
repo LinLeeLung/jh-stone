@@ -100,7 +100,8 @@ service cloud.firestore {
     // Orders documents may include internal fields; keep direct read staff-only.
     match /Orders/{orderId} {
       allow read: if isStaff();
-      allow write: if false;
+      allow update: if isAdminOrManager();
+      allow create, delete: if false;
 
       // completion photos metadata per order
       match /completionPhotos/{photoId} {
@@ -301,6 +302,39 @@ service cloud.firestore {
           && request.resource.data.uploadedByUid == request.auth.uid;
         allow delete: if isStaff();
       }
+
+      match /designReviewFiles/{fileId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
+
+      match /designReviewOverlays/{fileId} {
+        allow read: if isStaff();
+        allow create: if isStaff()
+          && request.resource.data.uploadedByUid == request.auth.uid;
+        allow delete: if isStaff();
+      }
+    }
+
+    // Formal order number synchronization targets.
+    match /productionJobs/{docId} {
+      allow read: if isStaff();
+      allow update: if isAdminOrManager();
+      allow create, delete: if false;
+    }
+
+    match /repairTickets/{docId} {
+      allow read: if isStaff();
+      allow update: if isAdminOrManager();
+      allow create, delete: if false;
+    }
+
+    match /dispatchEntries/{docId} {
+      allow read: if isStaff();
+      allow update: if isAdminOrManager();
+      allow create, delete: if false;
     }
 
     // System configuration（路由權限等）：所有已登入員工可讀；只有 admin/manager 可寫

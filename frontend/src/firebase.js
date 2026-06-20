@@ -4237,6 +4237,17 @@ export async function downloadStorageFileBytes(storagePath) {
   return new Uint8Array(await getBytes(ref));
 }
 
+export async function analyzeStraightDrawingDraft(payload = {}) {
+  await authReadyPromise;
+  const callable = httpsCallable(
+    functionsInstance,
+    "analyzeStraightDrawingDraft",
+    { timeout: 120000 },
+  );
+  const res = await callable(payload);
+  return res.data || null;
+}
+
 export async function batchMarkDispatched(orderIds) {
   if (!orderIds?.length) return;
   await authReadyPromise;
@@ -5338,6 +5349,7 @@ export async function updateCustomerPricing(
     defaultPricePerCm,
     depthStandard,
     depthProportional,
+    depthScalingMode,
     skipOversizeScaling,
     preferredConfirmationEdgeType,
   } = {},
@@ -5360,6 +5372,12 @@ export async function updateCustomerPricing(
       depthProportional === undefined
         ? (cur.depthProportional ?? true)
         : depthProportional !== false,
+    depthScalingMode:
+      depthScalingMode === undefined
+        ? cur.depthScalingMode || "minus8"
+        : depthScalingMode === "actualDepth"
+          ? "actualDepth"
+          : "minus8",
     skipOversizeScaling:
       skipOversizeScaling === undefined
         ? (cur.skipOversizeScaling ?? false)

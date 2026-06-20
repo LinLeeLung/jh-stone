@@ -9,6 +9,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const { onRequest: onRequestV2 } = require("firebase-functions/v2/https");
 const { PDFDocument, rgb, PDFName } = require("pdf-lib");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -21,6 +22,7 @@ const SYNO_USERNAME_SECRET = defineSecret("SYNO_USERNAME");
 const SYNO_PASSWORD_SECRET = defineSecret("SYNO_PASSWORD");
 const PHOTO_URL_SIGNING_SECRET = defineSecret("PHOTO_URL_SIGNING_SECRET");
 const NAS_PDF_API_KEY_SECRET = defineSecret("NAS_PDF_API_KEY");
+const GEMINI_API_KEY_SECRET = defineSecret("GEMINI_API_KEY");
 const ADMIN_EMAIL = "linlilung@gmail.com";
 
 // Must be called BEFORE any function definitions so it applies to all v2 functions
@@ -813,6 +815,521 @@ const STAFF_ROLES = new Set(["admin", "管理者", "員工"]);
 function isStaffRole(role) {
   return STAFF_ROLES.has(String(role || "").trim());
 }
+
+function buildMockStraightDrawingDraft(data = {}) {
+  const orderSummary = data.orderSummary || {};
+  const lineItems = Array.isArray(orderSummary.lineItems)
+    ? orderSummary.lineItems
+    : [];
+  const mainItem = lineItems.find(
+    (item) => String(item?.unit || "").trim() === "cm",
+  );
+  const length = Number(mainItem?.qty) > 0 ? Number(mainItem.qty) : 199;
+  const depth =
+    Number(orderSummary.depthStandard) > 0
+      ? Number(orderSummary.depthStandard)
+      : 60;
+  const crops = Array.isArray(data.aiCrops) ? data.aiCrops : [];
+  const primaryCrop =
+    crops.find((crop) => crop?.purpose === "countertop") || crops[0] || null;
+  return {
+    drawingType: "straight",
+    length,
+    depth,
+    thickness: 4,
+    cabinetBodies: [],
+    crop: primaryCrop
+      ? {
+          id: primaryCrop.id || "",
+          purpose: primaryCrop.purpose || "countertop",
+          label: primaryCrop.label || "主檯面",
+          width: Number(primaryCrop.width || 0),
+          height: Number(primaryCrop.height || 0),
+          selection: primaryCrop.selection || null,
+          sourceName: primaryCrop.sourceName || "",
+        }
+      : null,
+    aiCrops: crops.map((crop) => ({
+      id: crop?.id || "",
+      purpose: crop?.purpose || "note",
+      label: crop?.label || "AI框",
+      width: Number(crop?.width || 0),
+      height: Number(crop?.height || 0),
+      selection: crop?.selection || null,
+      sourceName: crop?.sourceName || "",
+    })),
+    fixtures: [],
+    sideOptions: {},
+    confidence: 0.8,
+    needsReview: true,
+    source: "mock-functions",
+  };
+}
+
+function parseGeminiJson(text = "") {
+  const clean = String(text || "")
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const jsonStart = clean.indexOf("{");
+  const jsonEnd = clean.lastIndexOf("}");
+  if (jsonStart < 0 || jsonEnd < jsonStart) {
+    throw new Error("Gemini 未回傳 JSON");
+  }
+  return JSON.parse(clean.slice(jsonStart, jsonEnd + 1));
+}
+
+function toPositiveNumber(value, fallbackValue) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallbackValue;
+}
+
+function normalizeCabinetBodies(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const width = toPositiveNumber(
+        item.width ?? item.length ?? item.qty,
+        null,
+      );
+      if (!width) return null;
+      return {
+        label: String(item.label || `桶身 ${index + 1}`),
+        width,
+        length: toPositiveNumber(item.length, width),
+        qty: width,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 9);
+}
+
+function normalizeStraightSegments(value, fallbackDraft = {}) {
+  const rawList = Array.isArray(value) ? value : [];
+  const segments = rawList
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const width = toPositiveNumber(
+        item.width ?? item.length ?? item.qty,
+        null,
+      );
+      if (!width) return null;
+      const rawType = String(item.type || "")
+        .trim()
+        .toLowerCase();
+      const type = ["cabinet", "filler", "appliance", "gap", "stone"].includes(
+        rawType,
+      )
+        ? rawType
+        : "stone";
+      return {
+        type,
+        label: String(item.label || `分段 ${index + 1}`),
+        width,
+        length: toPositiveNumber(item.length, width),
+        qty: width,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 9);
+  if (segments.length) return segments;
+  const cabinets = Array.isArray(fallbackDraft.cabinetBodies)
+    ? fallbackDraft.cabinetBodies
+    : [];
+  return cabinets
+    .map((item, index) => {
+      const width = toPositiveNumber(
+        item.width ?? item.length ?? item.qty,
+        null,
+      );
+      return width
+        ? {
+            type: "cabinet",
+            label: String(item.label || `桶身 ${index + 1}`),
+            width,
+            length: width,
+            qty: width,
+          }
+        : null;
+    })
+    .filter(Boolean)
+    .slice(0, 9);
+}
+
+function normalizeFixturePosition(type, value) {
+  const text = String(value || "").trim();
+  if (type === "sink") {
+    return ["水中", "左開", "右開"].includes(text) ? text : "水中";
+  }
+  if (text === "爐中") return "火中";
+  return ["火中", "左開", "右開"].includes(text) ? text : "火中";
+}
+
+function normalizeFixtureIndex(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return null;
+  return Math.trunc(number);
+}
+
+function getSegmentCenterByIndex(segments, targetIndex, cabinetOnly = false) {
+  if (!Array.isArray(segments) || !targetIndex) return null;
+  let accumulated = 0;
+  let matchedIndex = 0;
+  for (const segment of segments) {
+    const width = toPositiveNumber(segment?.width ?? segment?.length, null);
+    if (!width) continue;
+    const isTargetType = !cabinetOnly || segment?.type === "cabinet";
+    if (isTargetType) {
+      matchedIndex += 1;
+      if (matchedIndex === targetIndex) return accumulated + width / 2;
+    }
+    accumulated += width;
+  }
+  return null;
+}
+
+function inferFixtureCenter(item, segments) {
+  const explicitCenter = toPositiveNumber(
+    item.center ?? item.centerFromLeft ?? item.dis ?? item.distance,
+    null,
+  );
+  if (explicitCenter) return explicitCenter;
+  const centered = [
+    item.centered,
+    item.isCentered,
+    item.centeredInCabinet,
+    item.centerRule,
+    item.alignment,
+  ]
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .some(
+      (value) =>
+        value === "true" || value.includes("center") || value.includes("中"),
+    );
+  if (!centered) return null;
+  const segmentIndex = normalizeFixtureIndex(
+    item.segmentIndex ?? item.segmentOrder,
+  );
+  const segmentCenter = getSegmentCenterByIndex(segments, segmentIndex, false);
+  if (segmentCenter) return segmentCenter;
+  const cabinetIndex = normalizeFixtureIndex(
+    item.cabinetIndex ?? item.cabinetOrder,
+  );
+  return getSegmentCenterByIndex(segments, cabinetIndex, true);
+}
+
+function normalizeFixtures(value, segments = []) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const rawType = String(item.type || "")
+        .trim()
+        .toLowerCase();
+      const type =
+        rawType.includes("sink") || rawType.includes("水")
+          ? "sink"
+          : rawType.includes("stove") ||
+              rawType.includes("爐") ||
+              rawType.includes("火")
+            ? "stove"
+            : "";
+      if (!type) return null;
+      const center = inferFixtureCenter(item, segments);
+      if (!center) return null;
+      return {
+        type,
+        label: String(item.label || (type === "sink" ? "水槽" : "爐具")),
+        position: normalizeFixturePosition(type, item.position),
+        center,
+        length: toPositiveNumber(item.length ?? item.width, null),
+        depth: toPositiveNumber(item.depth, null),
+        radius: toPositiveNumber(item.radius ?? item.R, null),
+        dig: toPositiveNumber(item.dig, null),
+        inferredCenter: !toPositiveNumber(
+          item.center ?? item.centerFromLeft ?? item.dis ?? item.distance,
+          null,
+        ),
+        order: Number.isFinite(Number(item.order))
+          ? Number(item.order)
+          : index + 1,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.order - b.order)
+    .slice(0, 4);
+}
+
+function normalizeSideText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeLeftOption(value) {
+  const text = normalizeSideText(value);
+  if (
+    ["左靠牆", "leftwall", "left_wall"].includes(text) ||
+    text.includes("左靠牆") ||
+    text.includes("wall") ||
+    text.includes("靠牆")
+  )
+    return "左靠牆";
+  if (text.includes("齊桶") || text.includes("flush")) return "左齊桶身";
+  if (
+    text.includes("側落腳") ||
+    text.includes("sideleg") ||
+    text.includes("side_leg")
+  )
+    return "左側落腳";
+  if (text.includes("見光") || text.includes("open") || text.includes("開放"))
+    return "左見光";
+  if (text.includes("側板")) return "左靠側板";
+  if (text.includes("靠櫃")) return "左靠櫃";
+  return null;
+}
+
+function normalizeRightOption(value) {
+  const text = normalizeSideText(value);
+  if (text.includes("齊桶") || text.includes("flush")) return "右齊桶身";
+  if (
+    text.includes("側落腳") ||
+    text.includes("sideleg") ||
+    text.includes("side_leg")
+  )
+    return "右側落腳";
+  if (text.includes("見光") || text.includes("open") || text.includes("開放"))
+    return "右見光";
+  if (
+    ["右靠牆", "rightwall", "right_wall"].includes(text) ||
+    text.includes("右靠牆") ||
+    text.includes("wall") ||
+    text.includes("靠牆")
+  )
+    return "右靠牆";
+  if (text.includes("側板")) return "右靠側板";
+  if (text.includes("靠櫃")) return "右靠櫃";
+  return null;
+}
+
+function normalizeBackOption(value) {
+  const text = normalizeSideText(value);
+  if (text.includes("靠牆") || text.includes("wall")) return "後靠牆";
+  if (text.includes("見光") || text.includes("open") || text.includes("開放"))
+    return "後見光";
+  return null;
+}
+
+function normalizeStraightSideOptions(value = {}) {
+  if (!value || typeof value !== "object") return {};
+  const leftSource = value.leftOption ?? value.left ?? value.leftSide;
+  const rightSource = value.rightOption ?? value.right ?? value.rightSide;
+  const backSource = value.backOption ?? value.back ?? value.backSide;
+  const result = {};
+  const leftOption = normalizeLeftOption(leftSource);
+  const rightOption = normalizeRightOption(rightSource);
+  const backOption = normalizeBackOption(backSource);
+  if (leftOption) result.leftOption = leftOption;
+  if (rightOption) result.rightOption = rightOption;
+  if (backOption) result.backOption = backOption;
+  return result;
+}
+
+function normalizeStraightDrawingDraft(rawDraft = {}, fallbackDraft = {}) {
+  const confidence = Number(rawDraft.confidence);
+  const cabinetBodies = normalizeCabinetBodies(rawDraft.cabinetBodies);
+  const fallbackWithCabinets = { ...fallbackDraft, cabinetBodies };
+  const segments = normalizeStraightSegments(
+    rawDraft.segments,
+    fallbackWithCabinets,
+  );
+  return {
+    ...fallbackDraft,
+    drawingType: "straight",
+    length: toPositiveNumber(rawDraft.length, fallbackDraft.length || 199),
+    depth: toPositiveNumber(rawDraft.depth, fallbackDraft.depth || 60),
+    thickness: toPositiveNumber(
+      rawDraft.thickness,
+      fallbackDraft.thickness || 4,
+    ),
+    cabinetBodies,
+    segments,
+    fixtures: normalizeFixtures(rawDraft.fixtures, segments),
+    sideOptions: normalizeStraightSideOptions(
+      rawDraft.sideOptions ?? rawDraft.edges ?? rawDraft.boundaries,
+    ),
+    confidence:
+      Number.isFinite(confidence) && confidence >= 0 && confidence <= 1
+        ? confidence
+        : 0.65,
+    needsReview: rawDraft.needsReview !== false,
+    notes: Array.isArray(rawDraft.notes)
+      ? rawDraft.notes.map((note) => String(note || "")).filter(Boolean)
+      : String(rawDraft.notes || "").trim()
+        ? [String(rawDraft.notes).trim()]
+        : [],
+  };
+}
+
+function normalizeAiCropForGemini(crop = {}) {
+  const dataUrl = String(crop.imageDataUrl || "");
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  return {
+    meta: {
+      id: String(crop.id || ""),
+      purpose: String(crop.purpose || "note"),
+      label: String(crop.label || "AI框"),
+      width: Number(crop.width || 0),
+      height: Number(crop.height || 0),
+      selection: crop.selection || null,
+      sourceName: String(crop.sourceName || ""),
+    },
+    inlineData: match
+      ? {
+          mimeType: match[1],
+          data: match[2],
+        }
+      : null,
+  };
+}
+
+function getGeminiApiKey() {
+  try {
+    return String(GEMINI_API_KEY_SECRET.value() || "").trim();
+  } catch (err) {
+    logger.warn("GEMINI_API_KEY unavailable", {
+      error: err?.message || String(err),
+    });
+    return "";
+  }
+}
+
+async function generateGeminiContentWithFallback(genAI, parts) {
+  const modelNames = [
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+  ];
+  let lastError = null;
+  for (const modelName of modelNames) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(parts);
+      return { result, modelName };
+    } catch (err) {
+      lastError = err;
+      logger.warn("Gemini model failed", {
+        modelName,
+        error: err?.message || String(err),
+      });
+    }
+  }
+  throw lastError || new Error("No Gemini model available");
+}
+
+exports.analyzeStraightDrawingDraft = onCall(
+  {
+    secrets: [GEMINI_API_KEY_SECRET],
+    timeoutSeconds: 120,
+    memory: "1GiB",
+  },
+  async (payload, ctx) => {
+    const authUid = getCallableAuthUid(payload, ctx);
+    if (!authUid) {
+      throw new functions.https.HttpsError("unauthenticated", "請先登入");
+    }
+    const role = await readUserRole(authUid);
+    if (!isStaffRole(role)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "僅管理者或員工可使用 AI 繪圖",
+      );
+    }
+
+    const data = unwrapCallablePayload(payload);
+    const crops = Array.isArray(data.aiCrops) ? data.aiCrops.slice(0, 6) : [];
+    const mockDraft = buildMockStraightDrawingDraft({
+      ...data,
+      aiCrops: crops,
+    });
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      return {
+        ...mockDraft,
+        source: "mock-functions-no-gemini-key",
+        message: "尚未設定 GEMINI_API_KEY，已回傳測試草稿。",
+      };
+    }
+
+    const normalizedCrops = crops
+      .map(normalizeAiCropForGemini)
+      .filter((crop) => crop.inlineData);
+    if (!normalizedCrops.length) {
+      return {
+        ...mockDraft,
+        source: "mock-functions-no-crops",
+        message: "未收到可供 AI 讀取的裁切圖，已回傳測試草稿。",
+      };
+    }
+
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const prompt = [
+        "你是石材檯面繪圖助理。請根據使用者框選的原圖裁切區，產生一字型檯面繪圖草稿 JSON。",
+        "只回傳 JSON，不要 markdown。",
+        "JSON 欄位必須固定：drawingType, length, depth, thickness, segments, cabinetBodies, fixtures, sideOptions, confidence, needsReview, notes。",
+        "drawingType 固定 straight。length/depth/thickness 使用公分數字。",
+        "segments 是從左到右構成總長的全部分段，補板/留料也必須列入。每筆包含 type, label, width。",
+        "segments.type 僅可用 cabinet、filler、appliance、gap、stone。補板、左右側補、非桶身但佔總長的石材段請用 filler 或 stone。",
+        "cabinetBodies 是陣列，每筆可含 width/length/qty/label；若無法辨識請回空陣列。",
+        "fixtures 是水槽/爐具定位陣列，每筆包含 type(sink/stove), label, position, center, length, depth, radius, dig。",
+        "水中/爐中標註是中心距離，必須匯入 fixtures.center，單位公分，從左端量起。爐中可回 position=火中。",
+        "若圖面沒有標水中/爐中，但水槽或爐具明顯在某個櫃體正中央，仍要回 fixtures；請用 segments 從左到右累加並計算該櫃中心作為 center。",
+        "如果無法直接算出 center，但能判斷設備在第幾段或第幾個桶身置中，可在 fixture 回 segmentIndex 或 cabinetIndex，並加 centered=true。",
+        "sideOptions 表示左右後邊界條件，可含 leftOption/rightOption/backOption。請使用系統值：左靠牆、左見光、左齊桶身、左側落腳、右靠牆、右見光、右齊桶身、右側落腳、後靠牆、後見光。",
+        "若圖面可判斷左邊貼牆，回 leftOption=左靠牆。若右邊是開放邊且檯面齊桶身，回 rightOption=右齊桶身；若只是開放見光，回 rightOption=右見光。",
+        "不要因為右端有垂直收邊線就判斷為右靠牆；只有右端明確貼牆或有牆面標註時才可回 rightOption=右靠牆。",
+        "原圖常以 mm 標示尺寸；回傳 JSON 一律換算為公分。例如 900 mm 回 90，中心 450 mm 回 45。",
+        "confidence 必須是 0 到 1 的數字。notes 必須是字串陣列。",
+        "若尺寸不確定，使用 null 或合理推測，並把 needsReview 設 true。",
+        `訂單摘要：${JSON.stringify(data.orderSummary || {})}`,
+        `框選資訊：${JSON.stringify(normalizedCrops.map((crop) => crop.meta))}`,
+      ].join("\n");
+      const { result, modelName } = await generateGeminiContentWithFallback(
+        genAI,
+        [
+          { text: prompt },
+          ...normalizedCrops.map((crop) => ({ inlineData: crop.inlineData })),
+        ],
+      );
+      const text = result.response.text();
+      const parsed = parseGeminiJson(text);
+      const normalizedDraft = normalizeStraightDrawingDraft(parsed, mockDraft);
+      return {
+        ...normalizedDraft,
+        aiCrops: mockDraft.aiCrops,
+        crop: mockDraft.crop,
+        source: "gemini",
+        model: modelName,
+      };
+    } catch (err) {
+      logger.error("analyzeStraightDrawingDraft failed", {
+        error: err?.message || String(err),
+      });
+      return {
+        ...mockDraft,
+        source: "mock-functions-gemini-error",
+        message: `Gemini 解析失敗，已回傳測試草稿：${err?.message || "unknown"}`,
+      };
+    }
+  },
+);
 
 function collectStringValues(value) {
   if (Array.isArray(value)) {

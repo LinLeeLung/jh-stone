@@ -268,6 +268,14 @@
                 </select>
               </label>
               <label class="field short-field">
+                <span>工法</span>
+                <select v-model="form.legMethod" class="mode" @change="redraw">
+                  <option value="K1">K1</option>
+                  <option value="H1">H1</option>
+                  <option value="H2">H2</option>
+                </select>
+              </label>
+              <label class="field short-field">
                 <span>高度</span>
                 <input
                   v-model.number="form.legHeight"
@@ -298,6 +306,15 @@
                 <span>厚度</span>
                 <input
                   v-model.number="form.legThickness"
+                  type="number"
+                  class="number compact"
+                  @change="redraw"
+                />
+              </label>
+              <label class="field short-field">
+                <span>枱厚</span>
+                <input
+                  v-model.number="form.tabletopThickness"
                   type="number"
                   class="number compact"
                   @change="redraw"
@@ -592,10 +609,12 @@ function createDefaultForm() {
     spaceMaterial: "wood",
     legHeight: 90,
     legThickness: 6,
+    tabletopThickness: 4,
     frontWrap: 12,
     backWrap: 12,
     legAngle: 60,
     legMode: "B",
+    legMethod: "H2",
   };
 }
 
@@ -770,6 +789,8 @@ defineExpose({ hasUnsavedChanges });
 function restoreSnapshot(snapshot) {
   if (!snapshot) return;
   if (snapshot.form) Object.assign(form, snapshot.form);
+  if (!form.legMethod) form.legMethod = "H2";
+  if (!form.tabletopThickness) form.tabletopThickness = 4;
   if (snapshot.annotation) Object.assign(annotation, snapshot.annotation);
   if (Array.isArray(snapshot.sinks)) {
     snapshot.sinks.forEach((item, index) => {
@@ -913,10 +934,12 @@ function redraw() {
     depth,
     legHeight: Math.max(1, sanitizePositive(form.legHeight)),
     legThickness: Math.max(1, sanitizePositive(form.legThickness)),
+    tabletopThickness: Math.max(0.1, sanitizePositive(form.tabletopThickness)),
     frontWrap: Math.max(0, sanitizePositive(form.frontWrap)),
     backWrap: Math.max(0, sanitizePositive(form.backWrap)),
     legAngle: Math.max(1, sanitizePositive(form.legAngle)),
     legMode: form.legMode,
+    legMethod: form.legMethod,
   };
 
   drawIslandBody(x0, y0, geometry);
@@ -1419,7 +1442,9 @@ function drawTopLengthMarker(x0, y0, totalLength) {
     const rounded = Math.round(Number(value) * 100) / 100;
     return Number.isInteger(rounded)
       ? String(rounded)
-      : String(rounded).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+      : String(rounded)
+          .replace(/\.0+$/, "")
+          .replace(/(\.\d*?)0+$/, "$1");
   };
   const textNode = draw
     .text(formatDimension(totalLength))
@@ -1442,10 +1467,12 @@ function drawLegacyIslandLegs({
   depth,
   legHeight,
   legThickness,
+  tabletopThickness,
   frontWrap,
   backWrap,
   legAngle,
   legMode,
+  legMethod,
 }) {
   if (legMode === "L") {
     drawIslandLegL({
@@ -1455,9 +1482,11 @@ function drawLegacyIslandLegs({
       depth,
       legHeight,
       legThickness,
+      tabletopThickness,
       frontWrap,
       backWrap,
       legAngle,
+      legMethod,
     });
     return;
   }
@@ -1469,9 +1498,11 @@ function drawLegacyIslandLegs({
       depth,
       legHeight,
       legThickness,
+      tabletopThickness,
       frontWrap,
       backWrap,
       legAngle,
+      legMethod,
     });
     return;
   }
@@ -1483,9 +1514,11 @@ function drawLegacyIslandLegs({
       depth,
       legHeight,
       legThickness,
+      tabletopThickness,
       frontWrap,
       backWrap,
       legAngle,
+      legMethod,
     });
   }
 }
@@ -1497,22 +1530,32 @@ function drawIslandLegL({
   depth,
   legHeight,
   legThickness,
+  tabletopThickness,
   frontWrap,
   backWrap,
   legAngle,
+  legMethod,
 }) {
+  const isK1 = false;
+  const showK1LeftTabletopBottom = legMethod === "K1";
+  const showH2FrontThicknessPoints = legMethod === "H2";
   const angleRad = (legAngle * Math.PI) / 180;
   const cos = Math.cos(angleRad);
   const sin = Math.sin(angleRad);
   const p0 = point(x, y);
+  const k1BackBottom = point(
+    p0.x,
+    p0.y + Math.min(tabletopThickness, legHeight),
+  );
   const p1 = point(p0.x - legHeight * cos, p0.y + legHeight * sin);
   const p2 = point(p1.x, p1.y + depth);
   const p6 = point(p0.x, p0.y + depth);
   const p3 = point(p2.x + legThickness, p2.y);
-  const p4 = point(
+  const legacyP4 = point(
     p3.x + (legHeight - legThickness) * cos,
     p3.y - (legHeight - legThickness) * sin,
   );
+  const p4 = legacyP4;
   const p5 = point(p4.x - legThickness, p4.y);
   const p14 = point(p5.x + totalLength, p5.y);
   const p15 = point(p14.x + legThickness * cos, p14.y - legThickness * sin);
@@ -1537,16 +1580,29 @@ function drawIslandLegL({
   drawAngledTextSized(`${backWrap}倒包石`, pb.x, pb.y, 6, legAngle);
   drawText(String(legThickness), p21.x, p21.y, 8);
   drawAngledTextCentered(String(legHeight), p31.x + 8, p31.y - 8, 16, legAngle);
-  drawPolyline([p0, p1, p2, p6]);
+  drawLine(p0, p1);
+  drawLine(p1, p2);
+  drawLine(p2, p6);
   drawLine(p2, p3);
   drawLine(p3, p4);
-  drawLine(p5, p14);
-  drawLine(p14, p15);
-  drawDashedLine(p7, p8);
-  drawDashedLine(p9, p10);
+  drawLine(showH2FrontThicknessPoints ? p4 : p5, p14);
+  if (showK1LeftTabletopBottom) drawK1FrontBottomDepthLine(p5, depth);
+  drawLine(PAD(p14, legAngle + 180, Math.max(0, legThickness)), p15);
+  if (showK1LeftTabletopBottom) {
+    drawDashedLine(p7, getPointOnLineAtX(p7, p8, p5.x));
+    drawDashedLine(p9, getPointOnLineAtX(p9, p10, p5.x));
+  } else {
+    drawDashedLine(p7, p8);
+    drawDashedLine(p9, p10);
+  }
+  if (isK1) drawK1LeftTabletopBoundary(p0, p6, p5);
   drawLine(p22, point(p22.x, p22.y - 10));
   drawLine(p24, p28);
   drawLine(p26, p29);
+  if (isK1) drawK1AttachedLegJointLine(p6, p5);
+  if (showH2FrontThicknessPoints) {
+    drawH2FrontThicknessLine(p6, p4);
+  }
 }
 
 function drawIslandLegB({
@@ -1556,22 +1612,32 @@ function drawIslandLegB({
   depth,
   legHeight,
   legThickness,
+  tabletopThickness,
   frontWrap,
   backWrap,
   legAngle,
+  legMethod,
 }) {
+  const isK1 = false;
+  const showK1LeftTabletopBottom = legMethod === "K1";
+  const showH2FrontThicknessPoints = legMethod === "H2";
   const angleRad = (legAngle * Math.PI) / 180;
   const cos = Math.cos(angleRad);
   const sin = Math.sin(angleRad);
   const p0 = point(x, y);
+  const k1BackBottom = point(
+    p0.x,
+    p0.y + Math.min(tabletopThickness, legHeight),
+  );
   const p1 = point(p0.x - legHeight * cos, p0.y + legHeight * sin);
   const p2 = point(p1.x, p1.y + depth);
   const p6 = point(p0.x, p0.y + depth);
   const p3 = point(p2.x + legThickness, p2.y);
-  const p4 = point(
+  const legacyP4 = point(
     p3.x + (legHeight - legThickness) * cos,
     p3.y - (legHeight - legThickness) * sin,
   );
+  const p4 = legacyP4;
   const p5 = point(p4.x - legThickness, p4.y);
   const p14 = point(p5.x + totalLength, p5.y);
   const p15 = point(p14.x + legThickness * cos, p14.y - legThickness * sin);
@@ -1596,6 +1662,7 @@ function drawIslandLegB({
   const p31 = point((p24.x + p30.x) / 2, (p24.y + p30.y) / 2);
   const c1 = point(p0.x + totalLength - legThickness, p0.y);
   const c2 = point(c1.x, c1.y + depth);
+  const h2RightPoint3 = point(p14.x - legThickness, p14.y);
   const b1 = p12;
   const b2 = point(b1.x, b1.y - frontWrap);
   const b3 = point(b2.x, b1.y - depth + backWrap);
@@ -1605,7 +1672,7 @@ function drawIslandLegB({
   const e3 = point(c1.x, c1.y + backWrap);
 
   drawDashedLine(c1, c2);
-  drawDashedLine(p15, e1);
+  drawDashedLine(p15, getPointOnLineAtY(p15, e1, y + depth));
 
   if (b2.y > p14.y) {
     const f2 = point(b1.x + (b2.y - p14.y) / Math.tan(angleRad), p14.y);
@@ -1644,20 +1711,62 @@ function drawIslandLegB({
   drawText(String(legThickness), p21.x, p21.y, 8);
   drawAngledTextCentered(String(legHeight), p31.x + 8, p31.y - 8, 16, legAngle);
 
-  drawPolyline([p0, p1, p2, p6]);
+  drawLine(p0, p1);
+  drawLine(p1, p2);
+  drawLine(p2, p6);
   drawLine(p2, p3);
   drawLine(p3, p4);
-  drawLine(p5, p14);
-  drawLine(p14, p15);
-  drawDashedLine(p7, p8);
-  drawDashedLine(p9, p10);
+  drawLine(
+    showH2FrontThicknessPoints ? p4 : p5,
+    showH2FrontThicknessPoints ? h2RightPoint3 : p14,
+  );
+  if (showK1LeftTabletopBottom) drawK1FrontBottomDepthLine(p5, depth);
+  drawLine(PAD(p14, legAngle + 180, Math.max(0, legThickness)), p15);
+  if (showK1LeftTabletopBottom) {
+    drawDashedLine(p7, getPointOnLineAtX(p7, p8, p5.x));
+    drawDashedLine(p9, getPointOnLineAtX(p9, p10, p5.x));
+  } else {
+    drawDashedLine(p7, p8);
+    drawDashedLine(p9, p10);
+  }
+  if (isK1) drawK1LeftTabletopBoundary(p0, p6, p5);
   drawLine(p14, p11);
   drawLine(p11, p12);
   drawLine(p12, p13);
-  drawLine(p12, p20);
+  const innerLegHiddenEnd = getDiagonalPointAtY(c1, legAngle + 180, y + depth);
+  const innerLegVisibleStart = getDiagonalPointAtY(c1, legAngle + 180, p14.y);
+  const hiddenInnerLegLength = distanceBetween(c1, innerLegHiddenEnd);
+  const tabletopThicknessLength = distanceBetween(
+    innerLegHiddenEnd,
+    innerLegVisibleStart,
+  );
+  const visibleInnerLegLength = Math.max(
+    0,
+    legHeight - hiddenInnerLegLength - tabletopThicknessLength,
+  );
+  const innerLegEnd = PAD(
+    innerLegVisibleStart,
+    legAngle + 180,
+    visibleInnerLegLength,
+  );
+  drawDashedLine(c1, innerLegHiddenEnd);
+  if (visibleInnerLegLength > 0) drawLine(innerLegVisibleStart, innerLegEnd);
+  if (isK1) {
+    drawK1LeftTabletopBoundary(p0, p6, p5);
+    drawK1RightTabletopBoundary(
+      point(p0.x + totalLength, y),
+      point(p0.x + totalLength, y + depth),
+      p14,
+    );
+  }
   drawLine(p22, point(p22.x, p22.y - 10));
   drawLine(p24, p28);
   drawLine(p26, p29);
+  if (isK1) drawK1AttachedLegJointLine(p6, p5);
+  if (showH2FrontThicknessPoints) {
+    drawH2FrontThicknessLine(p6, p4);
+    drawH2RightFrontThickness34(c2, p14, legThickness);
+  }
 }
 
 function drawIslandLegR({
@@ -1667,10 +1776,14 @@ function drawIslandLegR({
   depth,
   legHeight,
   legThickness,
+  tabletopThickness,
   frontWrap,
   backWrap,
   legAngle,
+  legMethod,
 }) {
+  const isK1 = false;
+  const showH2FrontThicknessPoints = legMethod === "H2";
   const angleRad = (legAngle * Math.PI) / 180;
   const cos = Math.cos(angleRad);
   const sin = Math.sin(angleRad);
@@ -1678,10 +1791,11 @@ function drawIslandLegR({
   const p1 = point(p0.x - legHeight * cos, p0.y + legHeight * sin);
   const p2 = point(p1.x, p1.y + depth);
   const p3 = point(p2.x + legThickness, p2.y);
-  const p4 = point(
+  const legacyP4 = point(
     p3.x + (legHeight - legThickness) * cos,
     p3.y - (legHeight - legThickness) * sin,
   );
+  const p4 = legacyP4;
   const p5 = point(p4.x - legThickness, p4.y);
   const p14 = point(p5.x + totalLength, p5.y);
   const p15 = point(p14.x + legThickness * cos, p14.y - legThickness * sin);
@@ -1710,9 +1824,10 @@ function drawIslandLegR({
   const e3 = point(c1.x, c1.y + backWrap);
   const p51 = point(p5.x, p5.y - depth);
   const p61 = point(p21.x + totalLength - 5, p21.y);
+  const h2RightPoint3 = point(p14.x - legThickness, p14.y);
 
   drawDashedLine(c1, c2);
-  drawDashedLine(p15, e1);
+  drawDashedLine(p15, getPointOnLineAtY(p15, e1, y + depth));
 
   if (b2.y > p14.y) {
     const f2 = point(b1.x + (b2.y - p14.y) / Math.tan(angleRad), p14.y);
@@ -1752,18 +1867,96 @@ function drawIslandLegR({
   drawText(String(legThickness), p61.x, p61.y, 8);
   drawAngledTextSized(String(legHeight), p30.x, p30.y + 15, 16, legAngle);
 
-  drawLine(p14, p5);
-  drawLine(p14, p15);
+  drawLine(showH2FrontThicknessPoints ? h2RightPoint3 : p14, p5);
+  drawLine(PAD(p14, legAngle + 180, Math.max(0, legThickness)), p15);
   drawLine(point(p0.x, p0.y + depth), p5);
   drawLine(p5, p51);
   drawLine(p0, p51);
   drawLine(p14, p11);
   drawLine(p11, p12);
   drawLine(p12, p13);
-  drawLine(p12, p20);
+  const innerLegHiddenEnd = getDiagonalPointAtY(c1, legAngle + 180, y + depth);
+  const innerLegVisibleStart = getDiagonalPointAtY(c1, legAngle + 180, p14.y);
+  const hiddenInnerLegLength = distanceBetween(c1, innerLegHiddenEnd);
+  const tabletopThicknessLength = distanceBetween(
+    innerLegHiddenEnd,
+    innerLegVisibleStart,
+  );
+  const visibleInnerLegLength = Math.max(
+    0,
+    legHeight - hiddenInnerLegLength - tabletopThicknessLength,
+  );
+  const innerLegEnd = PAD(
+    innerLegVisibleStart,
+    legAngle + 180,
+    visibleInnerLegLength,
+  );
+  drawDashedLine(c1, innerLegHiddenEnd);
+  if (visibleInnerLegLength > 0) drawLine(innerLegVisibleStart, innerLegEnd);
+  if (isK1) {
+    drawK1RightTabletopBoundary(
+      point(p0.x + totalLength, y),
+      point(p0.x + totalLength, y + depth),
+      p14,
+    );
+  }
   drawLine(p22, point(p22.x, p22.y - 10));
   drawLine(p24, p28);
   drawLine(p26, p29);
+  if (showH2FrontThicknessPoints) {
+    drawH2RightFrontThickness34(c2, p14, legThickness);
+  }
+}
+
+function drawK1LeftTabletopBoundary(topCorner, frontCorner, undersideCorner) {
+  drawLine(topCorner, frontCorner);
+  drawLine(frontCorner, undersideCorner);
+}
+
+function drawK1RightTabletopBoundary(topCorner, frontCorner, undersideCorner) {
+  drawLine(topCorner, frontCorner);
+  drawLine(frontCorner, undersideCorner);
+}
+
+function drawK1AttachedLegJointLine(frontCorner, undersideCorner) {
+  draw
+    .line(frontCorner.x, frontCorner.y, undersideCorner.x, undersideCorner.y)
+    .stroke({ width: 1.3, color: "black" });
+}
+
+function drawK1LeftTabletopFaceLine(topCorner, frontBottom) {
+  draw
+    .line(topCorner.x, topCorner.y, frontBottom.x, frontBottom.y)
+    .stroke({ width: 1.3, color: "black" });
+}
+
+function drawK1FrontBottomDepthLine(frontBottom, depth) {
+  draw
+    .line(frontBottom.x, frontBottom.y, frontBottom.x, frontBottom.y - depth)
+    .stroke({ width: 1.3, color: "black" });
+}
+
+function drawH2FrontThicknessLine(rightFrontTop, frontBottomRight) {
+  draw
+    .line(
+      rightFrontTop.x,
+      rightFrontTop.y,
+      frontBottomRight.x,
+      frontBottomRight.y,
+    )
+    .stroke({ width: 1.3, color: "black" });
+}
+
+function drawH2RightFrontThickness34(
+  rightFrontTop,
+  rightFrontBottom,
+  legThickness,
+) {
+  const point3 = point(rightFrontBottom.x - legThickness, rightFrontBottom.y);
+  const point4 = point(rightFrontTop.x + legThickness, rightFrontTop.y);
+  draw
+    .line(point3.x, point3.y, point4.x, point4.y)
+    .stroke({ width: 1.3, color: "black" });
 }
 
 function point(x, y) {
@@ -1776,6 +1969,27 @@ function PAD(p, angle, distance) {
     p.x + distance * Math.cos(angleRad),
     p.y - distance * Math.sin(angleRad),
   );
+}
+
+function getDiagonalPointAtY(origin, angle, targetY) {
+  const angleRad = (angle * Math.PI) / 180;
+  const sin = Math.sin(angleRad);
+  const distance = (origin.y - targetY) / (sin || 1);
+  return PAD(origin, angle, distance);
+}
+
+function getPointOnLineAtY(start, end, targetY) {
+  const ratio = (targetY - start.y) / (end.y - start.y || 1);
+  return point(start.x + (end.x - start.x) * ratio, targetY);
+}
+
+function getPointOnLineAtX(start, end, targetX) {
+  const ratio = (targetX - start.x) / (end.x - start.x || 1);
+  return point(targetX, start.y + (end.y - start.y) * ratio);
+}
+
+function distanceBetween(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 function drawLine(a, b) {

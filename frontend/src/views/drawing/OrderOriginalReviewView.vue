@@ -30,6 +30,15 @@
         >
           {{ saveBacking ? "另存中..." : "另存PDF註記版" }}
         </button>
+        <button
+          v-if="canAnnotateFile"
+          class="btn"
+          type="button"
+          :disabled="aiDrafting"
+          @click="generateAiStraightDraft"
+        >
+          {{ aiDrafting ? "產生中..." : "AI一字草稿" }}
+        </button>
         <button class="btn primary" :disabled="saving" @click="saveReview">
           {{ saving ? "儲存中..." : "儲存註記" }}
         </button>
@@ -201,6 +210,17 @@
                     objectDraft.text
                   }}</template>
                 </div>
+                <div
+                  v-for="selection in aiSelections"
+                  :key="selection.id"
+                  class="annotation-object ai-selection"
+                  :class="{ selected: selectedAiSelectionId === selection.id }"
+                  :style="annotationObjectStyle(selection)"
+                >
+                  <span class="ai-selection-label">{{
+                    getAiPurposeLabel(selection.purpose)
+                  }}</span>
+                </div>
               </div>
               <canvas ref="overlayCanvasRef" class="overlay-canvas" />
               <canvas
@@ -296,6 +316,67 @@
                 >
                   圓形
                 </button>
+                <button
+                  class="btn"
+                  :class="{ 'btn-tool-active': toolMode === 'ai-rect' }"
+                  type="button"
+                  @click="setToolMode('ai-rect')"
+                >
+                  AI框選
+                </button>
+                <select v-model="aiSelectionPurpose" class="ai-purpose-select">
+                  <option
+                    v-for="purpose in aiSelectionPurposes"
+                    :key="purpose.value"
+                    :value="purpose.value"
+                  >
+                    {{ purpose.label }}
+                  </option>
+                </select>
+                <button
+                  v-if="aiSelections.length"
+                  class="btn"
+                  type="button"
+                  @click="clearAiSelections"
+                >
+                  清除AI框
+                </button>
+                <button
+                  class="btn"
+                  type="button"
+                  :disabled="aiPreviewing || !currentAiSelection"
+                  @click="previewAiSelectionCrop"
+                >
+                  {{ aiPreviewing ? "裁切中..." : "預覽AI裁切" }}
+                </button>
+              </div>
+              <div v-if="aiSelections.length" class="ai-selection-list">
+                <button
+                  v-for="selection in aiSelections"
+                  :key="selection.id"
+                  class="ai-selection-chip"
+                  :class="{ active: selectedAiSelectionId === selection.id }"
+                  type="button"
+                  @click="selectAiSelection(selection.id)"
+                >
+                  {{ getAiPurposeLabel(selection.purpose) }}
+                </button>
+              </div>
+              <div v-if="aiCropPreview" class="ai-crop-preview">
+                <div class="ai-crop-preview-head">
+                  <span class="muted"
+                    >{{ getAiPurposeLabel(aiCropPreview.purpose) }}
+                    {{ aiCropPreview.width }}×{{ aiCropPreview.height }}</span
+                  >
+                  <button
+                    class="btn btn-mini"
+                    type="button"
+                    @click="clearAiCropPreview"
+                  >
+                    關閉
+                  </button>
+                </div>
+                <img :src="aiCropPreview.imageDataUrl" alt="AI裁切預覽" />
               </div>
               <div class="tool-group">
                 <button
@@ -389,12 +470,195 @@
         </div>
       </section>
     </div>
+
+    <div
+      v-if="aiDraftPreview"
+      class="ai-draft-modal-backdrop"
+      @click.self="closeAiDraftPreview"
+    >
+      <section class="ai-draft-modal" aria-label="AI解析結果預覽">
+        <div class="ai-draft-head">
+          <div>
+            <h2>AI解析結果預覽</h2>
+            <p class="muted">確認後會建立一張一字型繪圖草稿。</p>
+          </div>
+          <span class="ai-draft-source">{{
+            getAiDraftSourceLabel(aiDraftPreview.source, aiDraftPreview.model)
+          }}</span>
+          <button class="btn" type="button" @click="closeAiDraftPreview">
+            關閉
+          </button>
+        </div>
+        <p v-if="aiDraftPreview.message" class="ai-draft-message">
+          {{ aiDraftPreview.message }}
+        </p>
+
+        <div class="ai-draft-grid">
+          <label>
+            長度
+            <input
+              v-model.number="aiDraftPreview.length"
+              type="number"
+              min="1"
+            />
+          </label>
+          <label>
+            深度
+            <input
+              v-model.number="aiDraftPreview.depth"
+              type="number"
+              min="1"
+            />
+          </label>
+          <label>
+            厚度
+            <input
+              v-model.number="aiDraftPreview.thickness"
+              type="number"
+              min="1"
+              step="0.5"
+            />
+          </label>
+          <label>
+            信心值
+            <input :value="aiDraftPreview.confidence" type="text" disabled />
+          </label>
+        </div>
+
+        <div class="ai-draft-section">
+          <h3>AI框選</h3>
+          <div v-if="aiDraftPreview.aiCrops?.length" class="ai-draft-crops">
+            <div
+              v-for="crop in aiDraftPreview.aiCrops"
+              :key="crop.id"
+              class="ai-draft-crop-row"
+            >
+              <span>{{ crop.label || getAiPurposeLabel(crop.purpose) }}</span>
+              <span class="muted">{{ crop.width }}×{{ crop.height }}</span>
+            </div>
+          </div>
+          <p v-else class="muted">未設定框選區域。</p>
+        </div>
+
+        <div class="ai-draft-section">
+          <h3>總長分段</h3>
+          <p v-if="!aiDraftPreview.segments?.length" class="muted">
+            目前草稿尚未解析補板/分段。
+          </p>
+          <div v-else class="ai-draft-crops">
+            <div
+              v-for="(segment, index) in aiDraftPreview.segments"
+              :key="`${segment.type || 'segment'}-${segment.width || index}-${index}`"
+              class="ai-draft-crop-row"
+            >
+              <span>{{
+                segment.label || getAiSegmentTypeLabel(segment.type)
+              }}</span>
+              <span class="muted"
+                >{{ getAiSegmentTypeLabel(segment.type) }}
+                {{ segment.width }}</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-draft-section">
+          <h3>邊界條件</h3>
+          <div class="ai-draft-crops">
+            <div
+              v-for="item in getAiSideOptionRows(aiDraftPreview.sideOptions)"
+              :key="item.key"
+              class="ai-draft-crop-row"
+            >
+              <span>{{ item.label }}</span>
+              <select v-model="aiDraftPreview.sideOptions[item.key]">
+                <option value="">未指定</option>
+                <option
+                  v-for="option in item.options"
+                  :key="option"
+                  :value="option"
+                >
+                  {{ option }}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-draft-section">
+          <h3>水槽/爐具定位</h3>
+          <p v-if="!aiDraftPreview.fixtures?.length" class="muted">
+            目前草稿尚未解析水中/爐中。
+          </p>
+          <div v-else class="ai-draft-crops">
+            <div
+              v-for="(fixture, index) in aiDraftPreview.fixtures"
+              :key="`${fixture.type || 'fixture'}-${fixture.center || index}-${index}`"
+              class="ai-draft-crop-row"
+            >
+              <span>{{
+                fixture.label || getAiFixtureTypeLabel(fixture.type)
+              }}</span>
+              <span class="muted"
+                >{{ getAiFixtureTypeLabel(fixture.type) }}
+                {{ fixture.position }} {{ fixture.center }}</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-draft-section">
+          <h3>桶身</h3>
+          <p v-if="!aiDraftPreview.cabinetBodies?.length" class="muted">
+            目前草稿尚未解析桶身。
+          </p>
+          <div v-else class="ai-draft-crops">
+            <div
+              v-for="(body, index) in aiDraftPreview.cabinetBodies"
+              :key="`${body.width || body.length || body.qty}-${index}`"
+              class="ai-draft-crop-row"
+            >
+              <span>桶身 {{ index + 1 }}</span>
+              <span class="muted">{{
+                body.width || body.length || body.qty
+              }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-draft-actions">
+          <button class="btn" type="button" @click="closeAiDraftPreview">
+            取消
+          </button>
+          <button
+            class="btn primary"
+            type="button"
+            :disabled="aiApplying"
+            @click="applyAiDraftPreview"
+          >
+            {{ aiApplying ? "套用中..." : "套用成繪圖" }}
+          </button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref, nextTick, watch } from "vue";
-import { onBeforeRouteLeave, useRoute, useRouter, RouterLink } from "vue-router";
+import {
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  ref,
+  nextTick,
+  watch,
+} from "vue";
+import {
+  onBeforeRouteLeave,
+  useRoute,
+  useRouter,
+  RouterLink,
+} from "vue-router";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import {
@@ -405,6 +669,7 @@ import {
   uploadOrderAttachment,
   updateSalesOrder,
   downloadStorageFileBytes,
+  analyzeStraightDrawingDraft,
 } from "../../firebase";
 
 const route = useRoute();
@@ -447,6 +712,9 @@ const checklistTemplateMsg = ref("");
 const saving = ref(false);
 const saveBacking = ref(false);
 const saveMsg = ref("");
+const aiDrafting = ref(false);
+const aiPreviewing = ref(false);
+const aiApplying = ref(false);
 
 const captureRef = ref(null);
 const baseImageRef = ref(null);
@@ -474,11 +742,22 @@ const shapeStartPoint = ref(null);
 const annotationObjects = ref([]);
 const selectedObjectId = ref(null);
 const objectDraft = ref(null);
+const aiSelections = ref([]);
+const selectedAiSelectionId = ref(null);
+const aiSelectionPurpose = ref("countertop");
+const aiCropPreview = ref(null);
+const aiDraftPreview = ref(null);
 const dragState = ref(null);
 const objectLayerSize = ref({ width: 0, height: 0 });
 const undoStack = ref([]);
 const redoStack = ref([]);
 const brushPalette = ["#ef4444", "#2563eb", "#16a34a", "#eab308", "#111827"];
+const aiSelectionPurposes = [
+  { value: "countertop", label: "主檯面" },
+  { value: "dimension", label: "尺寸標註" },
+  { value: "cabinet", label: "桶身資訊" },
+  { value: "note", label: "備註" },
+];
 const canUndo = computed(() => undoStack.value.length > 0);
 const canRedo = computed(() => redoStack.value.length > 0);
 const checklistDoneCount = computed(
@@ -491,6 +770,14 @@ const selectedObject = computed(
 );
 const activeColor = computed(
   () => selectedObject.value?.color || brushColor.value,
+);
+const currentAiSelection = computed(
+  () =>
+    aiSelections.value.find(
+      (selection) => selection.id === selectedAiSelectionId.value,
+    ) ||
+    aiSelections.value[aiSelections.value.length - 1] ||
+    null,
 );
 const objectLayerInteractive = computed(
   () => toolMode.value !== "draw" && !eraserMode.value,
@@ -607,6 +894,379 @@ function buildChecklistPayload() {
     .filter((item) => item.text);
 }
 
+function getAiPurposeLabel(value) {
+  return (
+    aiSelectionPurposes.find((purpose) => purpose.value === value)?.label ||
+    "AI框"
+  );
+}
+
+function getAiDraftSourceLabel(source, model = "") {
+  const value = String(source || "");
+  if (value === "gemini")
+    return model ? `來源：Gemini (${model})` : "來源：Gemini";
+  if (value.includes("no-gemini-key")) return "來源：測試草稿（未設定Key）";
+  if (value.includes("gemini-error")) return "來源：測試草稿（AI失敗）";
+  if (value.includes("functions")) return "來源：後端測試草稿";
+  return "來源：前端測試草稿";
+}
+
+function getAiSegmentTypeLabel(type) {
+  const value = String(type || "").toLowerCase();
+  if (value === "cabinet") return "桶身";
+  if (value === "filler") return "補板";
+  if (value === "appliance") return "設備";
+  if (value === "gap") return "空位";
+  return "石材段";
+}
+
+function getAiFixtureTypeLabel(type) {
+  return String(type || "").toLowerCase() === "stove" ? "爐具" : "水槽";
+}
+
+function getAiSideOptionRows(sideOptions = {}) {
+  return [
+    {
+      key: "leftOption",
+      label: "左側",
+      value: sideOptions.leftOption,
+      options: [
+        "左靠牆",
+        "左見光",
+        "左齊桶身",
+        "左靠側板",
+        "左靠櫃",
+        "左側落腳",
+      ],
+    },
+    {
+      key: "rightOption",
+      label: "右側",
+      value: sideOptions.rightOption,
+      options: [
+        "右靠牆",
+        "右見光",
+        "右齊桶身",
+        "右靠側板",
+        "右靠櫃",
+        "右側落腳",
+      ],
+    },
+    {
+      key: "backOption",
+      label: "後側",
+      value: sideOptions.backOption,
+      options: ["後靠牆", "後見光"],
+    },
+  ];
+}
+
+async function getAiSelectionCrop(selection = currentAiSelection.value) {
+  if (!selection) return null;
+  const sourceCanvas = await getAiCropSourceCanvas();
+  if (!sourceCanvas?.width || !sourceCanvas?.height) return null;
+  const sx = Math.max(0, Math.round(selection.xPct * sourceCanvas.width));
+  const sy = Math.max(0, Math.round(selection.yPct * sourceCanvas.height));
+  const sw = Math.max(1, Math.round(selection.wPct * sourceCanvas.width));
+  const sh = Math.max(1, Math.round(selection.hPct * sourceCanvas.height));
+  const cropCanvas = document.createElement("canvas");
+  cropCanvas.width = Math.min(sw, sourceCanvas.width - sx);
+  cropCanvas.height = Math.min(sh, sourceCanvas.height - sy);
+  const ctx = cropCanvas.getContext("2d");
+  ctx.drawImage(
+    sourceCanvas,
+    sx,
+    sy,
+    cropCanvas.width,
+    cropCanvas.height,
+    0,
+    0,
+    cropCanvas.width,
+    cropCanvas.height,
+  );
+  return {
+    id: selection.id,
+    purpose: selection.purpose || "countertop",
+    label: getAiPurposeLabel(selection.purpose),
+    imageDataUrl: cropCanvas.toDataURL("image/png"),
+    width: cropCanvas.width,
+    height: cropCanvas.height,
+    selection: {
+      xPct: selection.xPct,
+      yPct: selection.yPct,
+      wPct: selection.wPct,
+      hPct: selection.hPct,
+    },
+  };
+}
+
+async function getAiSelectionCrops() {
+  const crops = [];
+  for (const selection of aiSelections.value) {
+    const crop = await getAiSelectionCrop(selection);
+    if (crop) crops.push(crop);
+  }
+  return crops;
+}
+
+async function previewAiSelectionCrop() {
+  if (!currentAiSelection.value) return;
+  aiPreviewing.value = true;
+  try {
+    aiCropPreview.value = await getAiSelectionCrop();
+    if (!aiCropPreview.value) {
+      window.alert("目前無法裁切此原圖，請確認原圖已載入完成。");
+    }
+  } catch (error) {
+    console.error("AI crop preview failed", error);
+    window.alert("AI裁切預覽失敗，請重新載入原圖後再試一次。");
+  } finally {
+    aiPreviewing.value = false;
+  }
+}
+
+function clearAiCropPreview() {
+  aiCropPreview.value = null;
+}
+
+async function getAiCropSourceCanvas() {
+  if (isPdfFile.value) return pdfBaseCanvasRef.value;
+  if (!isImageFile.value) return null;
+  const file = latestDesignFile.value;
+  if (file?.storagePath) {
+    const bytes = await downloadStorageFileBytes(file.storagePath);
+    const blob = new Blob([bytes]);
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+    return canvas;
+  }
+  const img = baseImageRef.value;
+  if (!img?.naturalWidth || !img?.naturalHeight) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.getContext("2d").drawImage(img, 0, 0);
+  return canvas;
+}
+
+function buildAiOrderSummary() {
+  return {
+    id: orderId.value,
+    orderNo: order.value?.orderNo || order.value?.訂單號碼 || "",
+    customerName: order.value?.customerName || order.value?.客戶 || "",
+    siteAddress: order.value?.siteAddress || order.value?.施工地址 || "",
+    depthStandard: order.value?.depthStandard || null,
+    lineItems: Array.isArray(order.value?.lineItems)
+      ? order.value.lineItems.map((item) => ({
+          name: item?.name || item?.品名 || "",
+          unit: item?.unit || item?.單位 || "",
+          qty: item?.qty || item?.數量 || null,
+        }))
+      : [],
+  };
+}
+
+function mergeBackendAiDraft(backendDraft, fallbackDraft) {
+  if (!backendDraft || typeof backendDraft !== "object") return fallbackDraft;
+  const localCrops = Array.isArray(fallbackDraft.aiCrops)
+    ? fallbackDraft.aiCrops
+    : [];
+  const aiCrops = Array.isArray(backendDraft.aiCrops)
+    ? backendDraft.aiCrops.map((crop) => {
+        const local = localCrops.find((item) => item.id === crop.id) || {};
+        return {
+          ...crop,
+          imageDataUrl: crop.imageDataUrl || local.imageDataUrl || "",
+        };
+      })
+    : localCrops;
+  const primaryCrop =
+    aiCrops.find((crop) => crop.purpose === "countertop") || aiCrops[0] || null;
+  return {
+    ...fallbackDraft,
+    ...backendDraft,
+    aiCrops,
+    crop: backendDraft.crop || fallbackDraft.crop || null,
+    cropImageDataUrl:
+      backendDraft.cropImageDataUrl || primaryCrop?.imageDataUrl || "",
+  };
+}
+
+async function getAiStraightDraft(crops) {
+  const fallbackDraft = await getMockAiStraightDraft(crops);
+  try {
+    const backendDraft = await analyzeStraightDrawingDraft({
+      drawingType: "straight",
+      orderId: orderId.value,
+      orderSummary: buildAiOrderSummary(),
+      aiCrops: fallbackDraft.aiCrops,
+    });
+    return mergeBackendAiDraft(backendDraft, fallbackDraft);
+  } catch (error) {
+    console.warn("AI backend draft failed, fallback to mock", error);
+    const code = String(error?.code || "");
+    const message = String(error?.message || "unknown");
+    const detail =
+      code.includes("internal") || message === "internal"
+        ? "AI後端回傳 internal，可能尚未部署最新函式或 Gemini secret 尚未設定完成"
+        : message;
+    return {
+      ...fallbackDraft,
+      message: `AI後端暫時無法使用，已改用測試草稿：${detail}`,
+    };
+  }
+}
+
+async function getMockAiStraightDraft(cropsOverride = null) {
+  const mainItem = (
+    Array.isArray(order.value?.lineItems) ? order.value.lineItems : []
+  ).find((item) => String(item?.unit || "").trim() === "cm");
+  const length = Number(mainItem?.qty) > 0 ? Number(mainItem.qty) : 199;
+  const depth =
+    Number(order.value?.depthStandard) > 0
+      ? Number(order.value.depthStandard)
+      : 60;
+  const crops = Array.isArray(cropsOverride)
+    ? cropsOverride
+    : await getAiSelectionCrops().catch((error) => {
+        console.warn("AI crop failed", error);
+        return [];
+      });
+  const primaryCrop =
+    crops.find((crop) => crop.purpose === "countertop") || crops[0] || null;
+  return {
+    drawingType: "straight",
+    length,
+    depth,
+    thickness: 4,
+    cabinetBodies: [],
+    segments: [],
+    fixtures: [],
+    sideOptions: {},
+    cropImageDataUrl: primaryCrop?.imageDataUrl || "",
+    crop: primaryCrop
+      ? {
+          id: primaryCrop.id,
+          purpose: primaryCrop.purpose,
+          label: primaryCrop.label,
+          width: primaryCrop.width,
+          height: primaryCrop.height,
+          selection: primaryCrop.selection,
+          sourceName: latestDesignFile.value?.name || "",
+        }
+      : null,
+    aiCrops: crops.map((crop) => ({
+      id: crop.id,
+      purpose: crop.purpose,
+      label: crop.label,
+      width: crop.width,
+      height: crop.height,
+      selection: crop.selection,
+      sourceName: latestDesignFile.value?.name || "",
+      imageDataUrl: crop.imageDataUrl,
+    })),
+    confidence: 0.8,
+    needsReview: true,
+    source: "mock-original-review",
+  };
+}
+
+async function generateAiStraightDraft() {
+  if (!orderId.value) return;
+  aiDrafting.value = true;
+  try {
+    const crops = await getAiSelectionCrops().catch((error) => {
+      console.warn("AI crop failed", error);
+      return [];
+    });
+    const draft = await getAiStraightDraft(crops);
+    aiDraftPreview.value = {
+      ...draft,
+      length: Number(draft.length || 0),
+      depth: Number(draft.depth || 0),
+      thickness: Number(draft.thickness || 0),
+      cabinetBodies: Array.isArray(draft.cabinetBodies)
+        ? draft.cabinetBodies.map((body) => ({ ...body }))
+        : [],
+      segments: Array.isArray(draft.segments)
+        ? draft.segments.map((segment) => ({ ...segment }))
+        : [],
+      fixtures: Array.isArray(draft.fixtures)
+        ? draft.fixtures.map((fixture) => ({ ...fixture }))
+        : [],
+      sideOptions:
+        draft.sideOptions && typeof draft.sideOptions === "object"
+          ? { ...draft.sideOptions }
+          : {},
+      aiCrops: Array.isArray(draft.aiCrops)
+        ? draft.aiCrops.map((crop) => ({ ...crop }))
+        : [],
+    };
+  } finally {
+    aiDrafting.value = false;
+  }
+}
+
+function closeAiDraftPreview() {
+  if (aiApplying.value) return;
+  aiDraftPreview.value = null;
+}
+
+async function applyAiDraftPreview() {
+  if (!orderId.value || !aiDraftPreview.value) return;
+  aiApplying.value = true;
+  try {
+    const draft = {
+      ...aiDraftPreview.value,
+      length:
+        Number(aiDraftPreview.value.length) > 0
+          ? Number(aiDraftPreview.value.length)
+          : 199,
+      depth:
+        Number(aiDraftPreview.value.depth) > 0
+          ? Number(aiDraftPreview.value.depth)
+          : 60,
+      thickness:
+        Number(aiDraftPreview.value.thickness) > 0
+          ? Number(aiDraftPreview.value.thickness)
+          : 4,
+      cabinetBodies: Array.isArray(aiDraftPreview.value.cabinetBodies)
+        ? aiDraftPreview.value.cabinetBodies
+        : [],
+      segments: Array.isArray(aiDraftPreview.value.segments)
+        ? aiDraftPreview.value.segments
+        : [],
+      fixtures: Array.isArray(aiDraftPreview.value.fixtures)
+        ? aiDraftPreview.value.fixtures
+        : [],
+      sideOptions:
+        aiDraftPreview.value.sideOptions &&
+        typeof aiDraftPreview.value.sideOptions === "object"
+          ? aiDraftPreview.value.sideOptions
+          : {},
+      aiCrops: Array.isArray(aiDraftPreview.value.aiCrops)
+        ? aiDraftPreview.value.aiCrops
+        : [],
+    };
+    sessionStorage.setItem(
+      `aiStraightDraft:${orderId.value}`,
+      JSON.stringify(draft),
+    );
+    aiDraftPreview.value = null;
+    await router.push({
+      name: "order-drawing",
+      params: { id: orderId.value },
+      query: { aiDraft: "straight" },
+    });
+  } finally {
+    aiApplying.value = false;
+  }
+}
+
 function normalizeReviewObjectForSignature(obj) {
   if (!obj || typeof obj !== "object") return null;
   return {
@@ -664,7 +1324,9 @@ const latestDesignFile = computed(() => {
   );
   if (previewableOriginal) return previewableOriginal;
 
-  const previewableAny = files.find((f) => isPreviewableDesignFileName(f?.name));
+  const previewableAny = files.find((f) =>
+    isPreviewableDesignFileName(f?.name),
+  );
   if (previewableAny) return previewableAny;
 
   return originals[0] || files[0] || null;
@@ -1056,8 +1718,13 @@ function annotationObjectStyle(obj) {
     top: `${top}px`,
     width: `${pctToPxX(obj.wPct || 0)}px`,
     height: `${pctToPxY(obj.hPct || 0)}px`,
-    border: `${obj.strokeWidth || brushSize.value}px solid ${obj.color || brushColor.value}`,
+    border:
+      obj.type === "ai-rect"
+        ? "2px dashed #2563eb"
+        : `${obj.strokeWidth || brushSize.value}px solid ${obj.color || brushColor.value}`,
     borderRadius: obj.type === "ellipse" ? "999px" : "0",
+    background:
+      obj.type === "ai-rect" ? "rgba(37, 99, 235, 0.08)" : "transparent",
   };
 }
 
@@ -1106,7 +1773,11 @@ function onObjectLayerPointerDown(event) {
     return;
   }
 
-  if (toolMode.value === "rect" || toolMode.value === "ellipse") {
+  if (
+    toolMode.value === "rect" ||
+    toolMode.value === "ellipse" ||
+    toolMode.value === "ai-rect"
+  ) {
     shapeStartPoint.value = point;
     objectDraft.value = null;
     isDrawing.value = true;
@@ -1159,12 +1830,26 @@ function onObjectLayerPointerUp() {
     return;
   }
   if (
-    (toolMode.value === "rect" || toolMode.value === "ellipse") &&
+    (toolMode.value === "rect" ||
+      toolMode.value === "ellipse" ||
+      toolMode.value === "ai-rect") &&
     objectDraft.value
   ) {
-    annotationObjects.value.push({ ...objectDraft.value, id: newObjectId() });
-    selectedObjectId.value =
-      annotationObjects.value[annotationObjects.value.length - 1]?.id || null;
+    if (toolMode.value === "ai-rect") {
+      const selection = {
+        ...objectDraft.value,
+        id: newObjectId(),
+        purpose: aiSelectionPurpose.value,
+      };
+      aiSelections.value.push(selection);
+      selectedAiSelectionId.value = selection.id;
+      clearAiCropPreview();
+      selectedObjectId.value = null;
+    } else {
+      annotationObjects.value.push({ ...objectDraft.value, id: newObjectId() });
+      selectedObjectId.value =
+        annotationObjects.value[annotationObjects.value.length - 1]?.id || null;
+    }
     objectDraft.value = null;
   }
   shapeStartPoint.value = null;
@@ -1179,9 +1864,25 @@ function deleteSelectedObject() {
   clearSelection();
 }
 
+function selectAiSelection(id) {
+  selectedAiSelectionId.value = id;
+  clearAiCropPreview();
+}
+
+function clearAiSelections() {
+  aiSelections.value = [];
+  selectedAiSelectionId.value = null;
+  clearAiCropPreview();
+}
+
 function setToolMode(mode) {
   toolMode.value = mode;
-  if (mode === "text" || mode === "rect" || mode === "ellipse") {
+  if (
+    mode === "text" ||
+    mode === "rect" ||
+    mode === "ellipse" ||
+    mode === "ai-rect"
+  ) {
     eraserMode.value = false;
   }
 }
@@ -1681,6 +2382,107 @@ watch(showOverlay, () => {
   min-height: 0;
   overflow: hidden;
 }
+.ai-draft-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.45);
+}
+.ai-draft-modal {
+  width: min(720px, 100%);
+  max-height: min(760px, calc(100vh - 36px));
+  overflow: auto;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28);
+  padding: 16px;
+}
+.ai-draft-head,
+.ai-draft-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ai-draft-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.ai-draft-head p {
+  margin: 4px 0 0;
+}
+.ai-draft-source {
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ai-draft-message {
+  margin: 12px 0 0;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ai-draft-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.ai-draft-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #374151;
+  font-size: 13px;
+}
+.ai-draft-grid input {
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 14px;
+}
+.ai-draft-section {
+  margin-top: 16px;
+  border-top: 1px dashed #dbe1e8;
+  padding-top: 12px;
+}
+.ai-draft-section h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.ai-draft-crops {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-draft-crop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #f8fafc;
+}
+.ai-draft-actions {
+  margin-top: 18px;
+  justify-content: flex-end;
+}
 .panel,
 .canvas-section {
   background: #fff;
@@ -1841,6 +2643,25 @@ textarea {
   outline: 2px dashed #2563eb;
   outline-offset: 2px;
 }
+.annotation-object.ai-selection {
+  pointer-events: none;
+}
+.ai-selection-label {
+  position: absolute;
+  left: 0;
+  top: -24px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
 .annotation-object.draft {
   opacity: 0.75;
   pointer-events: none;
@@ -1872,6 +2693,57 @@ textarea {
   border-top: 1px dashed #dbe1e8;
   padding-top: 10px;
   margin-top: 4px;
+}
+.ai-purpose-select {
+  min-width: 96px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 8px;
+}
+.ai-selection-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai-selection-chip {
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.ai-selection-chip.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  font-weight: 700;
+}
+.ai-crop-preview {
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 8px;
+}
+.ai-crop-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ai-crop-preview img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  background: #fff;
+}
+.btn-mini {
+  padding: 3px 7px;
+  font-size: 12px;
 }
 .btn-tool-active {
   border-color: #ef4444;
@@ -1952,6 +2824,9 @@ textarea {
   .review-layout {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+  .ai-draft-grid {
+    grid-template-columns: 1fr 1fr;
   }
   .canvas-body {
     grid-template-columns: 1fr;

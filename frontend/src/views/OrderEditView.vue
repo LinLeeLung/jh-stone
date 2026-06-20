@@ -1,7 +1,29 @@
 <template>
   <div class="order-edit">
     <header class="page-header">
-      <h2>{{ isEdit ? "編輯訂單" : "新建訂單" }}</h2>
+      <div class="page-title-group">
+        <h2>{{ isEdit ? "編輯訂單" : "新建訂單" }}</h2>
+        <div v-if="form.orderNo" class="issued-order-no-row header-order-no">
+          <label>正式訂單號<br />（發單後）</label>
+          <div class="issued-order-no-editor">
+            <input
+              v-model="issuedOrderNoDraft"
+              type="text"
+              :readonly="!canEditIssuedOrderNo"
+              placeholder="正式訂單號"
+            />
+            <button
+              v-if="canEditIssuedOrderNo"
+              class="btn-mini"
+              type="button"
+              :disabled="updatingIssuedOrderNo"
+              @click="onUpdateIssuedOrderNo"
+            >
+              {{ updatingIssuedOrderNo ? "更新中..." : "修改正式訂單號" }}
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="header-actions">
         <RouterLink
           v-if="userRole === 'admin' || userRole === '管理者'"
@@ -205,7 +227,11 @@
             <button class="btn-mini" type="button" @click="addPricingItem">
               + 新增項目
             </button>
-            <button class="btn-mini" type="button" @click="recalcPricingTotals">
+            <button
+              class="btn-mini"
+              type="button"
+              @click="recalcPricingTotals({ syncConfirmation: true })"
+            >
               重算合計
             </button>
             <button
@@ -232,9 +258,7 @@
               <span>客戶歷史單價</span>
               <span v-if="customerPricing.defaultPricePerCm" class="muted small"
                 >預設
-                {{
-                  customerPricing.defaultPricePerCm.toLocaleString()
-                }}
+                {{ customerPricing.defaultPricePerCm.toLocaleString() }}
                 /cm</span
               >
             </div>
@@ -372,6 +396,14 @@
                   />
                   超深比例換算
                 </label>
+                <select
+                  v-model="form.depthScalingMode"
+                  :disabled="!form.depthProportional"
+                  style="width: 130px"
+                >
+                  <option value="minus8">扣8算法</option>
+                  <option value="actualDepth">實深度不扣8</option>
+                </select>
               </div>
             </div>
             <div class="row">
@@ -418,6 +450,7 @@
               </div>
               <!-- 計價區顯示 -->
               <div
+                class="pricing-preview-box"
                 style="
                   margin-top: 8px;
                   padding: 8px;
@@ -430,8 +463,14 @@
                   width: 100%;
                 "
               >
+                <textarea
+                  v-model="confirmationUntaxedPriceText"
+                  class="confirmation-untaxed-preview-input"
+                  rows="5"
+                  placeholder="輸入確定單未稅價區要顯示的內容"
+                ></textarea>
                 <div
-                  v-if="pricingFormulaDisplay"
+                  v-if="!confirmationUntaxedPriceText && pricingFormulaDisplay"
                   style="display: flex; flex-direction: column; gap: 2px"
                 >
                   <!-- 基礎計算 -->
@@ -471,7 +510,9 @@
 
                   <!-- 其他開孔 -->
                   <div v-if="pricingFormulaDisplay.legLaborItems.length">
-                    平接{{ fmtCurrency(pricingFormulaDisplay.legLaborSubtotal) }}
+                    平接{{
+                      fmtCurrency(pricingFormulaDisplay.legLaborSubtotal)
+                    }}
                   </div>
 
                   <div v-if="pricingFormulaDisplay.otherCutoutItems.length">
@@ -890,6 +931,9 @@ import {
   getCustomerPricing,
   updateCustomerPricing,
   listOrderDrawings,
+  getOrderConfirmation,
+  saveOrderConfirmation,
+  updateIssuedOrderNo,
 } from "../firebase";
 import IssuanceDialog from "../components/IssuanceDialog.vue";
 import { SINK_STATUS_LIST } from "../utils/sinkStatus";
@@ -905,17 +949,50 @@ import {
 const userRole = ref("");
 const customerPricing = ref(null);
 const loadingPricingImport = ref(false);
+const confirmationUntaxedPriceText = ref("");
+
+const ESTIMATE_DEFAULT_PRICE_PER_CM = 0;
+const ESTIMATE_DEFAULT_ITEM_PRICES = {
+  quartz: {
+    下嵌水槽: 2500,
+    平接水槽: 6000,
+    上掛: 1500,
+    平接爐: 4000,
+  },
+  porcelain: {
+    下嵌水槽: 3500,
+    平接水槽: 6000,
+    上掛: 1500,
+    平接爐: 4000,
+  },
+  granite: {
+    下嵌水槽: 2500,
+    平接水槽: 6000,
+    上掛: 1500,
+    平接爐: 4000,
+  },
+  側落腳卡榫: 2000,
+  側落腳平接: 6000,
+};
 
 // ─── 發單作業 ────────────────────────────────────────────────
 const orderStatus = ref("");
 const pendingSignSnapshot = ref(null);
 const pendingSignDrawingVersions = ref({});
 const showIssuanceDialog = ref(false);
+const issuedOrderNoDraft = ref("");
+const updatingIssuedOrderNo = ref(false);
 const canSendConfirmation = computed(
   () => isEdit.value && (!orderStatus.value || orderStatus.value === "draft"),
 );
 const canIssue = computed(
   () => isEdit.value && orderStatus.value === "pendingSign",
+);
+const canEditIssuedOrderNo = computed(
+  () =>
+    isEdit.value &&
+    Boolean(form.value.orderNo) &&
+    (userRole.value === "admin" || userRole.value === "管理者"),
 );
 
 async function onSendConfirmation() {
@@ -942,8 +1019,47 @@ async function onSendConfirmation() {
 function onIssued(orderNo) {
   showIssuanceDialog.value = false;
   orderStatus.value = "confirmed";
+  form.value.orderNo = orderNo;
+  issuedOrderNoDraft.value = orderNo;
   alert(`發單成功！訂單號：${orderNo}\n即將跳轉確定單頁面封存PDF。`);
   router.push({ name: "order-confirmation", params: { id: route.params.id } });
+}
+
+async function onUpdateIssuedOrderNo() {
+  const nextOrderNo = String(issuedOrderNoDraft.value || "")
+    .trim()
+    .toUpperCase();
+  const currentOrderNo = String(form.value.orderNo || "").trim();
+  if (!nextOrderNo) {
+    alert("請輸入訂單號碼");
+    return;
+  }
+  if (nextOrderNo === currentOrderNo) {
+    issuedOrderNoDraft.value = currentOrderNo;
+    alert("訂單號碼未變更");
+    return;
+  }
+  if (
+    !confirm(
+      `確定將正式訂單號由 ${currentOrderNo} 改為 ${nextOrderNo}？\n系統會同步更新相關生產、維修、派工與舊訂單資料。`,
+    )
+  ) {
+    issuedOrderNoDraft.value = currentOrderNo;
+    return;
+  }
+  updatingIssuedOrderNo.value = true;
+  try {
+    const result = await updateIssuedOrderNo(route.params.id, nextOrderNo);
+    form.value.orderNo = result.orderNo;
+    issuedOrderNoDraft.value = result.orderNo;
+    alert(`正式訂單號已更新為 ${result.orderNo}`);
+  } catch (e) {
+    console.error(e);
+    issuedOrderNoDraft.value = currentOrderNo;
+    alert("修改訂單號碼失敗：" + (e?.message || e));
+  } finally {
+    updatingIssuedOrderNo.value = false;
+  }
 }
 
 // ─── 附件 ────────────────────────────────────────────────
@@ -1117,6 +1233,7 @@ function newStove() {
 const form = ref({
   customerId: "",
   customerName: "",
+  orderNo: "",
   customerContact: { name: "", phone: "" },
   owner: { name: "", phone: "" },
   siteAddress: "",
@@ -1150,6 +1267,7 @@ const form = ref({
   lineItems: [],
   depthStandard: 60,
   depthProportional: true,
+  depthScalingMode: "minus8",
 });
 
 function buildFormSignature() {
@@ -1200,6 +1318,28 @@ const suggestedPrices = computed(() => {
   return result;
 });
 
+function getStonePriceKey(stone = {}) {
+  return [stone?.brand, stone?.color].filter(Boolean).join("/");
+}
+
+function getStoneUnitPrice(orderData = {}) {
+  const direct = Number(orderData?.pricePerCm);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const firstStone = Array.isArray(orderData?.stones)
+    ? orderData.stones[0]
+    : null;
+  const stoneKey = getStonePriceKey(firstStone);
+  const stonePrice = stoneKey
+    ? Number(customerPricing.value?.stonePrices?.[stoneKey])
+    : 0;
+  if (Number.isFinite(stonePrice) && stonePrice > 0) return stonePrice;
+  const customerDefault = Number(customerPricing.value?.defaultPricePerCm);
+  if (Number.isFinite(customerDefault) && customerDefault > 0) {
+    return customerDefault;
+  }
+  return ESTIMATE_DEFAULT_PRICE_PER_CM;
+}
+
 function toNum(val) {
   const n = Number(val);
   return Number.isFinite(n) ? n : 0;
@@ -1229,14 +1369,51 @@ function normalizePricingItems(rows) {
   return rows.map((row) => normalizePricingItem(row));
 }
 
-function fillMissingUnitPrices(rows, defaultPrice) {
-  if (!Array.isArray(rows) || !defaultPrice) return rows;
+function normalizeEstimateMaterialType(materialType) {
+  return ["quartz", "porcelain", "granite"].includes(materialType)
+    ? materialType
+    : "quartz";
+}
+
+function getEstimateDefaultUnitPrice(row, defaultPricePerCm, materialType) {
+  const desc = String(row?.description || row?.name || "").trim();
+  const unit = String(row?.unit || "").trim();
+  const materialPrices =
+    ESTIMATE_DEFAULT_ITEM_PRICES[
+      normalizeEstimateMaterialType(row?.materialType || materialType)
+    ] || ESTIMATE_DEFAULT_ITEM_PRICES.quartz;
+  const defaultCm = Number(defaultPricePerCm) || 0;
+  if (unit === "cm") return defaultCm;
+  if (/水槽/.test(desc)) {
+    if (/平接/.test(desc)) return materialPrices.平接水槽;
+    if (/下嵌/.test(desc)) return materialPrices.下嵌水槽;
+  }
+  if (/爐具|爐/.test(desc)) {
+    if (/平接/.test(desc)) return materialPrices.平接爐;
+    if (/上掛/.test(desc)) return materialPrices.上掛;
+  }
+  if (/側落腳|側腳/.test(desc)) {
+    if (/卡榫|K1/.test(desc)) return ESTIMATE_DEFAULT_ITEM_PRICES.側落腳卡榫;
+    if (/平接|H1|H2/.test(desc)) return ESTIMATE_DEFAULT_ITEM_PRICES.側落腳平接;
+  }
+  return 0;
+}
+
+function fillMissingUnitPrices(rows, defaultPrice, materialType) {
+  if (!Array.isArray(rows)) return rows;
   return rows.map((row) => {
     if (row.unitPrice === 0 || !row.unitPrice) {
+      const unitPrice = getEstimateDefaultUnitPrice(
+        row,
+        defaultPrice,
+        materialType,
+      );
+      if (!unitPrice) return row;
       return {
         ...row,
-        unitPrice: defaultPrice,
-        amount: Math.round((row.qty || 0) * defaultPrice),
+        materialType: row.materialType || materialType || "",
+        unitPrice,
+        amount: Math.round((row.qty || 0) * unitPrice),
       };
     }
     return row;
@@ -1307,6 +1484,7 @@ function calcDepthFactor(
   proportional,
   backHeight = 4,
   frontHeight = 4,
+  scalingMode = "minus8",
 ) {
   if (!proportional) return 1;
   const d = parseLoosePositive(actualDepth);
@@ -1318,23 +1496,102 @@ function calcDepthFactor(
     frontHeight != null && Number.isFinite(Number(frontHeight))
       ? Math.max(Number(frontHeight), 0)
       : 4;
-  const adjustedDepth = Math.max(front + back + d - 8, 0);
+  const adjustedDepth = calcDepthScalingDepth(
+    d,
+    threshold,
+    back,
+    front,
+    scalingMode,
+  );
   if (adjustedDepth <= threshold) return 1;
   return Math.round((adjustedDepth / base) * 1000) / 1000;
+}
+
+function normalizeDepthScalingMode(value) {
+  return value === "actualDepth" ? "actualDepth" : "minus8";
+}
+
+function calcDepthScalingDepth(
+  actualDepth,
+  standard,
+  backHeight = 4,
+  frontHeight = 4,
+  scalingMode = "minus8",
+  frontWrap = 0,
+  backWrap = 0,
+) {
+  const d = parseLoosePositive(actualDepth);
+  if (!d) return 0;
+  const mode = normalizeDepthScalingMode(scalingMode);
+  const back = parseLoosePositive(backHeight) || 4;
+  const front =
+    frontHeight != null && Number.isFinite(Number(frontHeight))
+      ? Math.max(Number(frontHeight), 0)
+      : 4;
+  if (mode === "actualDepth") return front + back < 8 ? d : 0;
+  return Math.max(
+    d +
+      front +
+      back +
+      parseLoosePositive(frontWrap) +
+      parseLoosePositive(backWrap) -
+      8,
+    0,
+  );
+}
+
+function usesActualDepthScaling(
+  backHeight = 4,
+  frontHeight = 4,
+  scalingMode = "minus8",
+) {
+  const back = parseLoosePositive(backHeight) || 4;
+  const front =
+    frontHeight != null && Number.isFinite(Number(frontHeight))
+      ? Math.max(Number(frontHeight), 0)
+      : 4;
+  return (
+    normalizeDepthScalingMode(scalingMode) === "actualDepth" && front + back < 8
+  );
 }
 
 function getDrawingLengthByType(type, state, depthOpts) {
   const normalized = normalizeDrawingType(type);
   const std = parseLoosePositive(depthOpts?.standard) || 60;
   const prop = depthOpts?.proportional !== false;
+  const mode = normalizeDepthScalingMode(depthOpts?.scalingMode);
   const back = parseLoosePositive(state?.backHeight ?? 4) || 4;
   const rawThick =
     state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
   const front = rawThick <= 1.5 ? 0 : rawThick || 4;
   if (normalized === "straight") {
     const rawLen = sumPositiveList(state?.cabins || []);
-    const f = calcDepthFactor(state?.depthVal ?? 60, std, prop, back, front);
-    return Math.round(rawLen * f);
+    const f = calcDepthFactor(
+      state?.depthVal ?? 60,
+      std,
+      prop,
+      back,
+      front,
+      mode,
+    );
+    const sideLegTotal = getStraightSideLegEntries(state).reduce(
+      (sum, entry) => {
+        const backWrap = state?.backOption === "後靠牆" ? 0 : entry.wrap;
+        const legFactor = calcIslandLegDepthFactor(
+          entry.depth,
+          std,
+          prop,
+          back,
+          front,
+          entry.wrap,
+          backWrap,
+          mode,
+        );
+        return sum + entry.height * legFactor;
+      },
+      0,
+    );
+    return Math.round(rawLen * f + sideLegTotal);
   }
   if (normalized === "l-shape") {
     const left = sumPositiveList(state?.leftCabins || []);
@@ -1344,8 +1601,22 @@ function getDrawingLengthByType(type, state, depthOpts) {
         parseLoosePositive(state?.leftDepth ?? 0),
         parseLoosePositive(state?.rightDepth ?? 0),
       ) / 2;
-    const fl = calcDepthFactor(state?.leftDepth ?? 60, std, prop, back, front);
-    const fr = calcDepthFactor(state?.rightDepth ?? 60, std, prop, back, front);
+    const fl = calcDepthFactor(
+      state?.leftDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+      mode,
+    );
+    const fr = calcDepthFactor(
+      state?.rightDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+      mode,
+    );
     return Math.round(left * fl + right * fr - corner);
   }
   if (normalized === "m-shape") {
@@ -1357,13 +1628,21 @@ function getDrawingLengthByType(type, state, depthOpts) {
       Math.min(midDepth, parseLoosePositive(state?.leftArmDepth ?? 0)) / 2;
     const rightCorner =
       Math.min(midDepth, parseLoosePositive(state?.rightArmDepth ?? 0)) / 2;
-    const fm = calcDepthFactor(state?.midDepth ?? 60, std, prop, back, front);
+    const fm = calcDepthFactor(
+      state?.midDepth ?? 60,
+      std,
+      prop,
+      back,
+      front,
+      mode,
+    );
     const fl = calcDepthFactor(
       state?.leftArmDepth ?? 60,
       std,
       prop,
       back,
       front,
+      mode,
     );
     const fr = calcDepthFactor(
       state?.rightArmDepth ?? 60,
@@ -1371,6 +1650,7 @@ function getDrawingLengthByType(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     return Math.round(
       mid * fm + left * fl + right * fr - leftCorner - rightCorner,
@@ -1385,6 +1665,7 @@ function getDrawingLengthByType(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     const legCount = getIslandLegCount(islandForm.legMode);
     const legFactor = calcIslandLegDepthFactor(
@@ -1395,8 +1676,10 @@ function getDrawingLengthByType(type, state, depthOpts) {
       front,
       islandForm.frontWrap,
       islandForm.backWrap,
+      mode,
     );
-    const legTotal = parseLoosePositive(islandForm.legHeight) * legFactor * legCount;
+    const legTotal =
+      parseLoosePositive(islandForm.legHeight) * legFactor * legCount;
     return Math.round(bodyTotal * bodyFactor + legTotal);
   }
   return 0;
@@ -1409,6 +1692,7 @@ function depthScaledTerm(
   proportional,
   backHeight = 4,
   frontHeight = 4,
+  scalingMode = "minus8",
 ) {
   const len = parseLoosePositive(length);
   if (!len) return "0";
@@ -1422,9 +1706,26 @@ function depthScaledTerm(
       : 4;
   if (!proportional || !d) return formatCmNumber(len);
   const totalUse = front + back + d;
-  const adjustedDepth = Math.max(totalUse - 8, 0);
+  const adjustedDepth = calcDepthScalingDepth(
+    d,
+    threshold,
+    back,
+    front,
+    scalingMode,
+  );
   if (adjustedDepth <= threshold) return formatCmNumber(len);
+  if (usesActualDepthScaling(back, front, scalingMode)) {
+    return `${formatCmNumber(len)}×(${formatCmNumber(d)}/${formatCmNumber(base)})`;
+  }
   return `${formatCmNumber(len)}×((${formatCmNumber(totalUse)}-8)/${formatCmNumber(base)})`;
+}
+
+function joinPositiveFormulaTerms(...values) {
+  return values
+    .map((value) => parseLoosePositive(value))
+    .filter((value) => value > 0)
+    .map((value) => formatCmNumber(value))
+    .join("+");
 }
 
 function calcIslandLegDepthFactor(
@@ -1435,18 +1736,21 @@ function calcIslandLegDepthFactor(
   frontHeight = 4,
   frontWrap = 0,
   backWrap = 0,
+  scalingMode = "minus8",
 ) {
   if (!proportional) return 1;
   const d = parseLoosePositive(actualDepth);
   const threshold = parseLoosePositive(standard) || 60;
   if (!d) return 1;
-  const totalUse =
-    d +
-    (parseLoosePositive(frontHeight) || 4) +
-    (parseLoosePositive(backHeight) || 4) +
-    parseLoosePositive(frontWrap) +
-    parseLoosePositive(backWrap);
-  const adjustedDepth = Math.max(totalUse - 8, 0);
+  const adjustedDepth = calcDepthScalingDepth(
+    d,
+    threshold,
+    backHeight,
+    frontHeight,
+    scalingMode,
+    frontWrap,
+    backWrap,
+  );
   if (adjustedDepth <= threshold) return 1;
   return Math.round((adjustedDepth / 60) * 1000) / 1000;
 }
@@ -1461,44 +1765,77 @@ function islandLegDepthScaledTerm(
   frontWrap = 0,
   backWrap = 0,
   legCount = 1,
+  scalingMode = "minus8",
 ) {
   const height = parseLoosePositive(legHeight);
   if (!height) return "";
   const count = parseLoosePositive(legCount);
   const d = parseLoosePositive(actualDepth);
   const threshold = parseLoosePositive(standard) || 60;
-  const totalUse =
-    d +
-    (parseLoosePositive(frontHeight) || 4) +
-    (parseLoosePositive(backHeight) || 4) +
-    parseLoosePositive(frontWrap) +
-    parseLoosePositive(backWrap);
-  const adjustedDepth = Math.max(totalUse - 8, 0);
+  const base = 60;
+  const adjustedDepth = calcDepthScalingDepth(
+    d,
+    threshold,
+    backHeight,
+    frontHeight,
+    scalingMode,
+    frontWrap,
+    backWrap,
+  );
   const countText = count > 1 ? `×${formatCmNumber(count)}` : "";
   if (!proportional || !d || adjustedDepth <= threshold) {
     return `${formatCmNumber(height)}${countText}`;
   }
-  return `${formatCmNumber(height)}×((${formatCmNumber(d)}+${formatCmNumber(frontHeight)}+${formatCmNumber(backHeight)}+${formatCmNumber(frontWrap)}+${formatCmNumber(backWrap)}-8)/60)${countText}`;
+  if (usesActualDepthScaling(backHeight, frontHeight, scalingMode)) {
+    return `${formatCmNumber(height)}×(${formatCmNumber(d)}/${formatCmNumber(base)})${countText}`;
+  }
+  const formulaTerms = joinPositiveFormulaTerms(
+    d,
+    frontHeight,
+    backHeight,
+    frontWrap,
+    backWrap,
+  );
+  return `${formatCmNumber(height)}×((${formulaTerms}-8)/${formatCmNumber(base)})${countText}`;
 }
 
 function getDrawingLengthFormula(type, state, depthOpts) {
   const normalized = normalizeDrawingType(type);
   const std = parseLoosePositive(depthOpts?.standard) || 60;
   const prop = depthOpts?.proportional !== false;
+  const mode = normalizeDepthScalingMode(depthOpts?.scalingMode);
   const back = parseLoosePositive(state?.backHeight ?? 4) || 4;
   const rawThick =
     state?.counterThick != null ? parseLoosePositive(state.counterThick) : 4;
   const front = rawThick <= 1.5 ? 0 : rawThick || 4;
   if (normalized === "straight") {
     const rawLen = sumPositiveList(state?.cabins || []);
-    return depthScaledTerm(
+    const bodyExpr = depthScaledTerm(
       rawLen,
       state?.depthVal ?? 60,
       std,
       prop,
       back,
       front,
+      mode,
     );
+    const legExprs = getStraightSideLegEntries(state).map((entry) => {
+      const backWrap = state?.backOption === "後靠牆" ? 0 : entry.wrap;
+      const expr = islandLegDepthScaledTerm(
+        entry.height,
+        entry.depth,
+        std,
+        prop,
+        back,
+        front,
+        entry.wrap,
+        backWrap,
+        1,
+        mode,
+      );
+      return `${entry.label}${expr}`;
+    });
+    return [bodyExpr, ...legExprs].filter(Boolean).join("+");
   }
   if (normalized === "l-shape") {
     const left = sumPositiveList(state?.leftCabins || []);
@@ -1514,6 +1851,7 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     const rightExpr = depthScaledTerm(
       right,
@@ -1522,6 +1860,7 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     return `${leftExpr}+${rightExpr}-${formatCmNumber(shallow / 2)}(轉角)`;
   }
@@ -1545,6 +1884,7 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     const leftExpr = depthScaledTerm(
       left,
@@ -1553,6 +1893,7 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     const rightExpr = depthScaledTerm(
       right,
@@ -1561,6 +1902,7 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     return `${midExpr}+${leftExpr}+${rightExpr}-(${formatCmNumber(leftShallow)}/2+${formatCmNumber(rightShallow)}/2)`;
   }
@@ -1589,6 +1931,7 @@ function getDrawingLengthFormula(type, state, depthOpts) {
       prop,
       back,
       front,
+      mode,
     );
     const bodyFormula =
       bodyExpr === formatCmNumber(bodyTotal) ? bodyBase : bodyExpr;
@@ -1604,6 +1947,7 @@ function getDrawingLengthFormula(type, state, depthOpts) {
           f.frontWrap,
           f.backWrap,
           legCount,
+          mode,
         )
       : "";
     return [bodyFormula, legExpr].filter(Boolean).join("+");
@@ -1649,6 +1993,24 @@ function getIslandLegCount(mode) {
   if (mode === "B") return 2;
   if (mode === "L" || mode === "R") return 1;
   return 0;
+}
+
+function getStraightSideLegEntries(state = {}) {
+  return [
+    { option: state.leftOption, label: "左側落腳", leg: state.leftSideLeg },
+    { option: state.rightOption, label: "右側落腳", leg: state.rightSideLeg },
+  ]
+    .filter((entry) => entry.option === entry.label)
+    .map((entry) => ({
+      label: entry.label,
+      height: parseLoosePositive(entry.leg?.height),
+      depth: parseLoosePositive(entry.leg?.depth ?? state.depthVal ?? 60),
+      wrap: parseLoosePositive(entry.leg?.wrap),
+      method: String(entry.leg?.method || "K1")
+        .trim()
+        .toUpperCase(),
+    }))
+    .filter((entry) => entry.height > 0 && entry.depth > 0);
 }
 
 function deriveIslandBodyLengthFromState(state) {
@@ -1709,18 +2071,41 @@ function buildCutoutLineItemsFromState(type, state, materialType) {
       String(item?.method || "").trim() ||
       (isStove ? defaultStoveMethod : defaultSinkMethod);
     const baseLabel = isStove ? "爐具開孔" : "水槽開孔";
+    const description = `${label}${baseLabel}${index + 1}（${method}）${sizeText}`;
+    const normalizedMaterialType = normalizeEstimateMaterialType(materialType);
+    const unitPrice = getEstimateDefaultUnitPrice({
+      description,
+      unit: "孔",
+      materialType: normalizedMaterialType,
+    });
     rows.push(
       normalizePricingItem({
-        description: `${label}${baseLabel}${index + 1}（${method}）${sizeText}`,
+        description,
         qty: 1,
         unit: "孔",
-        unitPrice: 0,
-        amount: 0,
+        materialType: normalizedMaterialType,
+        unitPrice,
+        amount: unitPrice,
       }),
     );
   });
 
   return rows;
+}
+
+function withCurrentDepthPricingOptions(orderData = {}) {
+  return {
+    ...(orderData || {}),
+    depthStandard:
+      Number(form.value?.depthStandard) || orderData?.depthStandard || 60,
+    depthProportional:
+      form.value?.depthProportional !== undefined
+        ? form.value.depthProportional !== false
+        : orderData?.depthProportional !== false,
+    depthScalingMode: normalizeDepthScalingMode(
+      form.value?.depthScalingMode || orderData?.depthScalingMode,
+    ),
+  };
 }
 
 function buildIslandLegLaborLineItemsFromState(type, state) {
@@ -1739,6 +2124,23 @@ function buildIslandLegLaborLineItemsFromState(type, state) {
   ];
 }
 
+function buildStraightSideLegLaborLineItemsFromState(type, state) {
+  if (normalizeDrawingType(type) !== "straight") return [];
+  const label = getDrawingTypeLabel(type);
+  return getStraightSideLegEntries(state).map((entry) => {
+    const isK1 = entry.method === "K1";
+    const unitPrice = isK1 ? 2000 : 6000;
+    const laborName = isK1 ? "卡榫工資" : "平接工資";
+    return normalizePricingItem({
+      description: `${label}${entry.label}${entry.method}${laborName}（${unitPrice}×1）`,
+      qty: 1,
+      unit: "片",
+      unitPrice,
+      amount: unitPrice,
+    });
+  });
+}
+
 function buildLineItemsFromDrawingState(drawings, orderData) {
   const list = Array.isArray(drawings) ? drawings : [];
 
@@ -1748,16 +2150,17 @@ function buildLineItemsFromDrawingState(drawings, orderData) {
     Array.isArray(orderData?.stones) && orderData.stones.length
       ? `${orderData.stones[0]?.brand || ""} ${orderData.stones[0]?.color || ""}`.trim()
       : "";
-  const unitPrice =
-    Number(orderData?.pricePerCm) ||
-    Number(customerPricing.value?.defaultPricePerCm) ||
-    0;
+  const unitPrice = getStoneUnitPrice(orderData);
 
   const depthOpts = {
-    standard: orderData?.depthStandard ?? form.value?.depthStandard ?? 60,
+    standard: form.value?.depthStandard ?? orderData?.depthStandard ?? 60,
     proportional:
-      orderData?.depthProportional !== false &&
-      form.value?.depthProportional !== false,
+      form.value?.depthProportional !== undefined
+        ? form.value.depthProportional !== false
+        : orderData?.depthProportional !== false,
+    scalingMode: normalizeDepthScalingMode(
+      form.value?.depthScalingMode || orderData?.depthScalingMode,
+    ),
   };
 
   for (const drawing of list) {
@@ -1788,7 +2191,13 @@ function buildLineItemsFromDrawingState(drawings, orderData) {
       );
     }
 
-    rows.push(...buildIslandLegLaborLineItemsFromState(drawing?.type, drawing.state));
+    rows.push(
+      ...buildStraightSideLegLaborLineItemsFromState(
+        drawing?.type,
+        drawing.state,
+      ),
+      ...buildIslandLegLaborLineItemsFromState(drawing?.type, drawing.state),
+    );
 
     rows.push(
       ...buildCutoutLineItemsFromState(
@@ -1860,6 +2269,171 @@ const pricingUntaxedInputValue = computed(() => {
   if (pricingRows.value.length) return pricingSubtotal.value;
   return form.value?.total ?? "";
 });
+
+function formatLegLaborDisplay(item) {
+  const desc = String(item?.description || item?.name || "");
+  const unitPrice = toNum(item?.unitPrice);
+  const qty = toNum(item?.qty);
+  const amount = toNum(item?.amount) || Math.round(qty * unitPrice);
+  const priceText = unitPrice ? fmtCurrency(unitPrice) : fmtCurrency(amount);
+  const isK1 = /K1|卡榫/.test(desc);
+  const isH2 = /H2/.test(desc);
+  const isH1 = /H1/.test(desc);
+  const label = isK1 ? "K1卡榫接" : isH2 ? "H2平接" : isH1 ? "H1平接" : "平接";
+  const qtyText = qty > 1 ? `×${formatCmNumber(qty)}` : "";
+  const amountText = qty > 1 ? `=${fmtCurrency(amount)}` : "";
+  return `${label}@${priceText}${qtyText}${amountText}`;
+}
+
+function normalizeLegMethodText(value) {
+  const text = String(value || "")
+    .replace(/H2H2平接/g, "H2平接")
+    .replace(/H1H1平接/g, "H1平接")
+    .replace(/K1K1卡榫接/g, "K1卡榫接")
+    .replace(/K1K1卡榫/g, "K1卡榫");
+  return text
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(
+          /(H[12]平接|K1卡榫接?)@\s*(\d{1,3}(?:,\d{3})*|\d+)(?:×[\d.]+)?(?:=[\d,]+)?/g,
+          (match, label, priceText) => {
+            const price = Number(String(priceText || "").replace(/,/g, ""));
+            const isValidLegPrice =
+              (/^H[12]/.test(label) && price === 6000) ||
+              (/^K1/.test(label) && price === 2000);
+            return isValidLegPrice ? match : "";
+          },
+        )
+        .replace(/[ \t]{3,}/g, "  ")
+        .trimEnd(),
+    )
+    .join("\n");
+}
+
+function migrateSyncedUntaxedPriceText(text, rows = []) {
+  let nextText = String(text || "").trim();
+  if (!nextText) return "";
+  const legItems = rows.filter((row) =>
+    /(側腳|側落腳|工資|卡榫)/.test(String(row.description || row.name || "")),
+  );
+  if (!legItems.length) return normalizeLegMethodText(nextText);
+
+  for (const item of legItems) {
+    const unitPrice = toNum(item.unitPrice);
+    if (!unitPrice) continue;
+    const displayText = formatLegLaborDisplay(item);
+    nextText = nextText.replace(`平接@${fmtCurrency(unitPrice)}`, displayText);
+    nextText = nextText.replace(`平接@${unitPrice}`, displayText);
+  }
+  return normalizeLegMethodText(nextText);
+}
+
+function extractPricingFormula(text) {
+  const value = String(text || "");
+  const open = value.search(/[（(]/);
+  if (open < 0) return "";
+  let depth = 0;
+  for (let index = open; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "(" || char === "（") depth += 1;
+    if (char === ")" || char === "）") {
+      depth -= 1;
+      if (depth === 0) return value.slice(open + 1, index).trim();
+    }
+  }
+  return "";
+}
+
+function normalizeFormulaText(value) {
+  return String(value || "")
+    .replace(/cm\s*$/i, "")
+    .replace(/乘以|乘/g, "×")
+    .replace(/[xX*＊]/g, "×")
+    .replace(/[÷／]/g, "/")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function formatUntaxedFormulaLine(item) {
+  const formula = normalizeFormulaText(
+    extractPricingFormula(item?.description),
+  );
+  const qtyText = formatCmNumber(item?.qty);
+  if (!formula) return `${qtyText}(公分)`;
+  return formula.replace(/=\s*([\d.]+)$/, "=$1(公分)");
+}
+
+function formatUntaxedAmountLine(item) {
+  const qty = toNum(item?.qty);
+  const unitPrice = toNum(item?.unitPrice);
+  const amount = toNum(item?.amount) || Math.round(qty * unitPrice);
+  return `@${fmtCurrency(unitPrice)}×${formatCmNumber(qty)}=${fmtCurrency(amount)}`;
+}
+
+function buildUntaxedPriceTextFromRows(rows = []) {
+  const normalizedRows = normalizePricingItems(rows);
+  const mainItems = normalizedRows.filter(
+    (row) => String(row.unit || "").trim() === "cm",
+  );
+  const cutoutItems = normalizedRows.filter(
+    (row) => String(row.unit || "").trim() !== "cm",
+  );
+  if (!mainItems.length && !cutoutItems.length) return "";
+
+  const sinkItems = cutoutItems.filter((row) => /水槽/.test(row.description));
+  const stoveItems = cutoutItems.filter((row) =>
+    /(火爐|爐|爐子|爐台|爐口|爐頭|爐位|瓦斯爐|瓦斯灶|電陶爐|電磁爐|感應爐|IH)/.test(
+      row.description,
+    ),
+  );
+  const isLegLaborItem = (row) =>
+    /(側腳|側落腳|工資|卡榫)/.test(row.description);
+  const legLaborItems = cutoutItems.filter(isLegLaborItem);
+
+  const lines = [];
+  if (mainItems.length) {
+    const leftLines = mainItems.map(
+      (item, index) =>
+        `${index > 0 ? "+" : ""}${formatUntaxedFormulaLine(item)}`,
+    );
+    const rightLines = mainItems.map((item) => formatUntaxedAmountLine(item));
+    const formulaWidth = Math.max(...leftLines.map((line) => line.length), 0);
+    leftLines.forEach((line, index) => {
+      const separator = "  ";
+      lines.push(
+        `${line.padEnd(formulaWidth + separator.length, " ")}${rightLines[index] || ""}`.trimEnd(),
+      );
+    });
+  }
+
+  const cutoutParts = [];
+  if (sinkItems.length) {
+    const subtotal = sinkItems.reduce((sum, row) => sum + toNum(row.amount), 0);
+    cutoutParts.push(`下嵌${fmtCurrency(subtotal)}`);
+  }
+  if (stoveItems.length) {
+    const subtotal = stoveItems.reduce(
+      (sum, row) => sum + toNum(row.amount),
+      0,
+    );
+    cutoutParts.push(`上掛${fmtCurrency(subtotal)}`);
+  }
+  if (legLaborItems.length) {
+    cutoutParts.push(
+      legLaborItems.map((item) => formatLegLaborDisplay(item)).join("  "),
+    );
+  }
+  if (cutoutParts.filter(Boolean).length)
+    lines.push(cutoutParts.filter(Boolean).join("  "));
+
+  const subtotal = normalizedRows.reduce(
+    (sum, row) => sum + toNum(row.amount),
+    0,
+  );
+  lines.push(`合計${fmtCurrency(subtotal)}`);
+  return normalizeLegMethodText(lines.join("\n"));
+}
 
 function onUntaxedTotalInput(event) {
   if (pricingRows.value.length) return;
@@ -1985,8 +2559,37 @@ function removePricingItem(index) {
   form.value.lineItems.splice(index, 1);
 }
 
-function recalcPricingTotals() {
+async function syncConfirmationUntaxedPriceTextFromRows(
+  rows = form.value.lineItems,
+) {
+  if (!isEdit.value) return;
+  const nextUntaxedText = buildUntaxedPriceTextFromRows(rows);
+  if (!nextUntaxedText) return;
+  confirmationUntaxedPriceText.value = nextUntaxedText;
+  await saveConfirmationUntaxedPriceText(nextUntaxedText);
+}
+
+async function saveConfirmationUntaxedPriceText(
+  text = confirmationUntaxedPriceText.value,
+) {
+  if (!isEdit.value) return;
+  const currentConfirmation = await getOrderConfirmation(route.params.id).catch(
+    () => null,
+  );
+  await saveOrderConfirmation(route.params.id, {
+    ...(currentConfirmation || {}),
+    untaxedPriceText: String(text || "").trim(),
+  });
+}
+
+function recalcPricingTotals({ syncConfirmation = false } = {}) {
   syncTotalsFromPricingRows();
+  if (syncConfirmation) {
+    void syncConfirmationUntaxedPriceTextFromRows().catch((error) => {
+      console.error("同步確定單未稅價失敗", error);
+      alert("合計已重算，但同步確定單未稅價失敗：" + (error?.message || error));
+    });
+  }
 }
 
 function formatPricingRowPreview(row, idx) {
@@ -2025,12 +2628,20 @@ async function importPricingFromDrawing() {
   if (!isEdit.value) return;
   loadingPricingImport.value = true;
   try {
-    const latest = await getSalesOrder(route.params.id);
+    const latest = withCurrentDepthPricingOptions(
+      await getSalesOrder(route.params.id),
+    );
     const drawings = await listOrderDrawings(route.params.id);
     let rows = buildLineItemsFromDrawingState(drawings, latest);
     if (!rows.length) {
       rows = normalizePricingItems(latest?.lineItems || []);
     }
+    rows = fillMissingUnitPrices(
+      rows,
+      getStoneUnitPrice(latest),
+      latest?.stones?.[0]?.materialType ||
+        form.value?.stones?.[0]?.materialType,
+    );
 
     if (!rows.length) {
       alert("找不到可帶入的繪圖計價資料（中島圖若只有尺寸，請先設定單價 /cm）");
@@ -2070,6 +2681,8 @@ async function importPricingFromDrawing() {
     if (Number.isFinite(taxRate)) form.value.taxRate = taxRate;
     if (Number.isFinite(Number(latest?.pricePerCm)))
       form.value.pricePerCm = Number(latest.pricePerCm);
+    else if (!form.value.pricePerCm && getStoneUnitPrice(latest) > 0)
+      form.value.pricePerCm = getStoneUnitPrice(latest);
 
     if (Number.isFinite(Number(latest?.subtotal)))
       form.value.subtotal = Number(latest.subtotal);
@@ -2085,6 +2698,8 @@ async function importPricingFromDrawing() {
     ) {
       recalcPricingTotals();
     }
+
+    await syncConfirmationUntaxedPriceTextFromRows(rows);
 
     alert(`已帶入繪圖計價資料（共 ${rows.length} 項）`);
   } catch (e) {
@@ -2110,12 +2725,17 @@ async function pickCustomer(c) {
     form.value.lineItems = fillMissingUnitPrices(
       form.value.lineItems,
       customerPricing.value.defaultPricePerCm,
+      form.value?.stones?.[0]?.materialType,
     );
   }
   if (customerPricing.value?.depthStandard)
     form.value.depthStandard = Number(customerPricing.value.depthStandard);
   if (customerPricing.value?.depthProportional !== undefined)
     form.value.depthProportional = customerPricing.value.depthProportional;
+  if (customerPricing.value?.depthScalingMode)
+    form.value.depthScalingMode = normalizeDepthScalingMode(
+      customerPricing.value.depthScalingMode,
+    );
 }
 
 function toggleSpecialMethod(name, checked) {
@@ -2209,19 +2829,63 @@ function onSinkModelChange(i) {
   // kept for compatibility (unused now)
 }
 
+function normalizeProductModelText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeProductModelNumber(value) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function parseProductModelSizeText(value) {
+  const text = String(value || "").trim();
+  if (!text) return { width: null, depth: null, radius: null };
+  const radiusMatch = text.match(/[Rr]\s*([0-9.]+)/);
+  const numbers =
+    text
+      .replace(/[Rr]\s*[0-9.]+/g, "")
+      .match(/[0-9.]+/g)
+      ?.map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item > 0) || [];
+  return {
+    width: numbers[0] || null,
+    depth: numbers[1] || null,
+    radius: radiusMatch ? Number(radiusMatch[1]) || null : null,
+  };
+}
+
+function findStoveModelByText(text) {
+  const input = normalizeProductModelText(text);
+  const inputNumber = normalizeProductModelNumber(text);
+  return stoveModels.value.find((item) => {
+    const model = String(item?.model || "").trim();
+    const brandModel = [item?.brand, model].filter(Boolean).join(" ");
+    return (
+      normalizeProductModelText(model) === input ||
+      normalizeProductModelText(brandModel) === input ||
+      (inputNumber && normalizeProductModelNumber(model) === inputNumber)
+    );
+  });
+}
+
 function onStoveTextChange(i, text) {
   const s = form.value.stoves[i];
   const t = text.trim();
-  const m = stoveModels.value.find(
-    (x) => (x.brand ? x.brand + " " : "") + x.model === t || x.model === t,
-  );
+  const m = findStoveModelByText(t);
   if (m) {
     s.modelId = m.id;
     s.brand = m.brand || "";
     s.model = m.model || "";
-    if (m.holeWidthMm) s.holeWidthMm = m.holeWidthMm;
-    if (m.holeDepthMm) s.holeDepthMm = m.holeDepthMm;
-    if (m.holeRadiusMm) s.holeRadiusMm = m.holeRadiusMm;
+    const parsedSize = parseProductModelSizeText(m.sizeText || m.rawText);
+    if (m.holeWidthMm || parsedSize.width)
+      s.holeWidthMm = m.holeWidthMm || parsedSize.width;
+    if (m.holeDepthMm || parsedSize.depth)
+      s.holeDepthMm = m.holeDepthMm || parsedSize.depth;
+    if (m.holeRadiusMm || parsedSize.radius)
+      s.holeRadiusMm = m.holeRadiusMm || parsedSize.radius;
   } else {
     s.modelId = "";
     s.brand = "";
@@ -2298,6 +2962,7 @@ function toPayload() {
     paymentNotes: f.paymentNotes || "",
     depthStandard: numOrNull(f.depthStandard) ?? 60,
     depthProportional: f.depthProportional !== false,
+    depthScalingMode: normalizeDepthScalingMode(f.depthScalingMode),
     lineItems: Array.isArray(f.lineItems)
       ? f.lineItems.map((li) => ({
           ...li,
@@ -2327,8 +2992,18 @@ async function onSave({
     syncTotalsFromPricingRows();
     const payload = toPayload();
     let customerPricingSyncFailed = false;
+    let confirmationUntaxedSyncFailed = false;
     if (isEdit.value) {
       await updateSalesOrder(route.params.id, payload);
+      try {
+        await saveConfirmationUntaxedPriceText();
+      } catch (confirmationErr) {
+        console.warn(
+          "save confirmation untaxed price skipped during order save",
+          confirmationErr,
+        );
+        confirmationUntaxedSyncFailed = true;
+      }
     } else {
       const id = await createSalesOrder(payload);
       if (redirectAfterCreate) {
@@ -2372,6 +3047,9 @@ async function onSave({
         defaultPricePerCm: mainPrice,
         depthStandard: Number(form.value.depthStandard) || 60,
         depthProportional: form.value.depthProportional !== false,
+        depthScalingMode: normalizeDepthScalingMode(
+          form.value.depthScalingMode,
+        ),
       });
     } else if (form.value.customerId && form.value.lineItems?.length) {
       // 即使 pricePerCm 為 0，也嘗試從 lineItems 中提取並保存價格歷史
@@ -2389,6 +3067,9 @@ async function onSave({
             defaultPricePerCm: mainPrice,
             depthStandard: Number(form.value.depthStandard) || 60,
             depthProportional: form.value.depthProportional !== false,
+            depthScalingMode: normalizeDepthScalingMode(
+              form.value.depthScalingMode,
+            ),
           });
         }
       }
@@ -2396,8 +3077,13 @@ async function onSave({
     if (showSuccess) {
       if (isEdit.value) {
         alert(
-          customerPricingSyncFailed
-            ? "已更新訂單，但客戶價格偏好未同步"
+          customerPricingSyncFailed || confirmationUntaxedSyncFailed
+            ? `已更新訂單，但${[
+                customerPricingSyncFailed ? "客戶價格偏好" : "",
+                confirmationUntaxedSyncFailed ? "確定單未稅價" : "",
+              ]
+                .filter(Boolean)
+                .join("、")}未同步`
             : "已更新",
         );
       } else {
@@ -2459,6 +3145,12 @@ async function loadAll() {
       if (!doc) {
         error.value = "找不到該訂單";
       } else {
+        const confirmationDoc = await getOrderConfirmation(
+          route.params.id,
+        ).catch(() => null);
+        confirmationUntaxedPriceText.value = String(
+          confirmationDoc?.untaxedPriceText || "",
+        ).trim();
         // 合併到 form（保留預設結構欄位）
         orderStatus.value = doc.status || "";
         pendingSignSnapshot.value = doc.pendingSignSnapshot || null;
@@ -2488,6 +3180,19 @@ async function loadAll() {
               ? [doc.installStaff]
               : [],
         });
+        issuedOrderNoDraft.value = String(doc.orderNo || "").trim();
+        confirmationUntaxedPriceText.value = migrateSyncedUntaxedPriceText(
+          confirmationUntaxedPriceText.value,
+          form.value.lineItems || [],
+        );
+        if (
+          !confirmationUntaxedPriceText.value &&
+          form.value.lineItems?.length
+        ) {
+          confirmationUntaxedPriceText.value = buildUntaxedPriceTextFromRows(
+            form.value.lineItems,
+          );
+        }
         customerKeyword.value =
           `${doc.customerId || ""} ${doc.customerName || ""}`.trim();
         // 統一將 promisedAt 轉成 YYYY-MM-DD（相容 Excel 序號、毫秒時間戳）
@@ -2518,6 +3223,7 @@ async function loadAll() {
             form.value.lineItems = fillMissingUnitPrices(
               form.value.lineItems,
               customerPricing.value.defaultPricePerCm,
+              form.value?.stones?.[0]?.materialType,
             );
           }
           if (customerPricing.value?.depthStandard && !doc.depthStandard)
@@ -2530,6 +3236,10 @@ async function loadAll() {
           )
             form.value.depthProportional =
               customerPricing.value.depthProportional;
+          if (customerPricing.value?.depthScalingMode && !doc.depthScalingMode)
+            form.value.depthScalingMode = normalizeDepthScalingMode(
+              customerPricing.value.depthScalingMode,
+            );
         }
       }
     }
@@ -2580,7 +3290,8 @@ onBeforeRouteLeave(async () => {
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
   position: sticky;
   top: 76px;
   z-index: 20;
@@ -2590,11 +3301,23 @@ onBeforeRouteLeave(async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   margin-bottom: 16px;
 }
+.page-title-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.page-title-group h2 {
+  margin: 0;
+  white-space: nowrap;
+}
 .header-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex: 0 0 auto;
 }
 .pricing-toolbar {
   display: flex;
@@ -2694,6 +3417,58 @@ onBeforeRouteLeave(async () => {
   font-size: 13px;
   width: 100%;
   box-sizing: border-box;
+}
+.issued-order-no-row {
+  align-items: stretch;
+  background: #eef6ff;
+  border: 1px solid #90caf9;
+  border-radius: 6px;
+  padding: 8px;
+}
+.header-order-no {
+  display: grid;
+  grid-template-columns: auto minmax(280px, 360px);
+  align-items: center;
+  margin: 0;
+  min-width: 430px;
+}
+.issued-order-no-row label {
+  color: #0d47a1;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.issued-order-no-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.issued-order-no-editor input {
+  flex: 1;
+  border-color: #64b5f6;
+  color: #0d47a1;
+  font-weight: 700;
+}
+.issued-order-no-editor .btn-mini {
+  flex: 0 0 auto;
+  min-height: 31px;
+  background: #1976d2;
+  color: #fff;
+}
+@media (max-width: 900px) {
+  .page-header {
+    flex-direction: column;
+  }
+  .header-actions {
+    justify-content: flex-start;
+  }
+  .header-order-no {
+    grid-template-columns: 1fr;
+    min-width: 0;
+    width: 100%;
+  }
+  .issued-order-no-editor {
+    flex-wrap: wrap;
+  }
 }
 .inline {
   display: flex;
@@ -3062,5 +3837,31 @@ onBeforeRouteLeave(async () => {
 .pricing-edit-grid {
   border-top: 1px dashed #cbd5e1;
   padding-top: 8px;
+}
+.pricing-preview-box {
+  grid-column: 1 / -1;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.confirmation-untaxed-preview-input {
+  width: 100%;
+  min-height: 118px;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  line-height: 1.7;
+  color: #333;
+  background: #fff;
+  resize: vertical;
+  white-space: pre;
+  overflow: auto;
+}
+.confirmation-untaxed-preview-input:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.22);
+  border-color: #60a5fa;
 }
 </style>

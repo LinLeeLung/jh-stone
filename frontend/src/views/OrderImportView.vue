@@ -13,9 +13,7 @@
       <p class="hint-sm">
         匯入後會建立為草稿訂單，等同手動一筆一筆新建，不會直接變成已確認訂單。
       </p>
-      <p class="hint-sm">
-        匯入後預設會保留為未發單，發單紀錄會先留空。
-      </p>
+      <p class="hint-sm">匯入後預設會保留為未發單，發單紀錄會先留空。</p>
       <div
         class="drop-zone"
         :class="{ dragging }"
@@ -107,17 +105,30 @@
       <p v-if="parsed.length" class="hint-sm">
         實際匯入時會自動略過重覆的訂單號碼。
       </p>
-      <div v-if="matchedHeaders.length || ignoredHeaders.length" class="column-report">
+      <div
+        v-if="matchedHeaders.length || ignoredHeaders.length"
+        class="column-report"
+      >
         <div class="column-card">
           <strong>會匯入的欄位</strong>
           <div class="chip-list">
-            <span v-for="header in matchedHeaders" :key="`matched-${header}`" class="chip chip-ok">{{ header }}</span>
+            <span
+              v-for="header in matchedHeaders"
+              :key="`matched-${header}`"
+              class="chip chip-ok"
+              >{{ header }}</span
+            >
           </div>
         </div>
         <div v-if="ignoredHeaders.length" class="column-card">
           <strong>目前忽略的欄位</strong>
           <div class="chip-list">
-            <span v-for="header in ignoredHeaders" :key="`ignored-${header}`" class="chip chip-muted">{{ header }}</span>
+            <span
+              v-for="header in ignoredHeaders"
+              :key="`ignored-${header}`"
+              class="chip chip-muted"
+              >{{ header }}</span
+            >
           </div>
         </div>
       </div>
@@ -154,8 +165,14 @@
 
 <script setup>
 import { ref, computed } from "vue";
-import * as XLSX from "xlsx";
 import { batchImportSalesOrders } from "../firebase";
+
+let XLSX;
+
+async function loadXlsx() {
+  if (!XLSX) XLSX = await import("xlsx");
+  return XLSX;
+}
 
 const step = ref("upload");
 const dragging = ref(false);
@@ -225,7 +242,9 @@ const SUPPORTED_IMPORT_COLUMN_KEYS = [
 
 function headerIsSupported(header) {
   const normalized = normHeader(header);
-  return SUPPORTED_IMPORT_COLUMN_KEYS.some((key) => normalized.startsWith(normHeader(key)));
+  return SUPPORTED_IMPORT_COLUMN_KEYS.some((key) =>
+    normalized.startsWith(normHeader(key)),
+  );
 }
 
 const matchedHeaders = computed(() =>
@@ -456,8 +475,9 @@ function readFile(file) {
 
   if (isCsv) {
     // CSV must be read as UTF-8 text; reading as ArrayBuffer loses the encoding
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        await loadXlsx();
         const wb = XLSX.read(e.target.result, { type: "string" });
         processWorkbook(wb);
       } catch (err) {
@@ -467,8 +487,9 @@ function readFile(file) {
     reader.readAsText(file, "UTF-8");
   } else {
     // Excel files (.xlsx / .xls) are binary — use ArrayBuffer
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        await loadXlsx();
         const wb = XLSX.read(new Uint8Array(e.target.result), {
           type: "array",
           cellDates: false,

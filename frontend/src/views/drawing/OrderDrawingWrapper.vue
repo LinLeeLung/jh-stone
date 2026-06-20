@@ -14,6 +14,15 @@
         }}</span>
       </div>
       <div class="header-right">
+        <!-- 原圖註記（另開） -->
+        <a
+          class="btn-edit"
+          :href="`/orders/${orderId}/original-review`"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          🖼️ 原圖/註記
+        </a>
         <!-- 訂單編輯 -->
         <RouterLink class="btn-edit" :to="`/orders/${orderId}/edit`"
           >✏️ 編輯訂單</RouterLink
@@ -78,15 +87,22 @@
 
 <script setup>
 import { ref, computed, onMounted, defineAsyncComponent } from "vue";
-import { useRoute, RouterLink, onBeforeRouteLeave } from "vue-router";
+import {
+  useRoute,
+  useRouter,
+  RouterLink,
+  onBeforeRouteLeave,
+} from "vue-router";
 import {
   getSalesOrder,
   listOrderDrawings,
   createOrderDrawing,
   deleteOrderDrawing,
+  updateOrderDrawing,
 } from "../../firebase";
 
 const route = useRoute();
+const router = useRouter();
 const orderId = computed(() => route.params.id);
 
 const order = ref(null);
@@ -175,11 +191,166 @@ async function loadAll() {
     order.value = ord;
     drawings.value = drws;
     if (drws.length && !currentId.value) currentId.value = drws[0].id;
+    await consumeAiStraightDraft();
   } catch (e) {
     console.error("loadAll error", e);
   } finally {
     loading.value = false;
   }
+}
+
+function buildStraightSnapshotFromAiDraft(draft) {
+  const segments = Array.isArray(draft?.segments) ? draft.segments : [];
+  const segmentWidths = segments
+    .map((item) => Number(item?.width || item?.length || item?.qty || 0))
+    .filter((value) => value > 0);
+  const cabinetBodies = Array.isArray(draft?.cabinetBodies)
+    ? draft.cabinetBodies
+    : [];
+  const cabinetWidths = cabinetBodies
+    .map((item) => Number(item?.width || item?.length || item?.qty || 0))
+    .filter((value) => value > 0);
+  const length = Number(draft?.length) > 0 ? Number(draft.length) : 199;
+  const cabins = [
+    ...(segmentWidths.length ? segmentWidths : cabinetWidths).slice(0, 9),
+  ];
+  if (!cabins.length) cabins.push(length);
+  while (cabins.length < 9) cabins.push(null);
+  const fixtureState = buildStraightFixtureSnapshot(draft?.fixtures);
+  const sideState = buildStraightSideSnapshot(draft?.sideOptions);
+  const { cropImageDataUrl: _cropImageDataUrl, ...stateSafeDraft } =
+    draft || {};
+  if (Array.isArray(stateSafeDraft.aiCrops)) {
+    stateSafeDraft.aiCrops = stateSafeDraft.aiCrops.map((crop) => {
+      const { imageDataUrl: _imageDataUrl, ...safeCrop } = crop || {};
+      return safeCrop;
+    });
+  }
+  return {
+    cabins,
+    depthVal: Number(draft?.depth) > 0 ? Number(draft.depth) : 60,
+    counterThick: Number(draft?.thickness) > 0 ? Number(draft.thickness) : 4,
+    ...fixtureState,
+    ...sideState,
+    aiDraft: {
+      source: draft?.source || "original-review",
+      confidence: Number(draft?.confidence || 0),
+      needsReview: draft?.needsReview !== false,
+      rawResult: stateSafeDraft || null,
+    },
+  };
+}
+
+function normalizeFixtureNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function buildSinkFixtureState(fixture) {
+  return {
+    enabled: true,
+    position: ["水中", "左開", "右開"].includes(fixture?.position)
+      ? fixture.position
+      : "水中",
+    center: normalizeFixtureNumber(fixture?.center) || 0,
+    ...(normalizeFixtureNumber(fixture?.length)
+      ? { sinkLength: normalizeFixtureNumber(fixture.length) }
+      : {}),
+    ...(normalizeFixtureNumber(fixture?.depth)
+      ? { sinkDepth: normalizeFixtureNumber(fixture.depth) }
+      : {}),
+    ...(normalizeFixtureNumber(fixture?.radius)
+      ? { R: normalizeFixtureNumber(fixture.radius) }
+      : {}),
+    ...(normalizeFixtureNumber(fixture?.dig)
+      ? { dig: normalizeFixtureNumber(fixture.dig) }
+      : {}),
+  };
+}
+
+function buildStoveFixtureState(fixture) {
+  return {
+    enabled: true,
+    position: ["火中", "左開", "右開"].includes(fixture?.position)
+      ? fixture.position
+      : "火中",
+    dis: normalizeFixtureNumber(fixture?.center) || 0,
+    ...(normalizeFixtureNumber(fixture?.length)
+      ? { stoveLength: normalizeFixtureNumber(fixture.length) }
+      : {}),
+    ...(normalizeFixtureNumber(fixture?.depth)
+      ? { stoveDepth: normalizeFixtureNumber(fixture.depth) }
+      : {}),
+    ...(normalizeFixtureNumber(fixture?.radius)
+      ? { R: normalizeFixtureNumber(fixture.radius) }
+      : {}),
+    ...(normalizeFixtureNumber(fixture?.dig)
+      ? { dig: normalizeFixtureNumber(fixture.dig) }
+      : {}),
+  };
+}
+
+function buildStraightFixtureSnapshot(fixtures) {
+  const list = Array.isArray(fixtures) ? fixtures : [];
+  const sinks = list.filter((item) => item?.type === "sink").slice(0, 2);
+  const stoves = list.filter((item) => item?.type === "stove").slice(0, 2);
+  const state = {};
+  if (sinks[0]) state.sink1 = buildSinkFixtureState(sinks[0]);
+  if (sinks[1]) state.sink2 = buildSinkFixtureState(sinks[1]);
+  if (stoves[0]) state.stove1 = buildStoveFixtureState(stoves[0]);
+  if (stoves[1]) state.stove2 = buildStoveFixtureState(stoves[1]);
+  return state;
+}
+
+function buildStraightSideSnapshot(sideOptions) {
+  if (!sideOptions || typeof sideOptions !== "object") return {};
+  const state = {};
+  if (
+    ["左靠牆", "左見光", "左齊桶身", "左靠側板", "左靠櫃", "左側落腳"].includes(
+      sideOptions.leftOption,
+    )
+  ) {
+    state.leftOption = sideOptions.leftOption;
+  }
+  if (
+    ["右靠牆", "右見光", "右齊桶身", "右靠側板", "右靠櫃", "右側落腳"].includes(
+      sideOptions.rightOption,
+    )
+  ) {
+    state.rightOption = sideOptions.rightOption;
+  }
+  if (["後靠牆", "後見光"].includes(sideOptions.backOption)) {
+    state.backOption = sideOptions.backOption;
+  }
+  return state;
+}
+
+async function consumeAiStraightDraft() {
+  if (route.query.aiDraft !== "straight" || !orderId.value) return;
+  const storageKey = `aiStraightDraft:${orderId.value}`;
+  const raw = sessionStorage.getItem(storageKey);
+  if (!raw) return;
+  let draft;
+  try {
+    draft = JSON.parse(raw);
+  } catch (_error) {
+    sessionStorage.removeItem(storageKey);
+    return;
+  }
+  sessionStorage.removeItem(storageKey);
+  const id = await createOrderDrawing(orderId.value, "straight");
+  await updateOrderDrawing(
+    orderId.value,
+    id,
+    buildStraightSnapshotFromAiDraft(draft),
+  );
+  const refreshed = await listOrderDrawings(orderId.value);
+  drawings.value = refreshed;
+  currentId.value = id;
+  await router.replace({
+    name: "order-drawing",
+    params: { id: orderId.value },
+  });
 }
 
 async function addDrawing(type) {

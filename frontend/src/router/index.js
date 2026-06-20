@@ -25,6 +25,13 @@ import OrderConfirmationView from "../views/drawing/OrderConfirmationView.vue";
 import OrderOriginalReviewView from "../views/drawing/OrderOriginalReviewView.vue";
 import CustomerMgmtView from "../views/CustomerMgmtView.vue";
 import QuotePageView from "../views/QuotePageView.vue";
+import ReceivableItemsView from "../views/ReceivableItemsView.vue";
+import ReceivableBillsView from "../views/ReceivableBillsView.vue";
+import ReceivableBillDetailView from "../views/ReceivableBillDetailView.vue";
+import ReceivableBillPrintView from "../views/ReceivableBillPrintView.vue";
+import ReceivableBillSignedPrintView from "../views/ReceivableBillSignedPrintView.vue";
+import ReceivableHelpView from "../views/ReceivableHelpView.vue";
+import ProductionView from "../views/ProductionView.vue";
 import { auth } from "../firebase";
 import {
   getUserByUid,
@@ -225,6 +232,58 @@ const router = createRouter({
         depts: ["1"],
         title: "估價單",
       },
+    },
+    {
+      path: "/receivable-items",
+      name: "receivable-items",
+      component: ReceivableItemsView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "應收明細" },
+    },
+    {
+      path: "/receivable-bills",
+      name: "receivable-bills",
+      component: ReceivableBillsView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "應收帳" },
+    },
+    {
+      path: "/receivable-bills/:id",
+      name: "receivable-bill-detail",
+      component: ReceivableBillDetailView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "應收帳單" },
+    },
+    {
+      path: "/receivable-bills/:id/print",
+      name: "receivable-bill-print",
+      component: ReceivableBillPrintView,
+      meta: {
+        roles: ["admin", "管理者"],
+        depts: ["1"],
+        title: "應收帳單總表",
+        printLayout: true,
+      },
+    },
+    {
+      path: "/receivable-bills/:id/sign-print",
+      name: "receivable-bill-sign-print",
+      component: ReceivableBillSignedPrintView,
+      meta: {
+        roles: ["admin", "管理者"],
+        depts: ["1"],
+        title: "應收帳單回簽",
+        printLayout: true,
+      },
+    },
+    {
+      path: "/receivable-help",
+      name: "receivable-help",
+      component: ReceivableHelpView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "應收帳說明" },
+    },
+    {
+      path: "/production",
+      name: "production",
+      component: ProductionView,
+      meta: { roles: ["admin", "管理者"], depts: ["1"], title: "生產" },
     },
     {
       path: "/orders/:id/drawing",

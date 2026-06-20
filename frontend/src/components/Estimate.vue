@@ -30,16 +30,20 @@
         <h3 class="font-bold text-gray-700 mb-2">📋 修改記錄</h3>
         <ul class="list-disc pl-5 space-y-1 text-gray-600">
           <li>
-            <strong>v2.4</strong>（2026/05/10）—
-            修正載入公開存檔後，itemList 與 master 清單合併邏輯：存檔有的項目保留其設定，master 有但存檔沒有的項目（如水槽下嵌）自動補上（unchecked），避免遺漏新增項目或出現重複欄位
+            <strong>v2.4</strong>（2026/05/10）— 修正載入公開存檔後，itemList 與
+            master 清單合併邏輯：存檔有的項目保留其設定，master
+            有但存檔沒有的項目（如水槽下嵌）自動補上（unchecked），避免遺漏新增項目或出現重複欄位
           </li>
           <li>
-            <strong>v2.3</strong>（2026/05/08）—
-            工地估價單：水槽安裝方式改為 radio 選項（下嵌／上掛）；火爐安裝方式改為 radio 選項（上掛／平接）；側落腳工資接合方式改為 radio 選項（K1卡榫接／H1平接／H2平接），單位改為「支」，項目名稱固定顯示「側落腳工資」；其他項目新增安裝方式與單位輸入欄
+            <strong>v2.3</strong>（2026/05/08）— 工地估價單：水槽安裝方式改為
+            radio 選項（下嵌／上掛）；火爐安裝方式改為 radio
+            選項（上掛／平接）；側落腳工資接合方式改為 radio
+            選項（K1卡榫接／H1平接／H2平接），單位改為「支」，項目名稱固定顯示「側落腳工資」；其他項目新增安裝方式與單位輸入欄
           </li>
           <li>
             <strong>v2.2</strong>（2026/05/07）—
-            新增【期貨】勾選框，勾選後報價單頂端顯示期貨訂貨風險告知（共5條），估價單與工地估價單皆支援；修正列印跨電腦排版不一致問題（統一 A4 邊距、強制列印背景色、加入 Noto Serif TC 備用字型）
+            新增【期貨】勾選框，勾選後報價單頂端顯示期貨訂貨風險告知（共5條），估價單與工地估價單皆支援；修正列印跨電腦排版不一致問題（統一
+            A4 邊距、強制列印背景色、加入 Noto Serif TC 備用字型）
           </li>
           <li>
             <strong>v2.1</strong>（2026/05/06）—
@@ -259,7 +263,9 @@
             v-model="isSep"
             class="m-1 h-3 w-3 text-green-500 focus:ring-green-500 border-gray-300 rounded"
           />
-          <label class="m-1 text-orange-600 font-semibold" for="isFutures">期貨</label>
+          <label class="m-1 text-orange-600 font-semibold" for="isFutures"
+            >期貨</label
+          >
           <input
             id="isFutures"
             type="checkbox"
@@ -471,9 +477,7 @@
           :is="getComponent(entry.type)"
           :index="entry.id"
           :initialValue="{
-            ...(isObject(resultsProxy[entry.id])
-              ? resultsProxy[entry.id]
-              : {}),
+            ...(isObject(resultsProxy[entry.id]) ? resultsProxy[entry.id] : {}),
             isEnabled: true,
           }"
           :hondimode="hondimode"
@@ -640,14 +644,29 @@
       <!-- 期貨警語 -->
       <div
         v-if="isFutures"
-        style="border: 2px solid #cc4400; background: #ffffff; padding: 8px 12px; margin-bottom: 8px; font-size: 13px; color: #cc4400;"
+        style="
+          border: 2px solid #cc4400;
+          background: #ffffff;
+          padding: 8px 12px;
+          margin-bottom: 8px;
+          font-size: 13px;
+          color: #cc4400;
+        "
       >
-        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px;">⚠️ 期貨訂貨風險</div>
+        <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px">
+          ⚠️ 期貨訂貨風險
+        </div>
         <div>(1) 期貨消費者須自負材料損耗（價格會較貴）</div>
-        <div>(2) 工程進行時，尺寸下錯、板材瑕疵、運送斷裂⋯等狀況發生時，需再訂貨，消費者會有等待風險</div>
+        <div>
+          (2)
+          工程進行時，尺寸下錯、板材瑕疵、運送斷裂⋯等狀況發生時，需再訂貨，消費者會有等待風險
+        </div>
         <div>(3) 日後若有維修，可能會有無料可修的窘境</div>
         <div>(4) 訂貨時間至少 3 至 6 個月，到港時間未確定</div>
-        <div>(5) 期貨需先預付 7 成訂金（一經訂貨，就無法變更顏色或取消，所以需先預收訂金）</div>
+        <div>
+          (5) 期貨需先預付 7
+          成訂金（一經訂貨，就無法變更顏色或取消，所以需先預收訂金）
+        </div>
       </div>
 
       <QuotationHeader
@@ -737,11 +756,11 @@ const fileKeyWord = ref("");
 function mergeItemList(masterList, savedList) {
   const savedMap = new Map((savedList || []).map((s) => [s.name, s]));
   const merged = masterList.map((m) =>
-    savedMap.has(m.name) ? { ...m, ...savedMap.get(m.name) } : { ...m }
+    savedMap.has(m.name) ? { ...m, ...savedMap.get(m.name) } : { ...m },
   );
   // 存檔有但 master 沒有的額外項目（舊版自訂項目）保留
   const extras = (savedList || []).filter(
-    (s) => !masterList.some((m) => m.name === s.name)
+    (s) => !masterList.some((m) => m.name === s.name),
   );
   return [...merged, ...extras];
 }
@@ -1985,14 +2004,21 @@ const getComponent = (type) => {
   };
   return map[type];
 };
-import * as XLSX from "xlsx-js-style";
 
-const exportToExcel = () => {
+let XLSX;
+
+async function loadXlsxStyle() {
+  if (!XLSX) XLSX = await import("xlsx-js-style");
+  return XLSX;
+}
+
+const exportToExcel = async () => {
   //console.log("excel...", isSep.value);
+  await loadXlsxStyle();
   if (isSep.value) {
-    exportToExcel2();
+    await exportToExcel2();
   } else {
-    exportToExcel1();
+    await exportToExcel1();
   }
 };
 
@@ -2003,7 +2029,11 @@ function categorizeItemName(name) {
   const n = String(name || "");
   if (/水槽/.test(n)) return "sink";
   if (/(火爐|爐子|爐台|爐口|瓦斯爐|電陶爐|IH)/.test(n)) return "stove";
-  if (/(轉角|崁入|斜接|背牆|加厚|包邊|加工|工資|圓弧|插座|側腳|側落腳|崁邊)/.test(n))
+  if (
+    /(轉角|崁入|斜接|背牆|加厚|包邊|加工|工資|圓弧|插座|側腳|側落腳|崁邊)/.test(
+      n,
+    )
+  )
     return "special";
   return "other";
 }
@@ -2020,7 +2050,8 @@ function buildOrderPayloadFromEstimate() {
     const cm = Number(r.roundedCentimeters) || 0;
     const ppc = Number(r.unitPrice) || 0;
     const color = String(r.color || "").trim();
-    if (color && !colorSet.has(color)) colorSet.set(color, { brand: "", color });
+    if (color && !colorSet.has(color))
+      colorSet.set(color, { brand: "", color });
     if (firstUnitPrice == null && ppc) firstUnitPrice = ppc;
     totalCm += cm;
     if (cm <= 0 && ppc <= 0) continue;
@@ -2058,7 +2089,7 @@ function buildOrderPayloadFromEstimate() {
   const sel = selectedCustomer.value || {};
   const isObj = sel && typeof sel === "object";
   return {
-    customerId: isObj ? (sel.id || sel.code || "") : "",
+    customerId: isObj ? sel.id || sel.code || "" : "",
     customerName: customer.value || (isObj ? sel.name : "") || "",
     customerContact: {
       tel: tel.value || (isObj ? sel.tel : "") || "",
@@ -2079,7 +2110,10 @@ function buildOrderPayloadFromEstimate() {
 }
 
 function createOrderFromEstimate() {
-  if (!hasValidResults.value && (!filteredItems.value || !filteredItems.value.length)) {
+  if (
+    !hasValidResults.value &&
+    (!filteredItems.value || !filteredItems.value.length)
+  ) {
     alert("目前沒有任何估價內容可建立訂單");
     return;
   }
@@ -2200,6 +2234,7 @@ const COLUMN_WIDTHS = [
 
 const exportToExcel1 = async () => {
   try {
+    await loadXlsxStyle();
     // 1. Prepare data
     const data = prepareData();
 
@@ -2523,7 +2558,8 @@ const exportWorkbook = (workbook) => {
   saveAs(blob, `報價單_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
-const exportToExcel2 = () => {
+const exportToExcel2 = async () => {
+  await loadXlsxStyle();
   const data = [];
 
   data.push([
