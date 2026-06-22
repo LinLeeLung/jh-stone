@@ -329,7 +329,7 @@
                   </span>
                 </div>
                 <span v-else>{{
-                  formatCellValue(headerToField(h), doc[headerToField(h)])
+                  formatCellValue(headerToField(h), getTableCellValue(doc, h))
                 }}</span>
               </td>
             </tr>
@@ -622,6 +622,7 @@ import {
   listNasLegacyPhotos,
   getAllOrdersForSearch,
   getOrdersByIds,
+  loadDispatchByDate,
   updateOrderIncompleteReason as saveOrderIncompleteReason,
   updateOrderIncompleteStatus as saveOrderIncompleteStatus,
   auth,
@@ -677,6 +678,146 @@ const headerFieldMap = {
 };
 function headerToField(h) {
   return headerFieldMap[h] || h;
+}
+
+function getInstallerSlotIndex(header) {
+  if (header === "安１") return 0;
+  if (header === "安２") return 1;
+  if (header === "安３") return 2;
+  return -1;
+}
+
+function normalizeInstallerList(orderDoc = {}) {
+  const legacyValues = [
+    orderDoc["安裝人員1"],
+    orderDoc["安裝人員2"],
+    orderDoc["安裝人員3"],
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  if (legacyValues.length) return legacyValues;
+
+  const arrayCandidates = [
+    orderDoc.installStaff,
+    orderDoc.installerNames,
+    orderDoc.installers,
+  ];
+  for (const candidate of arrayCandidates) {
+    if (Array.isArray(candidate) && candidate.length) {
+      return candidate
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+    }
+  }
+
+  const rawText = [
+    orderDoc["安裝人員"],
+    orderDoc.installStaff,
+    orderDoc.installerNames,
+    orderDoc.installers,
+    orderDoc.installerUids,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("、");
+
+  const installStaff = String(rawText || "")
+    .split(/[、,，\s]+/)
+    .filter(Boolean);
+
+  return installStaff.map((value) => String(value || "").trim()).filter(Boolean);
+}
+
+function getInstallerCellValue(orderDoc, header) {
+  const slotIndex = getInstallerSlotIndex(header);
+  if (slotIndex < 0) return "";
+
+  const explicitValue = String(orderDoc?.[headerToField(header)] || "").trim();
+  if (explicitValue) return explicitValue;
+
+  return normalizeInstallerList(orderDoc)[slotIndex] || "";
+}
+
+function getTableCellValue(orderDoc, header) {
+  if (getInstallerSlotIndex(header) >= 0) {
+    return getInstallerCellValue(orderDoc, header);
+  }
+  const field = headerToField(header);
+  return orderDoc?.[field];
+}
+
+const dispatchInstallerCache = new Map();
+
+async function getDispatchInstallerLookup(dateKey) {
+  const key = String(dateKey || "").trim();
+  if (!key) return new Map();
+  if (dispatchInstallerCache.has(key)) return dispatchInstallerCache.get(key);
+
+  const lookup = new Map();
+  try {
+    const rows = await loadDispatchByDate(key).catch(() => []);
+    for (const row of rows || []) {
+      const orderNo = String(row?.sourceOrderNo || row?.orderNo || "").trim();
+      const names = Array.isArray(row?.installerNames)
+        ? row.installerNames.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+      if (orderNo && names.length) lookup.set(orderNo, names);
+    }
+  } catch (error) {
+    console.warn("loadDispatchByDate failed", { dateKey: key, error });
+  }
+
+  dispatchInstallerCache.set(key, lookup);
+  return lookup;
+}
+
+async function hydrateInstallerColumns(rows = []) {
+  const list = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+  const dateKeys = [
+    ...new Set(
+      list
+        .map((row) =>
+          normalizeDateToYmd(
+            row?.["安裝日"] || row?.installDate || row?.promisedAt || row?.dueDate || "",
+          ),
+        )
+        .filter(Boolean),
+    ),
+  ];
+  if (!dateKeys.length) return list;
+
+  const lookups = new Map();
+  await Promise.all(
+    dateKeys.map(async (dateKey) => {
+      lookups.set(dateKey, await getDispatchInstallerLookup(dateKey));
+    }),
+  );
+
+  return list.map((row) => {
+    const dateKey = normalizeDateToYmd(
+      row?.["安裝日"] || row?.installDate || row?.promisedAt || row?.dueDate || "",
+    );
+    const orderNo = String(row?.["訂單號碼"] || row?.orderNo || "").trim();
+    if (!dateKey || !orderNo) return row;
+    const installers = lookups.get(dateKey)?.get(orderNo);
+    if (!Array.isArray(installers) || !installers.length) return row;
+
+    return {
+      ...row,
+      安裝人員1: row["安裝人員1"] || installers[0] || "",
+      安裝人員2: row["安裝人員2"] || installers[1] || "",
+      安裝人員3: row["安裝人員3"] || installers[2] || "",
+      installStaff:
+        Array.isArray(row.installStaff) && row.installStaff.length
+          ? row.installStaff
+          : installers,
+      installerNames:
+        Array.isArray(row.installerNames) && row.installerNames.length
+          ? row.installerNames
+          : installers,
+    };
+  });
 }
 
 function buildTableHeaders() {
@@ -772,7 +913,7 @@ function sortIndicator(h) {
 
 function getSortValue(doc, header) {
   const field = headerToField(header);
-  const raw = doc[field];
+  const raw = getInstallerSlotIndex(header) >= 0 ? getInstallerCellValue(doc, header) : doc[field];
   if (header === "銷售額") {
     return { num: parseAmount(raw) };
   }
@@ -1448,6 +1589,33 @@ function toOrderViewShape(doc) {
     ),
     驗收時間: fallback(doc["驗收時間"], doc.acceptanceTime || raw["驗收時間"]),
     驗收者: fallback(doc["驗收者"], doc.acceptanceBy || raw["驗收者"]),
+    安裝人員1: fallback(
+      doc["安裝人員1"],
+      doc.installStaff?.[0] || doc.installerNames?.[0] || doc.installers?.[0] || raw["安裝人員1"] || raw["安裝人員"],
+    ),
+    安裝人員2: fallback(
+      doc["安裝人員2"],
+      doc.installStaff?.[1] || doc.installerNames?.[1] || doc.installers?.[1] || raw["安裝人員2"],
+    ),
+    安裝人員3: fallback(
+      doc["安裝人員3"],
+      doc.installStaff?.[2] || doc.installerNames?.[2] || doc.installers?.[2] || raw["安裝人員3"],
+    ),
+    installStaff: Array.isArray(doc.installStaff)
+      ? doc.installStaff
+      : Array.isArray(doc.installerNames)
+        ? doc.installerNames
+        : Array.isArray(doc.installers)
+          ? doc.installers
+          : String(doc["安裝人員"] || raw["安裝人員"] || "")
+              .split(/[、,，\s]+/)
+              .filter(Boolean),
+    installerNames: Array.isArray(doc.installerNames)
+      ? doc.installerNames
+      : Array.isArray(doc.installStaff)
+        ? doc.installStaff
+        : [],
+    installerUids: Array.isArray(doc.installerUids) ? doc.installerUids : [],
     年份: fallback(doc["年份"], String(new Date().getFullYear())),
     是否維修: fallback(doc["是否維修"], "未派車"),
   };
@@ -2733,8 +2901,8 @@ async function search() {
   }
   const t0 = Date.now();
   try {
-    results.value = applyResultFilters(
-      await queryCollection(COLLECTION_NAME, conds),
+    results.value = await hydrateInstallerColumns(
+      applyResultFilters(await queryCollection(COLLECTION_NAME, conds)),
     );
   } catch (e) {
     console.error("查詢失敗：", e);
@@ -2793,10 +2961,12 @@ async function searchDayByDate(d) {
     loading.value = true;
     const t0 = Date.now();
     try {
-      results.value = applyResultFilters(
-        await queryCollection(COLLECTION_NAME, [
-          { field: dateField.value, op: "==", value: str },
-        ]),
+      results.value = await hydrateInstallerColumns(
+        applyResultFilters(
+          await queryCollection(COLLECTION_NAME, [
+            { field: dateField.value, op: "==", value: str },
+          ]),
+        ),
       );
     } catch (e) {
       console.error("字串日期查詢失敗：", e);
@@ -2810,12 +2980,14 @@ async function searchDayByDate(d) {
   loading.value = true;
   const t1 = Date.now();
   try {
-    results.value = applyResultFilters(
-      await queryCollectionByDateRange(
-        COLLECTION_NAME,
-        dateField.value,
-        start,
-        end,
+    results.value = await hydrateInstallerColumns(
+      applyResultFilters(
+        await queryCollectionByDateRange(
+          COLLECTION_NAME,
+          dateField.value,
+          start,
+          end,
+        ),
       ),
     );
   } catch (e) {
@@ -3133,20 +3305,22 @@ async function searchByKeywords() {
         }
       }
       // Apply keyword filters client-side on the returned full docs
-      results.value = applyResultFilters(
-        allDocs.filter((doc) => {
-          const color = String(doc["顏色"] || "").toLowerCase();
-          const customer = String(doc["客戶名稱"] || "").toLowerCase();
-          const address = String(doc["安裝地點"] || "").toLowerCase();
-          const orderNo = String(doc["訂單號碼"] || "").toLowerCase();
-          if (kwColor && !color.includes(kwColor) && !orderNo.includes(kwColor))
-            return false;
-          if (useNeolith && !/^\d/.test(String(doc["顏色"] || "").trim()))
-            return false;
-          if (kwCustomer && !customer.includes(kwCustomer)) return false;
-          if (kwAddress && !address.includes(kwAddress)) return false;
-          return true;
-        }),
+      results.value = await hydrateInstallerColumns(
+        applyResultFilters(
+          allDocs.filter((doc) => {
+            const color = String(doc["顏色"] || "").toLowerCase();
+            const customer = String(doc["客戶名稱"] || "").toLowerCase();
+            const address = String(doc["安裝地點"] || "").toLowerCase();
+            const orderNo = String(doc["訂單號碼"] || "").toLowerCase();
+            if (kwColor && !color.includes(kwColor) && !orderNo.includes(kwColor))
+              return false;
+            if (useNeolith && !/^\d/.test(String(doc["顏色"] || "").trim()))
+              return false;
+            if (kwCustomer && !customer.includes(kwCustomer)) return false;
+            if (kwAddress && !address.includes(kwAddress)) return false;
+            return true;
+          }),
+        ),
       );
       updateTableHeaders();
       queryElapsed.value = Date.now() - t0;
@@ -3171,12 +3345,16 @@ async function searchByKeywords() {
     }
     if (matchedIds.length > 0) {
       const fullDocs = await getOrdersByIds(matchedIds.slice(0, 200));
-      results.value = applyResultFilters(fullDocs);
+      results.value = await hydrateInstallerColumns(
+        applyResultFilters(fullDocs),
+      );
     } else {
       const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
       const allPending = await loadAllPendingCache();
       const pending = searchPendingByKeywords(allPending, keywords);
-      results.value = applyResultFilters(normalizeRowsForTable(pending));
+      results.value = await hydrateInstallerColumns(
+        applyResultFilters(normalizeRowsForTable(pending)),
+      );
     }
     updateTableHeaders();
   } catch (e) {
@@ -3185,7 +3363,9 @@ async function searchByKeywords() {
       const keywords = [kwColor, kwCustomer, kwAddress].filter(Boolean);
       const allPending = await loadAllPendingCache();
       const pending = searchPendingByKeywords(allPending, keywords);
-      results.value = applyResultFilters(normalizeRowsForTable(pending));
+      results.value = await hydrateInstallerColumns(
+        applyResultFilters(normalizeRowsForTable(pending)),
+      );
       updateTableHeaders();
     } catch (fallbackErr) {
       alert("查詢失敗: " + fallbackErr);
@@ -3210,10 +3390,12 @@ async function searchSpecificDate() {
     loading.value = true;
     const t0 = Date.now();
     try {
-      results.value = applyResultFilters(
-        await queryCollection(COLLECTION_NAME, [
-          { field: dateField.value, op: "==", value: str },
-        ]),
+      results.value = await hydrateInstallerColumns(
+        applyResultFilters(
+          await queryCollection(COLLECTION_NAME, [
+            { field: dateField.value, op: "==", value: str },
+          ]),
+        ),
       );
     } catch (e) {
       console.error("指定日期查詢失敗：", e);

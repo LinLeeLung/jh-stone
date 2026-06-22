@@ -152,14 +152,53 @@
         >
           T 文字
         </button>
-        <input
+        <textarea
           v-show="drawTool === 'text'"
           ref="quickTextInputRef"
           v-model="quickTextDraft"
           class="quick-text-input"
-          type="text"
           placeholder="先輸入文字，再點位置可連續貼上"
-        />
+        ></textarea>
+        <div v-show="drawTool === 'text'" class="quick-text-calc">
+          <label class="quick-text-calc-item">
+            <span>拉</span>
+            <input v-model="quickTextCalc.pull" type="number" step="0.1" />
+          </label>
+          <label class="quick-text-calc-item">
+            <span>桶</span>
+            <input
+              v-model="quickTextCalc.cabinet"
+              type="number"
+              step="0.1"
+            />
+          </label>
+          <label class="quick-text-calc-item">
+            <span>門</span>
+            <input v-model="quickTextCalc.door" type="number" step="0.1" />
+          </label>
+          <label class="quick-text-calc-item">
+            <span>凸</span>
+            <input v-model="quickTextCalc.bump" type="number" step="0.1" />
+          </label>
+          <label class="quick-text-calc-item total">
+            <span>合計</span>
+            <input :value="quickTextCalcTotalText" type="text" readonly />
+          </label>
+          <button
+            class="btn-draw quick-text-calc-btn"
+            type="button"
+            @click="applyQuickTextCalc"
+          >
+            套用
+          </button>
+          <button
+            class="btn-draw quick-text-calc-btn"
+            type="button"
+            @click="resetQuickTextCalc"
+          >
+            清空
+          </button>
+        </div>
         <div
           v-show="
             (drawTool && drawTool !== 'erase') ||
@@ -539,7 +578,7 @@
                         @click="onFieldFontClick('finishDate', 13)"
                         @dblclick="onFieldFontDoubleClick('finishDate', 13)"
                       >
-                        {{ fmtDate(order?.finishDate) }}
+                        {{ fmtDate(order?.finishingDate || order?.finishDate) }}
                       </td>
                     </tr>
                     <tr class="stone-row">
@@ -2249,7 +2288,22 @@ const faucetDisplayLines = computed(() => {
 
 function fmtDate(val) {
   if (!val) return "";
-  const d = val?.toDate ? val.toDate() : new Date(val);
+  let d = null;
+  if (val?.toDate) {
+    d = val.toDate();
+  } else {
+    const n = Number(val);
+    if (!Number.isNaN(n) && n > 0 && n < 100000) {
+      // Excel serial date
+      d = new Date((n - 25569) * 86400 * 1000);
+    } else if (!Number.isNaN(n) && n >= 1000000000000) {
+      // Unix epoch milliseconds
+      d = new Date(n);
+    } else {
+      // Date string with relaxed separators, keep only date part
+      d = new Date(String(val).slice(0, 10).replace(/[./]/g, "-"));
+    }
+  }
   return isNaN(d) ? "" : d.toLocaleDateString("zh-TW");
 }
 function fmtMonthDay(val) {
@@ -2725,6 +2779,12 @@ const annotCanvasRef = ref(null);
 const previewCanvasRef = ref(null);
 const drawTool = ref(null); // null | 'pen' | 'erase' | 'line' | 'measure' | 'rect' | 'ellipse' | 'text'
 const quickTextDraft = ref("");
+const quickTextCalc = reactive({
+  pull: "",
+  cabinet: "",
+  door: "",
+  bump: "",
+});
 const quickTextInputRef = ref(null);
 const rectStyle = ref("outline");
 const lineArrowStyle = ref("none");
@@ -2752,14 +2812,52 @@ const selectedTextOverlay = computed(
   () =>
     textOverlays.value.find((ovl) => ovl.id === selectedTextId.value) || null,
 );
+function parseQuickTextCalcNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+function formatQuickTextCalcNumber(value) {
+  const rounded = Math.round((Number(value) || 0) * 1000) / 1000;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return String(rounded).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+}
+const quickTextCalcTotal = computed(() => {
+  return (
+    parseQuickTextCalcNumber(quickTextCalc.pull) +
+    parseQuickTextCalcNumber(quickTextCalc.cabinet) +
+    parseQuickTextCalcNumber(quickTextCalc.door) +
+    parseQuickTextCalcNumber(quickTextCalc.bump)
+  );
+});
+const quickTextCalcTotalText = computed(() =>
+  formatQuickTextCalcNumber(quickTextCalcTotal.value),
+);
+function applyQuickTextCalc() {
+  const lines = [
+    `拉${formatQuickTextCalcNumber(parseQuickTextCalcNumber(quickTextCalc.pull))}`,
+    `桶${formatQuickTextCalcNumber(parseQuickTextCalcNumber(quickTextCalc.cabinet))}`,
+    `門${formatQuickTextCalcNumber(parseQuickTextCalcNumber(quickTextCalc.door))}`,
+    `凸${formatQuickTextCalcNumber(parseQuickTextCalcNumber(quickTextCalc.bump))}`,
+    `=${quickTextCalcTotalText.value}`,
+  ];
+  quickTextDraft.value = lines.join("\n");
+}
+function resetQuickTextCalc() {
+  quickTextCalc.pull = "";
+  quickTextCalc.cabinet = "";
+  quickTextCalc.door = "";
+  quickTextCalc.bump = "";
+}
 const toolbarHint = computed(() => {
+  const shortcutHint =
+    "快捷鍵：I 文字 / L 直線 / O 圓 / R 矩形 / S 圖章 / Esc 移動";
+  let base = "";
   if (textBox.value.visible) {
-    return "文字編輯中：Enter 換行，Ctrl+Enter 確認，Esc 取消";
-  }
-  if (selectedTextOverlay.value) {
-    return "文字已選取：拖曳移動，右下角縮放，雙擊改內容，Delete 刪除，Esc 或點空白取消選取";
-  }
-  if (selectedShapeOverlay.value) {
+    base = "文字編輯中：Enter 換行，Ctrl+Enter 確認，Esc 取消";
+  } else if (selectedTextOverlay.value) {
+    base =
+      "文字已選取：拖曳移動，右下角縮放，雙擊改內容，Delete 刪除，Esc 或點空白取消選取";
+  } else if (selectedShapeOverlay.value) {
     const shapeLabel =
       selectedShapeOverlay.value.type === "ellipse"
         ? "圓 / 橢圓"
@@ -2768,34 +2866,51 @@ const toolbarHint = computed(() => {
           : selectedShapeOverlay.value.type === "measure"
             ? "測量線"
             : "線條";
+
     if (selectedShapeOverlay.value.type === "measure") {
-      return `${shapeLabel}已選取：拖曳移動，Delete 刪除，可按「設基準」輸入實際距離，也可重設基準，Esc 或點空白取消選取`;
+      base = `${shapeLabel}已選取：拖曳移動，Delete 刪除，可按「設基準」輸入實際距離，也可重設基準，Esc 或點空白取消選取`;
+    } else if (selectedShapeOverlay.value.type === "line") {
+      base = `${shapeLabel}已選取：拖曳移動，Delete 刪除，Esc 或點空白取消選取`;
+    } else {
+      base = `${shapeLabel}已選取：拖曳移動，右下角縮放，右上角刪除，Delete 刪除，Esc 或點空白取消選取`;
     }
-    if (selectedShapeOverlay.value.type === "line") {
-      return `${shapeLabel}已選取：拖曳移動，Delete 刪除，Esc 或點空白取消選取`;
+  } else {
+    switch (drawTool.value) {
+      case null:
+        base = "移動模式：點選物件可選取並拖曳，Esc 或點空白取消選取";
+        break;
+      case "pen":
+        base = "畫筆：按住滑鼠自由手繪";
+        break;
+      case "erase":
+        base = "橡皮擦：按住滑鼠擦除手繪筆跡";
+        break;
+      case "line":
+        base = "直線：拖拉繪製直線";
+        break;
+      case "measure":
+        base =
+          "測量：拖拉繪製測量線，顯示 CM，選取後可按「設基準」輸入實際距離，其他測量線會按比例更新";
+        break;
+      case "rect":
+        base = "矩形：拖拉繪製，可搭配 ▢ / ■ 切換邊框或實體";
+        break;
+      case "ellipse":
+        base =
+          "圓 / 橢圓：拖拉繪製，按 Shift 可鎖成正圓，可搭配 ▢ / ■ 切換邊框或實體";
+        break;
+      case "text":
+        base =
+          "文字：先在輸入框打字，再點位置可連續貼上；雙擊既有文字可編輯";
+        break;
+      default:
+        base = "";
+        break;
     }
-    return `${shapeLabel}已選取：拖曳移動，右下角縮放，右上角刪除，Delete 刪除，Esc 或點空白取消選取`;
   }
-  switch (drawTool.value) {
-    case null:
-      return "移動模式：點選物件可選取並拖曳，Esc 或點空白取消選取";
-    case "pen":
-      return "畫筆：按住滑鼠自由手繪";
-    case "erase":
-      return "橡皮擦：按住滑鼠擦除手繪筆跡";
-    case "line":
-      return "直線：拖拉繪製直線";
-    case "measure":
-      return "測量：拖拉繪製測量線，顯示 CM，選取後可按「設基準」輸入實際距離，其他測量線會按比例更新";
-    case "rect":
-      return "矩形：拖拉繪製，可搭配 ▢ / ■ 切換邊框或實體";
-    case "ellipse":
-      return "圓 / 橢圓：拖拉繪製，按 Shift 可鎖成正圓，可搭配 ▢ / ■ 切換邊框或實體";
-    case "text":
-      return "文字：先輸入內容後可連續點位貼上；留空時採彈出輸入框，雙擊既有文字可編輯";
-    default:
-      return "點選物件可移動，右下角可縮放";
-  }
+
+  if (!base) return shortcutHint;
+  return `${base}｜${shortcutHint}`;
 });
 
 // 文字工具狀態
@@ -2809,7 +2924,6 @@ const textBox = ref({
   canvasY: 0,
   fontSize: 16,
 });
-const textInputRef = ref(null);
 let _textDragging = false;
 let _textDragSX = 0,
   _textDragSY = 0,
@@ -3401,6 +3515,9 @@ function onAnnotPointerDown(e) {
 function onAnnotKeydown(e) {
   const target = e.target;
   const tagName = target?.tagName?.toLowerCase?.() || "";
+  const isTypingTarget =
+    tagName === "input" || tagName === "textarea" || target?.isContentEditable;
+  const isPlainHotkey = !e.ctrlKey && !e.metaKey && !e.altKey;
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "p") {
     e.preventDefault();
     void doPrint();
@@ -3409,28 +3526,58 @@ function onAnnotKeydown(e) {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
     if (textBox.value.visible) return;
     if (
-      tagName === "input" ||
-      tagName === "textarea" ||
-      target?.isContentEditable
+      isTypingTarget
     )
       return;
     undoAnnotationHistory();
     e.preventDefault();
     return;
   }
+  if (isPlainHotkey && !e.shiftKey && e.key.toLowerCase() === "i") {
+    if (textBox.value.visible || isTypingTarget) return;
+    setDrawTool("text");
+    clearSelections();
+    e.preventDefault();
+    return;
+  }
+  if (isPlainHotkey && !e.shiftKey && e.key.toLowerCase() === "l") {
+    if (textBox.value.visible || isTypingTarget) return;
+    setDrawTool("line");
+    clearSelections();
+    e.preventDefault();
+    return;
+  }
+  if (isPlainHotkey && !e.shiftKey && e.key.toLowerCase() === "o") {
+    if (textBox.value.visible || isTypingTarget) return;
+    setDrawTool("ellipse");
+    clearSelections();
+    e.preventDefault();
+    return;
+  }
+  if (isPlainHotkey && !e.shiftKey && e.key.toLowerCase() === "r") {
+    if (textBox.value.visible || isTypingTarget) return;
+    setDrawTool("rect");
+    clearSelections();
+    e.preventDefault();
+    return;
+  }
+  if (isPlainHotkey && !e.shiftKey && e.key.toLowerCase() === "s") {
+    if (textBox.value.visible || isTypingTarget) return;
+    showStampPanel.value = !showStampPanel.value;
+    setDrawTool(null);
+    clearSelections();
+    e.preventDefault();
+    return;
+  }
   if (e.key === "Escape") {
     if (textBox.value.visible) cancelText();
+    setDrawTool(null);
     clearSelections();
     return;
   }
   if (textBox.value.visible) return;
   if (e.key !== "Delete" && e.key !== "Backspace") return;
-  if (
-    tagName === "input" ||
-    tagName === "textarea" ||
-    target?.isContentEditable
-  )
-    return;
+  if (isTypingTarget) return;
 
   if (selectedTextId.value != null) {
     removeTxtOvl(selectedTextId.value);
@@ -4340,6 +4487,7 @@ onBeforeRouteLeave(async () => {
 .toolbar-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
 }
@@ -6101,18 +6249,66 @@ onBeforeRouteLeave(async () => {
 }
 
 .quick-text-input {
-  min-width: 240px;
-  height: 28px;
+  order: 999;
+  flex: 1 0 100%;
+  max-width: 420px;
+  min-width: 260px;
+  width: 100%;
+  min-height: 56px;
   padding: 4px 8px;
   border-radius: 5px;
   border: 1px solid #94a3b8;
   background: #ffffff;
   color: #111827;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  resize: vertical;
 }
 
 .quick-text-input::placeholder {
   color: #6b7280;
+}
+
+.quick-text-calc {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #0f172a;
+}
+
+.quick-text-calc-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.quick-text-calc-item input {
+  width: 82px;
+  min-width: 82px;
+  height: 28px;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+  padding: 3px 6px;
+}
+
+.quick-text-calc-item.total input {
+  width: 92px;
+  min-width: 92px;
+  background: #e2e8f0;
+  font-weight: 700;
+}
+
+.quick-text-calc-btn {
+  padding: 3px 8px;
+  font-size: 11px;
 }
 
 /* ══ 手繪工具按鈕 ══ */
