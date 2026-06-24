@@ -86,11 +86,12 @@
               class="dropdown"
             >
               <li
-                v-for="c in filteredCustomers.slice(0, 30)"
+                v-for="c in filteredCustomers.slice(0, 200)"
                 :key="c.id"
                 @click="pickCustomer(c)"
               >
-                <b>{{ c.code }}</b> {{ c.name }}
+                <b>{{ c.code || c.id || c._docId }}</b>
+                {{ c.name || c.customerName || c["客戶名稱"] || c["客戶"] }}
                 <span v-if="c.phone" class="muted">{{ c.phone }}</span>
               </li>
             </ul>
@@ -1293,12 +1294,34 @@ function handleBeforeUnload(event) {
 
 const filteredCustomers = computed(() => {
   const kw = customerKeyword.value.trim().toLowerCase();
-  if (!kw) return customers.value;
-  return customers.value.filter(
-    (c) =>
-      (c.code || "").toLowerCase().includes(kw) ||
-      (c.name || "").toLowerCase().includes(kw),
+  const list = customers.value.map((c) => {
+    const code = String(c.code || c.id || c._docId || "").trim();
+    const name = String(
+      c.name || c.customerName || c["客戶名稱"] || c["客戶"] || "",
+    ).trim();
+    return { c, code, name, codeLower: code.toLowerCase(), nameLower: name.toLowerCase() };
+  });
+  if (!kw) return list.map((item) => item.c);
+
+  const matched = list.filter(
+    (item) => item.codeLower.includes(kw) || item.nameLower.includes(kw),
   );
+
+  matched.sort((a, b) => {
+    const score = (item) => {
+      if (item.codeLower === kw) return 0;
+      if (item.codeLower.startsWith(`${kw}-`)) return 1;
+      if (item.codeLower.startsWith(kw)) return 2;
+      if (item.nameLower.startsWith(kw)) return 3;
+      return 4;
+    };
+    const sa = score(a);
+    const sb = score(b);
+    if (sa !== sb) return sa - sb;
+    return a.codeLower.localeCompare(b.codeLower, "zh-Hant");
+  });
+
+  return matched.map((item) => item.c);
 });
 
 const suggestedPrices = computed(() => {
@@ -2711,12 +2734,16 @@ async function importPricingFromDrawing() {
 }
 
 async function pickCustomer(c) {
-  form.value.customerId = c.code || c.id;
-  form.value.customerName = c.name || "";
+  const customerId = String(c.code || c.id || c._docId || "").trim();
+  const customerName = String(
+    c.name || c.customerName || c["客戶名稱"] || c["客戶"] || "",
+  ).trim();
+  form.value.customerId = customerId;
+  form.value.customerName = customerName;
   if (c.phone && !form.value.customerContact.phone) {
     form.value.customerContact.phone = c.phone;
   }
-  customerKeyword.value = `${c.code || ""} ${c.name || ""}`.trim();
+  customerKeyword.value = `${customerId} ${customerName}`.trim();
   showCustomerList.value = false;
   customerPricing.value = await getCustomerPricing(form.value.customerId);
   if (customerPricing.value?.defaultPricePerCm && !form.value.pricePerCm) {

@@ -1785,6 +1785,30 @@ function normalizeDateToYmd(value) {
     return `${yyyy}-${mm}-${dd}`;
   }
   const raw = String(value).trim();
+
+  // Keep plain Y-M-D input as-is to avoid timezone side effects.
+  const exactDate = raw.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  if (exactDate) {
+    const yyyy = exactDate[1];
+    const mm = String(Number(exactDate[2])).padStart(2, "0");
+    const dd = String(Number(exactDate[3])).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // For ISO datetime strings (e.g. 2026-08-03T16:00:00.000Z),
+  // parse timezone first so local date is shown correctly.
+  const looksLikeDateTime = /[t\s]\d{1,2}:\d{2}/i.test(raw);
+  const hasTzInfo = /z$|[+-]\d{2}:?\d{2}$/i.test(raw);
+  if (looksLikeDateTime || hasTzInfo) {
+    const dt = new Date(raw);
+    if (!Number.isNaN(dt.getTime())) {
+      const yyyy = dt.getFullYear();
+      const mm = String(dt.getMonth() + 1).padStart(2, "0");
+      const dd = String(dt.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+
   const m = raw.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
   if (m) {
     const yyyy = m[1];

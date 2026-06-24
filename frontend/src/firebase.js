@@ -1889,10 +1889,26 @@ export async function listNasLegacyPhotos(payload = {}) {
 
 // 取所有客戶（依名稱排序，前端可再做關鍵字過濾）
 export async function listCustomers() {
-  const snap = await getDocs(
-    query(collection(db, "customers"), orderBy("name")),
-  );
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(collection(db, "customers"));
+  return snap.docs
+    .map((d) => {
+      const raw = d.data() || {};
+      const code = String(raw.code || d.id || "").trim();
+      const name = String(
+        raw.name || raw.customerName || raw["客戶名稱"] || raw["客戶"] || "",
+      ).trim();
+      return {
+        id: d.id,
+        ...raw,
+        code,
+        name,
+      };
+    })
+    .sort((a, b) => {
+      const an = String(a.name || a.code || a.id || "");
+      const bn = String(b.name || b.code || b.id || "");
+      return an.localeCompare(bn, "zh-Hant");
+    });
 }
 
 export async function getCustomerById(id) {
