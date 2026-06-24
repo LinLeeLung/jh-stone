@@ -350,10 +350,16 @@
       @click.self="detailRecord = null"
     >
       <div class="modal-box">
-        <h3>
-          {{ detailRecord.name }}（{{ detailRecord.empNo }}）—
-          {{ detailRecord.monthLabel }}
-        </h3>
+        <div class="detail-head">
+          <h3 class="detail-title">
+            {{ detailRecord.name }}（{{ detailRecord.empNo }}）—
+            {{ detailRecord.monthLabel }}
+          </h3>
+          <div class="detail-rates">
+            <span>日薪：{{ formatRate(calcDailyRate(detailRecord)) }}</span>
+            <span>時薪：{{ formatRate(calcHourlyRate(detailRecord)) }}</span>
+          </div>
+        </div>
         <table class="slip-table">
           <tbody>
             <tr>
@@ -1075,6 +1081,30 @@ function displayBaseSalary(r) {
     return Number(r.baseSalaryFull ?? r.baseSalary) || 0;
   }
   return Number(r.baseSalary) || 0;
+}
+
+function calcDailyRate(r) {
+  if (!r) return 0;
+  const salType = String(r.salaryType || "月薪");
+  const base = Number(displayBaseSalary(r)) || 0;
+  if (salType === "時薪") return base * 8;
+  if (salType === "日薪") return base;
+  return base / 30;
+}
+
+function calcHourlyRate(r) {
+  if (!r) return 0;
+  const salType = String(r.salaryType || "月薪");
+  const base = Number(displayBaseSalary(r)) || 0;
+  if (salType === "時薪") return base;
+  if (salType === "日薪") return base / 8;
+  return base / 240;
+}
+
+function formatRate(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return "—";
+  return Math.round(num).toLocaleString();
 }
 
 function calcPartialMonthDeduction(r) {
@@ -2712,6 +2742,34 @@ function mealTotals(r) {
 .modal-box h3 {
   margin-bottom: 1rem;
   font-size: 1.05rem;
+}
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.detail-title {
+  margin: 0;
+}
+.detail-rates {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  color: #4b5563;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .detail-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .detail-rates {
+    align-items: flex-start;
+  }
 }
 .modal-actions {
   margin-top: 1.2rem;
