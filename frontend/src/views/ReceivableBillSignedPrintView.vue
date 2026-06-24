@@ -51,6 +51,7 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { getReceivableBill, getSalesOrder, listReceivableItemsByBill } from "../firebase";
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 const route = useRoute();
 const loading = ref(true);
@@ -151,12 +152,7 @@ function previewImageSrc(entry = {}) {
 async function renderPdfPreview(url) {
   try {
     const pdfjs = await import("pdfjs-dist");
-    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-      const workerUrl = (
-        await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
-      ).default;
-      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-    }
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
     const task = pdfjs.getDocument({ url, withCredentials: false });
     const pdf = await task.promise;

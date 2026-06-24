@@ -92,6 +92,7 @@
 import { ref, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import { getRepairTicket, getSalesOrder } from "../firebase";
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 const route = useRoute();
 const ticket = ref(null);
@@ -114,12 +115,7 @@ async function renderPdfToImages(url) {
   pdfImages.value = [];
   try {
     const pdfjs = await import("pdfjs-dist");
-    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-      const workerUrl = (
-        await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
-      ).default;
-      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-    }
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
     const task = pdfjs.getDocument({ url, withCredentials: false });
     const pdf = await task.promise;
     const imgs = [];

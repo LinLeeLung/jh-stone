@@ -661,6 +661,7 @@ import {
 } from "vue-router";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 import {
   getDesignReviewChecklistTemplate,
   getSalesOrder,
@@ -1367,12 +1368,7 @@ async function getPdfJs() {
   if (!_pdfJsPromise) {
     _pdfJsPromise = (async () => {
       const pdfjs = await import("pdfjs-dist");
-      if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-        const workerUrl = (
-          await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
-        ).default;
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-      }
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
       return pdfjs;
     })();
   }
