@@ -10998,6 +10998,8 @@ async function runPayrollCalculation(yyyyMM) {
       leaveDetail.push({
         type: lv.type,
         unit,
+        startDate: lv.startDate || lv.date || "",
+        endDate: lv.endDate || lv.startDate || lv.date || "",
         days: lv.days != null ? lv.days : null,
         hours: lv.hours != null ? lv.hours : null,
         deduction,

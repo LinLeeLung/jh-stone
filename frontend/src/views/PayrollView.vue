@@ -447,9 +447,7 @@
                 class="sub"
               >
                 <th>
-                  {{ lv.type }}（{{
-                    lv.unit === "小時" ? lv.hours + "h" : lv.days + "天"
-                  }}）
+                  {{ formatLeaveSummary(lv) }}
                 </th>
                 <td class="num deduct">
                   −{{ lv.deduction?.toLocaleString() }}
@@ -475,8 +473,12 @@
               >
                 <th>
                   {{ le.date }}
-                  <span v-if="le.lateMins > 0">遲到{{ le.lateMins }}分</span>
-                  <span v-if="le.earlyMins > 0">早退{{ le.earlyMins }}分</span>
+                  <span v-if="getLateMinutes(le) > 0"
+                    >遲到{{ getLateMinutes(le) }}分</span
+                  >
+                  <span v-if="getEarlyMinutes(le) > 0"
+                    >早退{{ getEarlyMinutes(le) }}分</span
+                  >
                 </th>
                 <td class="num deduct">
                   −{{ le.deduction?.toLocaleString() }}
@@ -966,6 +968,121 @@ function resolveResignDate(staff, record) {
     record?.terminationDate ||
     "";
   return normalizeDateStr(fromStaff || fromRecord);
+}
+
+function getMonthBounds(monthKey) {
+  const key = toMonthKey(monthKey);
+  if (!key) return { start: "", end: "" };
+  const [yStr, mStr] = key.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return { start: "", end: "" };
+  const first = new Date(y, m - 1, 1);
+  const last = new Date(y, m, 0);
+  const fmt = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { start: fmt(first), end: fmt(last) };
+}
+
+function overlapRange(startA, endA, startB, endB) {
+  if (!startA || !endA || !startB || !endB) return false;
+  return startA <= endB && endA >= startB;
+}
+
+function resolveLeaveStartDate(row = {}) {
+  return normalizeDateStr(
+    row.startDate || row.date || row.leaveDate || row.fromDate || row.beginDate || "",
+  );
+}
+
+function resolveLeaveEndDate(row = {}) {
+  return normalizeDateStr(
+    row.endDate || row.startDate || row.date || row.leaveDate || row.toDate || row.finishDate || "",
+  );
+}
+
+function normalizeLeaveType(rawType) {
+  const s = String(rawType || "").trim();
+  return s || "請假";
+}
+
+async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
+  const list = Array.isArray(records) ? records : [];
+  if (!list.length) return list;
+
+  const { start: monthStart, end: monthEnd } = getMonthBounds(monthKey);
+  if (!monthStart || !monthEnd) return list;
+
+  let leaveSnap;
+  try {
+    leaveSnap = await getDocs(
+      query(collection(db, "leaveRequests"), where("status", "==", "approved2")),
+    );
+  } catch (error) {
+    console.warn("load approved leaveRequests failed", error);
+    return list;
+  }
+
+  const byEmpNo = new Map();
+  const byUid = new Map();
+
+  for (const snap of leaveSnap.docs || []) {
+    const row = snap.data() || {};
+    const startDate = resolveLeaveStartDate(row);
+    const endDate = resolveLeaveEndDate(row);
+    if (!startDate || !endDate) continue;
+    if (!overlapRange(startDate, endDate, monthStart, monthEnd)) continue;
+
+    const leaveEntry = {
+      id: snap.id,
+      type: normalizeLeaveType(row.type),
+      unit: String(row.unit || "").trim(),
+      days: row.days,
+      hours: row.hours,
+      startDate,
+      endDate,
+    };
+
+    const empNoKey = String(
+      row.empNo || row.employeeNo || row.staffNo || row.staffCode || "",
+    ).trim();
+    const uidKey = String(row.uid || row.userId || row.staffUid || "").trim();
+
+    if (empNoKey) {
+      const arr = byEmpNo.get(empNoKey) || [];
+      arr.push(leaveEntry);
+      byEmpNo.set(empNoKey, arr);
+    }
+    if (uidKey) {
+      const arr = byUid.get(uidKey) || [];
+      arr.push(leaveEntry);
+      byUid.set(uidKey, arr);
+    }
+  }
+
+  return list.map((r) => {
+    const empNoKey = String(r.empNo || "").trim();
+    const uidKey = String(r.uid || r.staffUid || "").trim();
+    const matched = [
+      ...(byEmpNo.get(empNoKey) || []),
+      ...(byUid.get(uidKey) || []),
+    ];
+    const unique = [];
+    const seen = new Set();
+    for (const lv of matched) {
+      const k = `${lv.id}::${lv.startDate}::${lv.endDate}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      unique.push(lv);
+    }
+    unique.sort((a, b) =>
+      String(a.startDate || "").localeCompare(String(b.startDate || "")),
+    );
+    return {
+      ...r,
+      _attendanceLeaves: unique,
+    };
+  });
 }
 
 const displayedRecords = computed(() => {
@@ -1855,7 +1972,7 @@ async function loadPayroll() {
         }
       }
     }
-    allRecords.value = Object.values(byEmpNo).sort((a, b) => {
+    const deduped = Object.values(byEmpNo).sort((a, b) => {
       const aEmpNo = String(a.empNo ?? "").trim();
       const bEmpNo = String(b.empNo ?? "").trim();
       const aNum = Number(aEmpNo);
@@ -1864,6 +1981,10 @@ async function loadPayroll() {
       if (bothNumeric) return aNum - bNum;
       return aEmpNo.localeCompare(bEmpNo, "zh-Hant", { numeric: true });
     });
+    allRecords.value = await attachApprovedLeavesForAttendance(
+      deduped,
+      selectedMonth.value,
+    );
   } finally {
     loading.value = false;
   }
@@ -2033,6 +2154,88 @@ function n(v) {
   return (Number(v) || 0).toLocaleString();
 }
 
+function getLateMinutes(row = {}) {
+  return (
+    Number(
+      row.lateMins ?? row.lateMinutes ?? row.lateMin ?? row.late ?? 0,
+    ) ||
+    0
+  );
+}
+
+function getEarlyMinutes(row = {}) {
+  return (
+    Number(
+      row.earlyMins ??
+        row.earlyMinutes ??
+        row.earlyMin ??
+        row.earlyLeaveMins ??
+        row.earlyLeaveMinutes ??
+        row.early ??
+        0,
+    ) || 0
+  );
+}
+
+function formatLeaveUnit(lv = {}) {
+  if (lv.unit === "小時") return `${Number(lv.hours) || 0}h`;
+  return `${Math.max(1, Number(lv.days) || 1)}天`;
+}
+
+function formatDateWithWeekday(dateLike) {
+  const ymd = normalizeDateStr(dateLike);
+  if (!ymd) return String(dateLike || "").trim();
+  const [y, m, d] = ymd.split("-").map((v) => Number(v));
+  const dt = new Date(y, m - 1, d);
+  if (Number.isNaN(dt.getTime())) return ymd;
+  const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+  return `${ymd}（${weekdays[dt.getDay()]}）`;
+}
+
+function toLocalYmd(dateObj) {
+  if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return "";
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const d = String(dateObj.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function expandLeaveDates(lv = {}) {
+  const start = normalizeDateStr(
+    lv.startDate || lv.date || lv.leaveDate || lv.fromDate || "",
+  );
+  if (!start) return [];
+  const end = normalizeDateStr(
+    lv.endDate || lv.startDate || lv.date || lv.leaveDate || lv.toDate || start,
+  );
+  if (!end || end < start) return [start];
+
+  const out = [];
+  const maxDays = 62;
+  let cursor = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  let guard = 0;
+  while (cursor <= endDate && guard < maxDays) {
+    out.push(toLocalYmd(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+  return out.length ? out : [start];
+}
+
+function formatLeaveSummary(lv = {}) {
+  const type = String(lv.type || "請假").trim();
+  const unit = formatLeaveUnit(lv);
+  const dates = expandLeaveDates(lv);
+  if (!dates.length) return `${type}（${unit}）`;
+  if (dates.length === 1) {
+    return `${formatDateWithWeekday(dates[0])} 請假（${type}，${unit}）`;
+  }
+  const first = formatDateWithWeekday(dates[0]);
+  const last = formatDateWithWeekday(dates[dates.length - 1]);
+  return `${first} ~ ${last} 請假（${type}，${unit}）`;
+}
+
 function buildAttendanceRows(r, mode) {
   const byDate = new Map();
   const add = (date, text) => {
@@ -2044,29 +2247,51 @@ function buildAttendanceRows(r, mode) {
 
   const otRows = mode === "first" ? r.otDetailOfficial || [] : r.otDetail || [];
   for (const ot of otRows) {
-    add(ot.date, `加班 ${ot.hours || 0}h`);
+    const hours = Number(ot.hours) || 0;
+    const pay = Number(ot.pay) || 0;
+    add(ot.date, pay > 0 ? `加班 ${hours}h（+${n(pay)}）` : `加班 ${hours}h`);
+  }
+  const leaveRowsForAttendance =
+    Array.isArray(r._attendanceLeaves) && r._attendanceLeaves.length
+      ? r._attendanceLeaves
+      : r.leaveDetail || [];
+  for (const lv of leaveRowsForAttendance) {
+    const type = String(lv.type || "請假").trim();
+    const tag = type ? `請假 ${type}` : "請假";
+    const dates = expandLeaveDates(lv);
+    if (dates.length) {
+      for (const d of dates) add(d, tag);
+    } else {
+      add(lv.startDate || lv.date || "", tag);
+    }
   }
   for (const me of r.mealDetail || []) {
     add(me.date, `打卡 ${me.punchIn || "--:--"}~${me.punchOut || "--:--"}`);
   }
   for (const le of r.lateEarlyDetail || []) {
     const parts = [];
-    if ((le.lateMins || 0) > 0) parts.push(`遲到${le.lateMins}分`);
-    if ((le.earlyMins || 0) > 0) parts.push(`早退${le.earlyMins}分`);
+    const lateMins = getLateMinutes(le);
+    const earlyMins = getEarlyMinutes(le);
+    if (lateMins > 0) parts.push(`遲到${lateMins}分`);
+    if (earlyMins > 0) parts.push(`早退${earlyMins}分`);
     add(le.date, parts.join("/"));
   }
   for (const d of r.absentDetail || []) {
     add(d, "曠職");
   }
 
-  const dates = Array.from(byDate.keys()).sort((a, b) => a.localeCompare(b));
+  const dates = Array.from(byDate.keys()).sort((a, b) => {
+    const na = normalizeDateStr(a) || a;
+    const nb = normalizeDateStr(b) || b;
+    return na.localeCompare(nb);
+  });
   if (!dates.length) {
     return "<tr><th>—</th><td>本期無出勤明細</td></tr>";
   }
   return dates
     .map((date) => {
       const text = byDate.get(date).filter(Boolean).join("、");
-      return `<tr><th>${date}</th><td>${text}</td></tr>`;
+      return `<tr><th>${formatDateWithWeekday(date)}</th><td>${text}</td></tr>`;
     })
     .join("");
 }
@@ -2227,16 +2452,17 @@ function printSlip(r, mode) {
 
     const leaveRows = (r.leaveDetail || [])
       .map((lv) => {
-        const unit = lv.unit === "小時" ? `${lv.hours}h` : `${lv.days}天`;
-        return `<tr class="sub"><th>${lv.type}（${unit}）</th><td class="deduct">−${n(lv.deduction)}</td></tr>`;
+        return `<tr class="sub"><th>${formatLeaveSummary(lv)}</th><td class="deduct">−${n(lv.deduction)}</td></tr>`;
       })
       .join("");
 
     const lateRows = (r.lateEarlyDetail || [])
       .map((le) => {
         const parts = [];
-        if (le.lateMins > 0) parts.push(`遲到${le.lateMins}分`);
-        if (le.earlyMins > 0) parts.push(`早退${le.earlyMins}分`);
+        const lateMins = getLateMinutes(le);
+        const earlyMins = getEarlyMinutes(le);
+        if (lateMins > 0) parts.push(`遲到${lateMins}分`);
+        if (earlyMins > 0) parts.push(`早退${earlyMins}分`);
         return `<tr class="sub"><th>${le.date} ${parts.join("/")}</th><td class="deduct">−${n(le.deduction)}</td></tr>`;
       })
       .join("");
