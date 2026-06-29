@@ -582,13 +582,13 @@
               </td>
             </tr>
             <tr class="sep">
-              <th>申報所得（投保薪資-曠職/遲到早退）</th>
+              <th>申報所得（投保薪資-請假/曠職/遲到早退）</th>
               <td class="num">
                 {{ calcReportedIncome(detailRecord).toLocaleString() }}
               </td>
             </tr>
             <tr class="sep">
-              <th>5日發薪（投保薪資＋申報加班費）</th>
+              <th>5日發薪（投保薪資＋申報加班費－請假/曠職/遲到早退－保費/互助金/便當費）</th>
               <td class="num gross">
                 {{ (detailRecord.firstPayment ?? 0).toLocaleString() }}
               </td>
@@ -1163,12 +1163,21 @@ function calcLaborInsuranceSalaryBase(r) {
   if (r.laborInsuranceSalaryBase != null) {
     return Math.max(0, Number(r.laborInsuranceSalaryBase) || 0);
   }
+  // Legacy fallback for old records missing laborInsuranceSalaryBase.
+  // Keep consistent with current rule:
+  // firstPayment = 投保薪資 + 申報加班費 - 請假 - 曠職 - 遲到早退 - 勞保 - 健保 - 眷屬健保 - 互助金 - 便當費
   return Math.max(
     0,
     (Number(r.firstPayment) || 0) -
       (Number(r.otPayOfficial) || 0) +
-      calcFirstPaymentFixedDeductions(r) +
-      (Number(r.absentDeduction) || 0),
+      (Number(r.leaveDeduction) || 0) +
+      (Number(r.absentDeduction) || 0) +
+      (Number(r.lateEarlyDeduction) || 0) +
+      (Number(r.laborInsurance) || 0) +
+      (Number(r.healthInsurance) || 0) +
+      (Number(r.dependentHealth) || 0) +
+      (Number(r.mutualAid) || 0) +
+      (Number(r.lunchFee) || 0),
   );
 }
 
@@ -1178,6 +1187,7 @@ function calcReportedIncome(r) {
     return Math.max(
       0,
       calcLaborInsuranceSalaryBase(r) -
+        (Number(r.leaveDeduction) || 0) -
         (Number(r.absentDeduction) || 0) -
         (Number(r.lateEarlyDeduction) || 0),
     );
@@ -1187,6 +1197,7 @@ function calcReportedIncome(r) {
   return Math.max(
     0,
     calcLaborInsuranceSalaryBase(r) -
+      (Number(r.leaveDeduction) || 0) -
       (Number(r.absentDeduction) || 0) -
       (Number(r.lateEarlyDeduction) || 0),
   );
@@ -2391,26 +2402,34 @@ function printSlip(r, mode) {
           `<tr class="sub"><th>${ot.date}（${ot.hours}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`,
       )
       .join("");
+    const leaveRows = (r.leaveDetail || [])
+      .map((lv) => {
+        return `<tr class="sub"><th>${formatLeaveSummary(lv)}</th><td class="deduct">−${n(lv.deduction)}</td></tr>`;
+      })
+      .join("");
+    const lateRows = (r.lateEarlyDetail || [])
+      .map((le) => {
+        const parts = [];
+        const lateMins = getLateMinutes(le);
+        const earlyMins = getEarlyMinutes(le);
+        if (lateMins > 0) parts.push(`遲到${lateMins}分`);
+        if (earlyMins > 0) parts.push(`早退${earlyMins}分`);
+        return `<tr class="sub"><th>${le.date} ${parts.join("/")}</th><td class="deduct">−${n(le.deduction)}</td></tr>`;
+      })
+      .join("");
     bodyRows = `
       <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
       ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ""}
+      ${(r.leaveDeduction || 0) > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ""}
+      ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ""}
+      ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ""}
       ${deductRow("勞保費", r.laborInsurance)}
       ${deductRow("健保費（本人）", r.healthInsurance)}
       ${deductRow("健保費（眷屬）", r.dependentHealth)}
       ${deductRow("減項互助金", r.mutualAid)}
       ${deductRow("便當費", r.lunchFee)}
-      ${deductRow("房租（外勞）", r.foreignRent)}
-      ${deductRow("水費", r.waterFee)}
-      ${deductRow("電費", r.electricFee)}
-      ${deductRow("體檢費（外勞）", r.foreignMedical)}
-      ${deductRow("服務費（外勞）", r.foreignService)}
-      ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : "其他減項", r.otherDeduction)}
-      ${calcFirstPaymentPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcFirstPaymentPartialMonthDeduction(r))}</td></tr>` : ""}
-      ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ""}
-      ${deductRow("借款本金", r.loanPrincipal)}
-      ${deductRow("借款利息", r.loanInterest)}
       <tr class="total-row"><th>5日實發</th><td class="gross">${n(r.firstPayment)}</td></tr>
-      <tr><th>申報所得（投保薪資-曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
+      <tr><th>申報所得（投保薪資-請假/曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
     `;
   } else {
     const bonuses = [r.bonus1, r.bonus2, r.bonus3, r.bonus4, r.bonus5]
@@ -2492,8 +2511,8 @@ function printSlip(r, mode) {
       ${deductRow("借款本金", r.loanPrincipal)}
       ${deductRow("借款利息", r.loanInterest)}
       <tr class="total-row"><th>實領薪資</th><td class="gross">${n(r.grossPay)}</td></tr>
-      <tr class="sep"><th>申報所得（投保薪資-曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
-      <tr class="sep"><th>5日發薪（投保薪資＋申報加班費）</th><td class="gross">${n(r.firstPayment)}</td></tr>
+      <tr class="sep"><th>申報所得（投保薪資-請假/曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
+      <tr class="sep"><th>5日發薪（投保薪資＋申報加班費－請假/曠職/遲到早退－保費/互助金/便當費）</th><td class="gross">${n(r.firstPayment)}</td></tr>
       <tr><th>10日發薪（補差額）</th><td class="${(r.secondPayment ?? 0) < 0 ? "deduct" : "gross"}">${n(r.secondPayment)}</td></tr>
     `;
   }
@@ -2503,19 +2522,20 @@ function printSlip(r, mode) {
   const html = `<!DOCTYPE html><html lang="zh-Hant"><head>
     <meta charset="UTF-8"><title>${title}</title>
     <style>
-      body { font-family: 'Noto Sans TC', Arial, sans-serif; font-size: 13px; margin: 24px; color: #222; }
-      h2 { font-size: 1.1rem; margin-bottom: 4px; }
-      p.sub { color: #555; margin: 2px 0 14px; font-size: 12px; }
-      .slip-layout { display: grid; grid-template-columns: 420px 1fr; gap: 22px; align-items: start; }
-      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Noto Sans TC', Arial, sans-serif; font-size: 14px; line-height: 1.35; margin: 10mm; color: #222; }
+      h2 { font-size: 1.2rem; margin: 0 0 4px; }
+      p.sub { color: #555; margin: 2px 0 10px; font-size: 12px; }
+      .slip-layout { display: grid; grid-template-columns: 58% 42%; gap: 12px; align-items: start; }
+      table { width: 100%; border-collapse: collapse; margin-top: 6px; table-layout: fixed; }
       th, td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
-      th { text-align: left; white-space: nowrap; padding-right: 2rem; font-weight: 500; color: #444; }
-      td { text-align: right; min-width: 80px; }
-      .att-wrap { border: 1px solid #d9d9d9; border-radius: 8px; padding: 10px 12px; }
+      th { text-align: left; white-space: normal; padding-right: 10px; font-weight: 500; color: #444; }
+      td { text-align: right; white-space: nowrap; }
+      .att-wrap { border: 1px solid #d9d9d9; border-radius: 8px; padding: 8px 10px; overflow: hidden; }
       .att-title { font-weight: 700; margin: 0 0 6px; color: #1f2937; }
       .att-table th, .att-table td { font-size: 12px; padding: 4px 6px; border-bottom: 1px dashed #ddd; }
-      .att-table th { width: 118px; padding-right: 8px; }
-      .att-table td { text-align: left; min-width: 0; }
+      .att-table th { width: 44%; padding-right: 8px; }
+      .att-table td { text-align: left; min-width: 0; white-space: normal; word-break: break-word; }
       tr.sep th, tr.sep td { border-top: 2px solid #aaa; }
       tr.sub th, tr.sub td { font-size: 11px; color: #888; padding-left: 18px; }
       tr.total-row th, tr.total-row td { border-top: 2px solid #555; font-weight: 700; font-size: 1.05em; }
@@ -2524,8 +2544,10 @@ function printSlip(r, mode) {
       .ot { color: #2e7d32; }
       .meal { color: #e65100; }
       @media print {
-        @page { margin: 1.2cm; }
-        .slip-layout { grid-template-columns: 53% 47%; gap: 14px; }
+        @page { size: A4 portrait; margin: 8mm; }
+        html, body { width: auto; margin: 0; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .slip-layout { grid-template-columns: 58% 42%; gap: 10px; }
       }
     </style>
   </head><body>

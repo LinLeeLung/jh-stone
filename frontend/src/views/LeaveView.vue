@@ -92,10 +92,12 @@
           <div class="field-row">
             <label>{{ t("leave_start_time") }}</label>
             <input type="time" v-model="lf.startTime" required />
+            <span class="time-24h-hint">{{ lf.startTime || '--:--' }}</span>
           </div>
           <div class="field-row">
             <label>{{ t("leave_end_time") }}</label>
             <input type="time" v-model="lf.endTime" required />
+            <span class="time-24h-hint">{{ lf.endTime || '--:--' }}</span>
           </div>
         </template>
         <div
@@ -201,10 +203,12 @@
         <div class="field-row">
           <label>{{ t("ot_start") }}</label>
           <input type="time" v-model="otf.startTime" required />
+          <span class="time-24h-hint">{{ otf.startTime || '--:--' }}</span>
         </div>
         <div class="field-row">
           <label>{{ t("ot_end") }}</label>
           <input type="time" v-model="otf.endTime" required />
+          <span class="time-24h-hint">{{ otf.endTime || '--:--' }}</span>
         </div>
         <div class="field-row">
           <label>{{ t("ot_hours") }}</label>
@@ -641,9 +645,32 @@
             style="font-size: 0.85rem"
             >{{ t("loading") }}</span
           >
+          <input
+            v-model="approvedFilterName"
+            list="approved-employee-name-options"
+            placeholder="員工姓名關鍵字"
+            style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 5px; width: 160px"
+          />
+          <datalist id="approved-employee-name-options">
+            <option
+              v-for="name in approvedEmployeeNameOptions"
+              :key="name"
+              :value="name"
+            />
+          </datalist>
+          <select
+            v-model="approvedFilterType"
+            style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 5px"
+          >
+            <option value="全部">全部</option>
+            <option value="特休">特休</option>
+            <option value="事假">事假</option>
+            <option value="病假">病假</option>
+            <option value="加班">加班</option>
+          </select>
         </div>
 
-        <h4>{{ t("approved_leave_count")(approvedLeaveByMe.length) }}</h4>
+        <h4>{{ t("approved_leave_count")(filteredApprovedLeave.length) }}</h4>
         <table class="rec-table">
           <thead>
             <tr>
@@ -661,7 +688,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in approvedLeaveByMe" :key="r.id">
+            <tr v-for="r in filteredApprovedLeave" :key="r.id">
               <td>{{ r.name }}</td>
               <td>{{ r.type }}</td>
               <td>
@@ -702,7 +729,7 @@
                 </button>
               </td>
             </tr>
-            <tr v-if="!approvedLeaveByMe.length">
+            <tr v-if="!filteredApprovedLeave.length">
               <td colspan="11" class="empty">
                 {{ loadingApproved ? t("loading") : t("empty_approved_leave") }}
               </td>
@@ -711,7 +738,7 @@
         </table>
 
         <h4 style="margin-top: 24px">
-          {{ t("approved_ot_count")(approvedOTByMe.length) }}
+          {{ t("approved_ot_count")(filteredApprovedOT.length) }}
         </h4>
         <table class="rec-table">
           <thead>
@@ -730,7 +757,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in approvedOTByMe" :key="r.id">
+            <tr v-for="r in filteredApprovedOT" :key="r.id">
               <td>{{ r.name }}</td>
               <td>{{ r.date }}</td>
               <td>{{ r.startTime }} – {{ r.endTime }}</td>
@@ -762,7 +789,7 @@
                 </button>
               </td>
             </tr>
-            <tr v-if="!approvedOTByMe.length">
+            <tr v-if="!filteredApprovedOT.length">
               <td colspan="11" class="empty">
                 {{ loadingApproved ? t("loading") : t("empty_approved_ot") }}
               </td>
@@ -1343,6 +1370,45 @@ const pendingOT1 = ref([]);
 const pendingOT2 = ref([]);
 const approvedLeaveByMe = ref([]);
 const approvedOTByMe = ref([]);
+const approvedFilterName = ref("");
+const approvedFilterType = ref("全部");
+
+const approvedEmployeeNameOptions = computed(() => {
+  const keyword = approvedFilterName.value.trim().toLowerCase();
+  const names = [
+    ...approvedLeaveByMe.value.map((r) => String(r.name || "").trim()),
+    ...approvedOTByMe.value.map((r) => String(r.name || "").trim()),
+  ].filter(Boolean);
+
+  const uniqueNames = [...new Set(names)].sort((a, b) =>
+    a.localeCompare(b, "zh-Hant"),
+  );
+
+  if (!keyword) return uniqueNames;
+  return uniqueNames.filter((name) => name.toLowerCase().includes(keyword));
+});
+
+const filteredApprovedLeave = computed(() => {
+  const name = approvedFilterName.value.trim().toLowerCase();
+  const type = approvedFilterType.value;
+  if (type === "加班") return [];
+  return approvedLeaveByMe.value.filter((r) => {
+    if (name && !String(r.name || "").toLowerCase().includes(name)) return false;
+    if (type !== "全部" && r.type !== type) return false;
+    return true;
+  });
+});
+
+const filteredApprovedOT = computed(() => {
+  const name = approvedFilterName.value.trim().toLowerCase();
+  const type = approvedFilterType.value;
+  if (type !== "全部" && type !== "加班") return [];
+  return approvedOTByMe.value.filter((r) => {
+    if (name && !String(r.name || "").toLowerCase().includes(name)) return false;
+    return true;
+  });
+});
+
 const pendingLoadError = ref("");
 const debugUserDocId = ref("");
 const debugPendingRaw = reactive({ l1: 0, l2: 0, o1: 0, o2: 0 });
@@ -2440,6 +2506,14 @@ h4 {
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 0.9rem;
+}
+.time-24h-hint {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #374151;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 .field-row textarea {
   flex: 1;

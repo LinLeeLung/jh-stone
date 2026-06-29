@@ -11267,7 +11267,7 @@ async function runPayrollCalculation(yyyyMM) {
         loanPrincipal -
         loanInterest,
     );
-    // 分兩次發薪：5日依投保薪資為底薪、扣固定項目後先發；10日補實際差額
+    // 分兩次發薪：5日依投保薪資為底薪，先扣請假/曠職/遲到早退及員工自付保費/互助金/便當費；10日補差額
     const laborInsuranceSalaryBase = Math.max(
       0,
       Number(s.laborInsuranceSalary) || 0,
@@ -11281,29 +11281,22 @@ async function runPayrollCalculation(yyyyMM) {
       0,
       laborInsuranceSalaryBase +
         otPayOfficial -
+        leaveDeduction -
+        lateEarlyDeduction -
+        absentDeduction -
         laborInsurance -
         healthInsurance -
         dependentHealth -
         mutualAid -
-        lunchFee -
-        foreignRent -
-        waterFee -
-        electricFee -
-        foreignMedical -
-        foreignService -
-        otherDeduction -
-        loanPrincipal -
-        loanInterest -
-        partialMonthDeductionFirst -
-        absentDeduction,
+        lunchFee,
     );
-    // 申報所得 = 投保薪資 - 曠職扣款 - 遲到/早退扣款 - 未上班扣薪
+    // 申報所得 = 投保薪資 - 請假扣款 - 曠職扣款 - 遲到/早退扣款
     const reportedIncome = Math.max(
       0,
       laborInsuranceSalaryBase -
+        leaveDeduction -
         absentDeduction -
-        lateEarlyDeduction -
-        partialMonthDeductionFirst,
+        lateEarlyDeduction,
     );
     const secondPayment = grossPay - firstPayment;
 

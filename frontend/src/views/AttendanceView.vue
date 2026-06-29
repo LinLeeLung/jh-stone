@@ -118,8 +118,10 @@
             <input type="date" v-model="correctionForm.date" />
             <label>{{ t("corr_col_in") }}</label>
             <input type="time" v-model="correctionForm.punchIn" step="1" />
+            <span class="time-24h-hint">{{ correctionForm.punchIn || '--:--' }}</span>
             <label>{{ t("corr_col_out") }}</label>
             <input type="time" v-model="correctionForm.punchOut" step="1" />
+            <span class="time-24h-hint">{{ correctionForm.punchOut || '--:--' }}</span>
           </div>
           <div class="correction-grid correction-grid-reason">
             <label>{{ t("col_reason") }}</label>
@@ -2963,6 +2965,14 @@ tr.no-rec td {
   border-radius: 5px;
   font-size: 0.95rem;
   width: 100%;
+}
+.time-24h-hint {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #374151;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 .time-row {
   display: flex;
