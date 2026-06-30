@@ -59,6 +59,19 @@
         <button class="btn-remit" @click="printRemittance('second')">
           10日
         </button>
+        <button class="btn-remit" @click="exportRemittanceExcel('first')">
+          5日Excel
+        </button>
+        <button class="btn-remit" @click="exportRemittanceExcel('second')">
+          10日Excel
+        </button>
+        <label class="print-orientation-label">
+          列印方向
+          <select v-model="printOrientation" class="print-orientation-select">
+            <option value="portrait">直印</option>
+            <option value="landscape">橫印</option>
+          </select>
+        </label>
         <span class="btn-remit-label">匯款明細</span>
       </span>
       <button
@@ -607,6 +620,13 @@
           </tbody>
         </table>
         <div class="modal-actions">
+          <label class="print-orientation-label">
+            列印方向
+            <select v-model="printOrientation" class="print-orientation-select">
+              <option value="portrait">直印</option>
+              <option value="landscape">橫印</option>
+            </select>
+          </label>
           <button
             class="btn-sm btn-print"
             @click="printSlip(detailRecord, 'first')"
@@ -895,6 +915,7 @@ const staffBankMap = ref(new Map());
 const sensitiveView = ref("hidden");
 const lunchSheetUrl = ref("");
 const importingLunch = ref(false);
+const printOrientation = ref("portrait");
 
 const sensitiveOptions = computed(() => {
   const activeEmpNos = new Set(
@@ -2108,6 +2129,13 @@ async function loadStaff() {
     numDependents: d.data().numDependents ?? "",
     bankName: d.data().bankName || "",
     bankAccount: d.data().bankAccount || "",
+    cashPayment:
+      d.data().cashPayment === true ||
+      ["1", "true", "yes", "y", "是", "領現金"].includes(
+        String(d.data().cashPayment ?? "")
+          .trim()
+          .toLowerCase(),
+      ),
   }));
   staffBankMap.value = new Map(all.map((s) => [s.empNo, s]));
   allStaffForAnnual.value = all
@@ -2307,68 +2335,303 @@ function buildAttendanceRows(r, mode) {
     .join("");
 }
 
-function printRemittance(mode) {
-  const sorted = [...allRecords.value].sort((a, b) => {
-    const aNum = Number(a.empNo);
-    const bNum = Number(b.empNo);
-    if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
-    return String(a.empNo).localeCompare(String(b.empNo), "zh-Hant", {
-      numeric: true,
+let remittanceXlsxLib = null;
+
+async function loadRemittanceXlsxLib() {
+  if (!remittanceXlsxLib) {
+    const mod = await import("xlsx");
+    remittanceXlsxLib = mod.default || mod;
+  }
+  return remittanceXlsxLib;
+}
+
+function buildRemittanceData(mode) {
+  const resolveStaffProfile = (record) => {
+    const empNoRaw = String(record?.empNo ?? "").trim();
+    const nameRaw = String(record?.name ?? "").trim();
+
+    let staff = staffBankMap.value.get(empNoRaw) || null;
+    if (staff) return staff;
+
+    if (empNoRaw) {
+      const empNoNum = Number(empNoRaw);
+      if (Number.isFinite(empNoNum)) {
+        for (const candidate of staffBankMap.value.values()) {
+          const candidateNo = String(candidate?.empNo ?? "").trim();
+          const candidateNum = Number(candidateNo);
+          if (Number.isFinite(candidateNum) && candidateNum === empNoNum) {
+            staff = candidate;
+            break;
+          }
+        }
+      }
+    }
+
+    if (staff) return staff;
+    if (!nameRaw) return null;
+
+    const matchedByName = allStaffForAnnual.value.find(
+      (candidate) => String(candidate?.name ?? "").trim() === nameRaw,
+    );
+    return matchedByName || null;
+  };
+
+  const shouldIncludeInRemittance = (record) => {
+    const staff = resolveStaffProfile(record);
+    const status = String(staff?.status || record?.status || "").trim();
+    const isResigned = status.includes("離職");
+    if (!isResigned) return true;
+
+    const resignDate = resolveResignDate(staff, record);
+    const resignMonth = toMonthKey(resignDate);
+    const prevMonth = getPrevMonthKey(selectedMonth.value);
+    return Boolean(resignMonth && prevMonth && resignMonth === prevMonth);
+  };
+
+  const isCashPaymentStaff = (record) => {
+    const staff = resolveStaffProfile(record);
+    const raw = staff?.cashPayment ?? record?.cashPayment;
+    if (raw === true) return true;
+    return ["1", "true", "yes", "y", "是", "領現金"].includes(
+      String(raw ?? "")
+        .trim()
+        .toLowerCase(),
+    );
+  };
+
+  const transferAmountOf = (record) =>
+    Number(mode === "first" ? record.firstPayment || 0 : record.secondPayment || 0);
+
+  // Cash-payment staff do not receive on 5th; they receive both installments on 10th.
+  const cashAmountOf = (record) => {
+    if (mode === "first") return 0;
+    return Number(record.firstPayment || 0) + Number(record.secondPayment || 0);
+  };
+
+  const eligible = [...allRecords.value]
+    .filter(shouldIncludeInRemittance)
+    .sort((a, b) => {
+      const aNum = Number(a.empNo);
+      const bNum = Number(b.empNo);
+      if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+      return String(a.empNo).localeCompare(String(b.empNo), "zh-Hant", {
+        numeric: true,
+      });
     });
-  });
+
+  const transferList = eligible.filter((r) => !isCashPaymentStaff(r));
+  const cashList =
+    mode === "first" ? [] : eligible.filter((r) => isCashPaymentStaff(r));
+
+  const buildRowObjects = (list) =>
+    list.map((r, i) => {
+      const seq = String(i + 1);
+      const s = resolveStaffProfile(r) || {};
+      return {
+        seq,
+        empNo: r.empNo || "",
+        name: r.name || "",
+        bankAccount: s.bankAccount || "—",
+        amount: 0,
+      };
+    });
+
+  const transferRows = buildRowObjects(transferList).map((row, idx) => ({
+    ...row,
+    seq: String(idx + 1),
+    amount: transferAmountOf(transferList[idx]),
+  }));
+  const cashRows = buildRowObjects(cashList).map((row, idx) => ({
+    ...row,
+    seq: String(idx + 1),
+    amount: cashAmountOf(cashList[idx]),
+  }));
+  const transferTotal = transferRows.reduce(
+    (sum, row) => sum + Number(row.amount || 0),
+    0,
+  );
+  const cashTotal = cashRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
+  const denominations = [1000, 500, 100, 50, 10, 1];
+  const denomCountMap = new Map(denominations.map((denom) => [denom, 0]));
+
+  // Sum bill counts by decomposing each employee's payable amount.
+  for (const row of cashRows) {
+    let remain = Math.max(0, Math.floor(Number(row.amount || 0)));
+    for (const denom of denominations) {
+      const count = Math.floor(remain / denom);
+      remain -= count * denom;
+      denomCountMap.set(denom, Number(denomCountMap.get(denom) || 0) + count);
+    }
+  }
+
+  const denomRows = denominations.map((denom) => ({
+    denom,
+    count: Number(denomCountMap.get(denom) || 0),
+  }));
+  const cashPrepareTotal = denomRows.reduce(
+    (sum, row) => sum + row.denom * row.count,
+    0,
+  );
 
   const label = mode === "first" ? "5日" : "10日";
   const title = `${selectedMonth.value} ${label}匯款明細`;
 
-  const rows = sorted
-    .map((r, i) => {
-      const seq = String(i + 1).padStart(6, "0");
-      const s = staffBankMap.value.get(String(r.empNo)) || {};
-      const bankAccount = s.bankAccount || "—";
-      const amount =
-        mode === "first" ? r.firstPayment || 0 : r.secondPayment || 0;
-      return `<tr>
-      <td>${seq}</td>
-      <td>${r.empNo || ""}</td>
-      <td>${r.name || ""}</td>
-      <td>${bankAccount}</td>
-      <td class="num">${Number(amount).toLocaleString()}</td>
-    </tr>`;
-    })
+  return {
+    title,
+    transferRows,
+    cashRows,
+    transferTotal,
+    cashTotal,
+    cashPrepareTotal,
+    denomRows,
+  };
+}
+
+async function exportRemittanceExcel(mode) {
+  try {
+    const xlsx = await loadRemittanceXlsxLib();
+    const data = buildRemittanceData(mode);
+
+    const wb = xlsx.utils.book_new();
+    const transferSheetRows = [
+      ["序號", "員工編號", "員工姓名", "收款帳號", "金額"],
+      ...data.transferRows.map((row) => [
+        row.seq,
+        row.empNo,
+        row.name,
+        row.bankAccount,
+        Number(row.amount || 0),
+      ]),
+      ["", "", "", "合計", Number(data.transferTotal || 0)],
+    ];
+    const transferWs = xlsx.utils.aoa_to_sheet(transferSheetRows);
+    xlsx.utils.book_append_sheet(wb, transferWs, "銀行匯款明細");
+    if (mode !== "first") {
+      const cashSheetRows = [
+        ["序號", "員工編號", "員工姓名", "收款帳號", "金額"],
+        ...data.cashRows.map((row) => [
+          row.seq,
+          row.empNo,
+          row.name,
+          row.bankAccount,
+          Number(row.amount || 0),
+        ]),
+        ["", "", "", "現金合計", Number(data.cashTotal || 0)],
+        [],
+        ["面額", "張數"],
+        ...data.denomRows.map((row) => [row.denom, row.count]),
+        ["需備現金", Number(data.cashPrepareTotal || 0)],
+      ];
+      const cashWs = xlsx.utils.aoa_to_sheet(cashSheetRows);
+      xlsx.utils.book_append_sheet(wb, cashWs, "領現金與備鈔");
+    }
+
+    const safeTitle = data.title.replace(/[\\/:*?"<>|]/g, "_");
+    xlsx.writeFile(wb, `${safeTitle}.xlsx`);
+  } catch (error) {
+    alert(`匯出 Excel 失敗：${error?.message || error}`);
+  }
+}
+
+function printRemittance(mode) {
+  const data = buildRemittanceData(mode);
+  const showCashSections = mode !== "first";
+  const orientation =
+    printOrientation.value === "landscape" ? "landscape" : "portrait";
+
+  const transferRowsHtml = data.transferRows
+    .map(
+      (row) => `<tr>
+      <td>${row.seq}</td>
+      <td>${row.empNo}</td>
+      <td>${row.name}</td>
+      <td>${row.bankAccount}</td>
+      <td class="num">${Number(row.amount || 0).toLocaleString()}</td>
+    </tr>`,
+    )
     .join("");
 
-  const total = sorted.reduce(
-    (sum, r) =>
-      sum +
-      Number(mode === "first" ? r.firstPayment || 0 : r.secondPayment || 0),
-    0,
-  );
+  const cashRowsHtml = showCashSections
+    ? data.cashRows
+        .map(
+          (row) => `<tr>
+      <td>${row.seq}</td>
+      <td>${row.empNo}</td>
+      <td>${row.name}</td>
+      <td>${row.bankAccount}</td>
+      <td class="num">${Number(row.amount || 0).toLocaleString()}</td>
+    </tr>`,
+        )
+        .join("")
+    : "";
+
+  const denomRowsHtml = showCashSections
+    ? data.denomRows
+        .map(
+          (row) =>
+            `<tr><th>${row.denom.toLocaleString()} 元</th><td class="num">${row.count}</td></tr>`,
+        )
+        .join("")
+    : "";
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>${title}</title>
+<title>${data.title}</title>
 <style>
 body { font-family: 'Arial', sans-serif; font-size: 12px; margin: 20px; }
 h2 { text-align: center; margin-bottom: 12px; }
+h3 { margin: 18px 0 8px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border: 1px solid #999; padding: 5px 8px; text-align: left; vertical-align: middle; }
 th { background: #f0f0f0; white-space: nowrap; }
 .num { text-align: right; white-space: nowrap; }
 .sub { font-size: 11px; color: #555; }
 .total-row td { font-weight: bold; border-top: 2px solid #333; }
+.empty { color: #666; text-align: center; }
+.denom-wrap { margin-top: 10px; }
+.denom-table { width: 320px; }
 @media print { body { margin: 10px; } }
+@media print { @page { size: A4 ${orientation}; margin: 10mm; } }
 </style></head><body>
-<h2>${title}</h2>
+<h2>${data.title}</h2>
+<h3>銀行匯款明細（不含領現金）</h3>
 <table>
 <thead><tr>
   <th>序號</th><th>員工編號</th><th>員工姓名</th>
   <th>收款帳號</th><th>金額</th>
 </tr></thead>
-<tbody>${rows}</tbody>
+<tbody>${transferRowsHtml || '<tr><td class="empty" colspan="5">（無匯款人員）</td></tr>'}</tbody>
 <tfoot><tr class="total-row">
   <td colspan="4" class="num">合計</td>
-  <td class="num">${Number(total).toLocaleString()}</td>
+  <td class="num">${Number(data.transferTotal || 0).toLocaleString()}</td>
 </tr></tfoot>
 </table>
+
+${
+  showCashSections
+    ? `<h3>領現金明細</h3>
+<table>
+<thead><tr>
+  <th>序號</th><th>員工編號</th><th>員工姓名</th>
+  <th>收款帳號</th><th>金額</th>
+</tr></thead>
+<tbody>${cashRowsHtml || '<tr><td class="empty" colspan="5">（無領現金人員）</td></tr>'}</tbody>
+<tfoot><tr class="total-row">
+  <td colspan="4" class="num">現金合計</td>
+  <td class="num">${Number(data.cashTotal || 0).toLocaleString()}</td>
+</tr></tfoot>
+</table>
+
+<div class="denom-wrap">
+  <h3>現金備鈔面額統計（依每人金額加總）</h3>
+  <table class="denom-table">
+    <thead><tr><th>面額</th><th>張數</th></tr></thead>
+    <tbody>${denomRowsHtml}</tbody>
+    <tfoot><tr class="total-row"><td>需備現金</td><td class="num">${Number(data.cashPrepareTotal || 0).toLocaleString()} 元</td></tr></tfoot>
+  </table>
+</div>`
+    : ""
+}
 </body></html>`;
 
   const win = window.open("", "_blank", "width=960,height=820");
@@ -2391,6 +2654,12 @@ function printSlip(r, mode) {
     val > 0
       ? `<tr><th>${label}</th><td class="deduct">−${Number(val).toLocaleString()}</td></tr>`
       : "";
+
+  const salaryType = String(r.salaryType || "月薪");
+  const dailyRate = formatRate(calcDailyRate(r));
+  const hourlyRate = formatRate(calcHourlyRate(r));
+  const orientation =
+    printOrientation.value === "landscape" ? "landscape" : "portrait";
 
   let bodyRows = "";
 
@@ -2418,6 +2687,9 @@ function printSlip(r, mode) {
       })
       .join("");
     bodyRows = `
+      <tr><th>薪資類型</th><td>${salaryType}</td></tr>
+      <tr><th>日薪</th><td>${dailyRate}</td></tr>
+      <tr><th>時薪</th><td>${hourlyRate}</td></tr>
       <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
       ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ""}
       ${(r.leaveDeduction || 0) > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ""}
@@ -2488,6 +2760,8 @@ function printSlip(r, mode) {
 
     bodyRows = `
       <tr><th>薪資類型</th><td>${r.salaryType || ""}</td></tr>
+      <tr><th>日薪</th><td>${dailyRate}</td></tr>
+      <tr><th>時薪</th><td>${hourlyRate}</td></tr>
       <tr class="sep"><th>底薪</th><td>${n(displayBaseSalary(r))}</td></tr>
       ${r.bonusTotal > 0 ? `<tr><th>固定獎金合計</th><td>+${n(r.bonusTotal)}</td></tr>${bonuses}` : ""}
       ${r.otPay > 0 ? `<tr><th>加班費合計（實際，${r.otHours || 0}h）</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ""}
@@ -2544,10 +2818,10 @@ function printSlip(r, mode) {
       .ot { color: #2e7d32; }
       .meal { color: #e65100; }
       @media print {
-        @page { size: A4 portrait; margin: 8mm; }
+        @page { size: A4 ${orientation}; margin: 8mm; }
         html, body { width: auto; margin: 0; }
         body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .slip-layout { grid-template-columns: 58% 42%; gap: 10px; }
+        .slip-layout { grid-template-columns: ${orientation === "landscape" ? "56% 44%" : "58% 42%"}; gap: 10px; }
       }
     </style>
   </head><body>
@@ -2701,6 +2975,25 @@ function mealTotals(r) {
 }
 .btn-remit:hover {
   background: #0d47a1;
+}
+.print-orientation-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #1565c0;
+  background: #e3f2fd;
+  border-left: 1px solid #bbdefb;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+}
+.print-orientation-select {
+  border: 1px solid #90caf9;
+  border-radius: 5px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 0.82rem;
+  padding: 0.1rem 0.3rem;
 }
 .btn-remit-label {
   background: #e3f2fd;
@@ -3025,6 +3318,16 @@ function mealTotals(r) {
   justify-content: flex-end;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+.modal-actions .print-orientation-label {
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+}
+.modal-actions .print-orientation-select {
+  border-color: #cbd5e1;
 }
 .btn-print {
   background: #e8f5e9;

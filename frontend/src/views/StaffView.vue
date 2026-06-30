@@ -77,6 +77,9 @@
               <th class="sortable" @click="setSort('status')">
                 狀態 {{ sortIcon("status") }}
               </th>
+              <th class="sortable" @click="setSort('cashPayment')">
+                領現金 {{ sortIcon("cashPayment") }}
+              </th>
               <th>動作</th>
             </tr>
           </thead>
@@ -106,11 +109,14 @@
                 </span>
               </td>
               <td>
+                <input type="checkbox" :checked="toBoolean(s.cashPayment)" disabled />
+              </td>
+              <td>
                 <button class="btn-aux" @click="openEdit(s)">編輯</button>
               </td>
             </tr>
             <tr v-if="filtered.length === 0">
-              <td colspan="9" class="muted-text" style="text-align: center">
+              <td colspan="10" class="muted-text" style="text-align: center">
                 查無資料
               </td>
             </tr>
@@ -350,6 +356,10 @@
             >銀行帳號
             <input v-model="form.bankAccount" />
           </label>
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.cashPayment" />
+            是否領現金
+          </label>
           <label
             >緊急聯絡人
             <input v-model="form.emergencyName" />
@@ -440,6 +450,7 @@ const FIELDS = [
   { key: "baseSalary", label: "底薪" },
   { key: "bankName", label: "銀行/分行" },
   { key: "bankAccount", label: "銀行帳號" },
+  { key: "cashPayment", label: "是否領現金", type: "boolean" },
   { key: "emergencyName", label: "緊急聯絡人" },
   { key: "emergencyPhone", label: "緊急聯絡電話" },
   { key: "bonus1", label: "獎金(1)", type: "number" },
@@ -500,6 +511,9 @@ const AUTO_MAP = {
   銀行: "bankName",
   "銀行/分行": "bankName",
   銀行帳號: "bankAccount",
+  是否領現金: "cashPayment",
+  領現金: "cashPayment",
+  現金: "cashPayment",
   帳號: "bankAccount",
   緊急聯絡人: "emergencyName",
   緊急聯絡電話: "emergencyPhone",
@@ -577,6 +591,21 @@ function sortIcon(key) {
   return sortDir.value === 1 ? "▲" : "▼";
 }
 
+function toBoolean(value) {
+  if (typeof value === "boolean") return value;
+  const text = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return ["1", "true", "yes", "y", "是", "需", "領現金"].includes(text);
+}
+
+function normalizeStaffRecord(record = {}) {
+  return {
+    ...record,
+    cashPayment: toBoolean(record.cashPayment),
+  };
+}
+
 const filtered = computed(() => {
   const kw = search.value.trim().toLowerCase();
   let list = staffList.value.filter((s) => {
@@ -597,6 +626,11 @@ const filtered = computed(() => {
     if (key === "empNo" || key === "baseSalary") {
       va = Number(va) || 0;
       vb = Number(vb) || 0;
+      return (va - vb) * dir;
+    }
+    if (key === "cashPayment") {
+      va = toBoolean(va) ? 1 : 0;
+      vb = toBoolean(vb) ? 1 : 0;
       return (va - vb) * dir;
     }
     return String(va).localeCompare(String(vb), "zh-TW") * dir;
@@ -642,7 +676,9 @@ onMounted(async () => {
 async function fetchStaff() {
   const q = query(collection(db, "staff"), orderBy("empNo"));
   const snap = await getDocs(q);
-  staffList.value = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  staffList.value = snap.docs.map((d) =>
+    normalizeStaffRecord({ id: d.id, ...d.data() }),
+  );
 }
 
 // ── 匯入 Excel ────────────────────────────────────────────
@@ -746,6 +782,9 @@ async function doImport() {
             val === "" || val === null || val === undefined
               ? null
               : Number(val);
+        if (f.key === "cashPayment") {
+          val = toBoolean(val);
+        }
         obj[f.key] = val ?? "";
       }
       // 所有欄位強制轉字串（避免 Excel 讀出數字型別）
@@ -753,7 +792,8 @@ async function doImport() {
         if (
           obj[key] !== null &&
           obj[key] !== undefined &&
-          typeof obj[key] !== "number"
+          typeof obj[key] !== "number" &&
+          typeof obj[key] !== "boolean"
         ) {
           obj[key] = String(obj[key]).trim();
         }
@@ -763,6 +803,7 @@ async function doImport() {
         obj.status = "離職"; // 無部門 → 離職
       else if (!obj.status) obj.status = "在職";
       if (!obj.salaryType) obj.salaryType = "月薪";
+      if (typeof obj.cashPayment !== "boolean") obj.cashPayment = false;
 
       const id = String(obj.empNo || "").trim() || String(obj.name).trim();
       batch.set(doc(db, "staff", id), obj, { merge: true });
@@ -825,6 +866,7 @@ const emptyForm = () => ({
   otherDeductionNote: "",
   bankName: "",
   bankAccount: "",
+  cashPayment: false,
   emergencyName: "",
   emergencyPhone: "",
   staffRole: "",
@@ -841,7 +883,11 @@ function openAdd() {
   dialog.value = { open: true, isNew: true };
 }
 function openEdit(s) {
-  form.value = { ...s };
+  form.value = {
+    ...emptyForm(),
+    ...s,
+    cashPayment: toBoolean(s?.cashPayment),
+  };
   errMsg.value = "";
   dialog.value = { open: true, isNew: false };
 }
@@ -857,6 +903,7 @@ async function save() {
   }
   saving.value = true;
   try {
+    form.value.cashPayment = toBoolean(form.value.cashPayment);
     const id =
       String(form.value.empNo || "").trim() ||
       String(form.value.name || "").trim();
