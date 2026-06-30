@@ -10706,6 +10706,14 @@ async function runPayrollCalculation(yyyyMM) {
     return Number.isFinite(n) ? n : 0;
   }
 
+  function toMoneyNumber(value) {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    const normalized = String(value).replace(/[^\d.-]/g, "");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   function pickPreferredUser(existing, incoming) {
     if (!existing) return incoming;
     const exMs = tsToMs(existing.lastSeen);
@@ -10801,6 +10809,14 @@ async function runPayrollCalculation(yyyyMM) {
       });
     }
 
+    // Use docKey/docId early so manual fields on existing payroll can survive recalculation.
+    const docKey = userUid || `empNo_${String(empNo)}`;
+    const docId = `${docKey}_${yyyyMM}`;
+    const existingPayrollSnap = await db.collection("payroll").doc(docId).get();
+    const existingPayroll = existingPayrollSnap.exists
+      ? existingPayrollSnap.data() || {}
+      : {};
+
     // Approved overtime records in this month
     // Query by merged candidate uids to handle account switches.
     let otRecords = [];
@@ -10844,6 +10860,12 @@ async function runPayrollCalculation(yyyyMM) {
     // Base hourly rate (for OT and leave deduction)
     const base = Number(s.baseSalary) || 0;
     const salType = s.salaryType || "月薪";
+    const isSalesCommissionSalary = salType === "營業額1%";
+    const salesAmount = Math.max(
+      0,
+      toMoneyNumber(existingPayroll.salesAmountManual ?? existingPayroll.salesAmount),
+    );
+    const salesCommissionRate = 0.01;
     const empStartDate = normalizeDateStr(s.startDate);
     const empEndDate = normalizeDateStr(
       s.endDate || s.leaveDate || s.resignDate || s.terminationDate,
@@ -10866,7 +10888,9 @@ async function runPayrollCalculation(yyyyMM) {
       empEndDate && empEndDate < monthEnd ? empEndDate : monthEnd;
 
     // 月薪制：底薪維持月薪，未上班天數扣薪另列（含月中到職/離職）
-    let effectiveBase = base;
+    let effectiveBase = isSalesCommissionSalary
+      ? Math.round(salesAmount * salesCommissionRate)
+      : base;
     let partialMonthNoWorkDays = 0;
     let partialMonthDeduction = 0;
     let attendanceDays = 0;
@@ -10883,8 +10907,8 @@ async function runPayrollCalculation(yyyyMM) {
     }
 
     let baseHourlyRate;
-    if (salType === "月薪") {
-      baseHourlyRate = base / 240; // 30 天 × 8 小時
+    if (salType === "月薪" || isSalesCommissionSalary) {
+      baseHourlyRate = effectiveBase / 240; // 30 天 × 8 小時
     } else if (salType === "時薪") {
       baseHourlyRate = base;
     } else {
@@ -11075,8 +11099,8 @@ async function runPayrollCalculation(yyyyMM) {
           });
         }
 
-        // 假日（週末/國定假日）不計遲到早退扣薪
-        if (!isWeekendOrPublicHoliday(attDate)) {
+        // 營業額1%業務與假日（週末/國定假日）都不計遲到早退扣薪
+        if (!isSalesCommissionSalary && !isWeekendOrPublicHoliday(attDate)) {
           const inMins = timeStrToMins(inT);
           const outMins = timeStrToMins(outT);
           const lateMins = Math.max(0, inMins - (workStartMins + graceMins));
@@ -11176,18 +11200,10 @@ async function runPayrollCalculation(yyyyMM) {
     const otherDeduction = Math.max(0, Number(s.otherDeduction) || 0);
     const otherDeductionNote = String(s.otherDeductionNote || "").trim();
 
-    // Use docKey/docId to read existing payroll for preserved lunchFee
-    const docKey = userUid || `empNo_${String(empNo)}`;
-    const docId = `${docKey}_${yyyyMM}`;
-
     // 便當費：從現有薪資單讀取（若已設定），否則用員工預設
     let lunchFee = Math.max(0, Number(s.lunchFee) || 0);
-    const existingPayrollSnap = await db.collection("payroll").doc(docId).get();
-    if (existingPayrollSnap.exists) {
-      const existing = existingPayrollSnap.data();
-      if (existing.lunchFee !== undefined && existing.lunchFee !== null) {
-        lunchFee = Math.max(0, Number(existing.lunchFee) || 0);
-      }
+    if (existingPayroll.lunchFee !== undefined && existingPayroll.lunchFee !== null) {
+      lunchFee = Math.max(0, Number(existingPayroll.lunchFee) || 0);
     }
 
     // 借款扣款（等額本金法）
@@ -11315,6 +11331,10 @@ async function runPayrollCalculation(yyyyMM) {
         salaryType: salType,
         baseSalary: effectiveBase,
         baseSalaryFull: base,
+        salesAmount,
+        salesAmountManual: salesAmount,
+        salesCommissionRate: isSalesCommissionSalary ? salesCommissionRate : 0,
+        salesCommissionPay: isSalesCommissionSalary ? effectiveBase : 0,
         bonus1: bonusItems[0],
         bonus2: bonusItems[1],
         bonus3: bonusItems[2],

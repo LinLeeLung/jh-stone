@@ -1752,6 +1752,17 @@ export async function updatePayrollLunchFee(docId, lunchFee) {
   });
 }
 
+export async function updatePayrollSalesAmount(docId, salesAmount) {
+  const amount = Math.max(0, Number(salesAmount) || 0);
+  await updateDoc(doc(db, "payroll", docId), {
+    salesAmount: amount,
+    salesAmountManual: amount,
+    salesCommissionPay: Math.round(amount * 0.01),
+    salesCommissionRate: 0.01,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function getOrdersByIds(ids) {
   if (!ids || !ids.length) return [];
   const callable = httpsCallable(functionsInstance, "getOrdersByIds");

@@ -250,6 +250,7 @@
               <option>月薪</option>
               <option>時薪</option>
               <option>日薪</option>
+              <option>營業額1%</option>
             </select>
           </label>
           <label

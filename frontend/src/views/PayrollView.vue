@@ -102,6 +102,7 @@
             <th>工號</th>
             <th>姓名</th>
             <th>部門</th>
+            <th class="sales-col">營業額</th>
             <th>底薪</th>
             <th>獎金</th>
             <th>加班費</th>
@@ -122,6 +123,29 @@
             <td>{{ r.empNo }}</td>
             <td>{{ r.name }}</td>
             <td>{{ r.dept || "—" }}</td>
+            <td class="num sales-col">
+              <input
+                v-if="isManager && isSensitiveVisible(r) && isSalesCommissionRecord(r)"
+                type="number"
+                class="sales-input"
+                :value="r.salesAmount || 0"
+                min="0"
+                :max="MAX_SALES_AMOUNT_INPUT"
+                inputmode="numeric"
+                @input="limitSalesAmountInput($event)"
+                @change="saveSalesAmount(r, $event.target.value)"
+              />
+              <span v-else>{{
+                isSalesCommissionRecord(r)
+                  ? maskSensitive(
+                      r,
+                      (r.salesAmount || 0) > 0
+                        ? (r.salesAmount || 0).toLocaleString()
+                        : "—",
+                    )
+                  : "—"
+              }}</span>
+            </td>
             <td class="num">
               {{
                 maskSensitive(r, displayBaseSalary(r)?.toLocaleString() || "—")
@@ -224,7 +248,7 @@
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="10" class="total-label">合計</td>
+            <td colspan="11" class="total-label">合計</td>
             <td class="num gross">{{ maskTotal(totalFirst) }}</td>
             <td class="num gross">{{ maskTotal(totalSecond) }}</td>
             <td class="num gross">{{ maskTotal(totalGross) }}</td>
@@ -379,6 +403,13 @@
               <th>薪資類型</th>
               <td>{{ detailRecord.salaryType }}</td>
             </tr>
+            <tr v-if="isSalesCommissionRecord(detailRecord)">
+              <th>手動營業額（1%）</th>
+              <td class="num">
+                {{ (detailRecord.salesAmount || 0).toLocaleString() }} × 1% =
+                {{ (detailRecord.salesCommissionPay || detailRecord.baseSalary || 0).toLocaleString() }}
+              </td>
+            </tr>
             <tr class="sep">
               <th>底薪</th>
               <td class="num">
@@ -467,20 +498,20 @@
                 </td>
               </tr>
             </template>
-            <tr v-if="detailRecord.lateEarlyDeduction > 0">
+            <tr v-if="effectiveLateEarlyDeduction(detailRecord) > 0">
               <th>遲到/早退扣薪</th>
               <td class="num deduct">
-                −{{ detailRecord.lateEarlyDeduction.toLocaleString() }}
+                −{{ effectiveLateEarlyDeduction(detailRecord).toLocaleString() }}
               </td>
             </tr>
             <template
               v-if="
-                detailRecord.lateEarlyDetail &&
-                detailRecord.lateEarlyDetail.length
+                effectiveLateEarlyDetail(detailRecord) &&
+                effectiveLateEarlyDetail(detailRecord).length
               "
             >
               <tr
-                v-for="(le, i) in detailRecord.lateEarlyDetail"
+                v-for="(le, i) in effectiveLateEarlyDetail(detailRecord)"
                 :key="'dle' + i"
                 class="sub"
               >
@@ -858,6 +889,7 @@ import {
   getAllLoans,
   deleteLoan,
   updatePayrollLunchFee,
+  updatePayrollSalesAmount,
   getSystemSettings,
 } from "../firebase";
 import {
@@ -916,6 +948,7 @@ const sensitiveView = ref("hidden");
 const lunchSheetUrl = ref("");
 const importingLunch = ref(false);
 const printOrientation = ref("portrait");
+const MAX_SALES_AMOUNT_INPUT = 99999999;
 
 const sensitiveOptions = computed(() => {
   const activeEmpNos = new Set(
@@ -1179,6 +1212,16 @@ function calcFirstPaymentFixedDeductions(r) {
   );
 }
 
+function effectiveLateEarlyDeduction(r) {
+  if (!r) return 0;
+  return isSalesCommissionRecord(r) ? 0 : (Number(r.lateEarlyDeduction) || 0);
+}
+
+function effectiveLateEarlyDetail(r) {
+  if (!r || isSalesCommissionRecord(r)) return [];
+  return Array.isArray(r.lateEarlyDetail) ? r.lateEarlyDetail : [];
+}
+
 function calcLaborInsuranceSalaryBase(r) {
   if (!r) return 0;
   if (r.laborInsuranceSalaryBase != null) {
@@ -1193,7 +1236,7 @@ function calcLaborInsuranceSalaryBase(r) {
       (Number(r.otPayOfficial) || 0) +
       (Number(r.leaveDeduction) || 0) +
       (Number(r.absentDeduction) || 0) +
-      (Number(r.lateEarlyDeduction) || 0) +
+      effectiveLateEarlyDeduction(r) +
       (Number(r.laborInsurance) || 0) +
       (Number(r.healthInsurance) || 0) +
       (Number(r.dependentHealth) || 0) +
@@ -1210,7 +1253,7 @@ function calcReportedIncome(r) {
       calcLaborInsuranceSalaryBase(r) -
         (Number(r.leaveDeduction) || 0) -
         (Number(r.absentDeduction) || 0) -
-        (Number(r.lateEarlyDeduction) || 0),
+        effectiveLateEarlyDeduction(r),
     );
   }
   if (r.reportedIncome != null)
@@ -1220,7 +1263,7 @@ function calcReportedIncome(r) {
     calcLaborInsuranceSalaryBase(r) -
       (Number(r.leaveDeduction) || 0) -
       (Number(r.absentDeduction) || 0) -
-      (Number(r.lateEarlyDeduction) || 0),
+      effectiveLateEarlyDeduction(r),
   );
 }
 
@@ -1230,6 +1273,10 @@ function displayBaseSalary(r) {
     return Number(r.baseSalaryFull ?? r.baseSalary) || 0;
   }
   return Number(r.baseSalary) || 0;
+}
+
+function isSalesCommissionRecord(r) {
+  return String(r?.salaryType || "") === "營業額1%";
 }
 
 function calcDailyRate(r) {
@@ -2094,6 +2141,60 @@ async function saveLunchFee(record, value) {
   }
 }
 
+async function saveSalesAmount(record, value) {
+  const amount = clampSalesAmount(value);
+  try {
+    const lateEarlyForGross = isSalesCommissionRecord(record)
+      ? 0
+      : (Number(record.lateEarlyDeduction) || 0);
+    await updatePayrollSalesAmount(record.id, amount);
+    record.salesAmount = amount;
+    record.salesAmountManual = amount;
+    record.salesCommissionRate = 0.01;
+    record.salesCommissionPay = Math.round(amount * 0.01);
+    record.baseSalary = record.salesCommissionPay;
+    record.grossPay = Math.max(
+      0,
+      record.salesCommissionPay +
+        (Number(record.bonusTotal) || 0) +
+        (Number(record.otPay) || 0) +
+        (Number(record.mealAllowance) || 0) -
+        (Number(record.partialMonthDeduction) || 0) -
+        (Number(record.leaveDeduction) || 0) -
+        lateEarlyForGross -
+        (Number(record.absentDeduction) || 0) -
+        (Number(record.laborInsurance) || 0) -
+        (Number(record.healthInsurance) || 0) -
+        (Number(record.dependentHealth) || 0) -
+        (Number(record.mutualAid) || 0) -
+        (Number(record.lunchFee) || 0) -
+        (Number(record.foreignRent) || 0) -
+        (Number(record.waterFee) || 0) -
+        (Number(record.electricFee) || 0) -
+        (Number(record.foreignMedical) || 0) -
+        (Number(record.foreignService) || 0) -
+        (Number(record.otherDeduction) || 0) -
+        (Number(record.loanPrincipal) || 0) -
+        (Number(record.loanInterest) || 0),
+    );
+    record.secondPayment = record.grossPay - (Number(record.firstPayment) || 0);
+  } catch (e) {
+    alert("儲存營業額失敗：" + e.message);
+  }
+}
+
+function clampSalesAmount(value) {
+  const parsed = Math.trunc(Number(value) || 0);
+  return Math.max(0, Math.min(MAX_SALES_AMOUNT_INPUT, parsed));
+}
+
+function limitSalesAmountInput(event) {
+  const clamped = clampSalesAmount(event?.target?.value);
+  if (event && event.target) {
+    event.target.value = String(clamped);
+  }
+}
+
 // ── Loans ──────────────────────────────────────────────────────────────────
 async function loadLoanRate() {
   try {
@@ -2676,7 +2777,7 @@ function printSlip(r, mode) {
         return `<tr class="sub"><th>${formatLeaveSummary(lv)}</th><td class="deduct">−${n(lv.deduction)}</td></tr>`;
       })
       .join("");
-    const lateRows = (r.lateEarlyDetail || [])
+    const lateRows = effectiveLateEarlyDetail(r)
       .map((le) => {
         const parts = [];
         const lateMins = getLateMinutes(le);
@@ -2693,7 +2794,7 @@ function printSlip(r, mode) {
       <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
       ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${r.otHoursOfficial || 0}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ""}
       ${(r.leaveDeduction || 0) > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ""}
-      ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ""}
+      ${effectiveLateEarlyDeduction(r) > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(effectiveLateEarlyDeduction(r))}</td></tr>${lateRows}` : ""}
       ${(r.absentDeduction || 0) > 0 ? `<tr><th>曠職扣薪（${r.absentDays || 0}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ""}
       ${deductRow("勞保費", r.laborInsurance)}
       ${deductRow("健保費（本人）", r.healthInsurance)}
@@ -2747,7 +2848,7 @@ function printSlip(r, mode) {
       })
       .join("");
 
-    const lateRows = (r.lateEarlyDetail || [])
+    const lateRows = effectiveLateEarlyDetail(r)
       .map((le) => {
         const parts = [];
         const lateMins = getLateMinutes(le);
@@ -2762,6 +2863,7 @@ function printSlip(r, mode) {
       <tr><th>薪資類型</th><td>${r.salaryType || ""}</td></tr>
       <tr><th>日薪</th><td>${dailyRate}</td></tr>
       <tr><th>時薪</th><td>${hourlyRate}</td></tr>
+      ${isSalesCommissionRecord(r) ? `<tr><th>手動營業額（1%）</th><td>${n(r.salesAmount || 0)} × 1% = ${n(r.salesCommissionPay || r.baseSalary || 0)}</td></tr>` : ""}
       <tr class="sep"><th>底薪</th><td>${n(displayBaseSalary(r))}</td></tr>
       ${r.bonusTotal > 0 ? `<tr><th>固定獎金合計</th><td>+${n(r.bonusTotal)}</td></tr>${bonuses}` : ""}
       ${r.otPay > 0 ? `<tr><th>加班費合計（實際，${r.otHours || 0}h）</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ""}
@@ -2769,7 +2871,7 @@ function printSlip(r, mode) {
       ${r.mealAllowance > 0 ? `<tr><th>伙食費合計</th><td class="meal">+${n(r.mealAllowance)}</td></tr>${mealRows}` : ""}
       ${r.leaveDeduction > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(r.leaveDeduction)}</td></tr>${leaveRows}` : ""}
       ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ""}
-      ${r.lateEarlyDeduction > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(r.lateEarlyDeduction)}</td></tr>${lateRows}` : ""}
+      ${effectiveLateEarlyDeduction(r) > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(effectiveLateEarlyDeduction(r))}</td></tr>${lateRows}` : ""}
       ${r.absentDeduction > 0 ? `<tr><th>曠職扣薪（${r.absentDays}天）</th><td class="deduct">−${n(r.absentDeduction)}</td></tr>` : ""}
       ${deductRow("勞保費", r.laborInsurance)}
       ${deductRow("健保費（本人）", r.healthInsurance)}
@@ -3046,6 +3148,10 @@ function mealTotals(r) {
   min-width: 118px;
   white-space: nowrap;
 }
+.payroll-table .sales-col {
+  min-width: 148px;
+  white-space: nowrap;
+}
 .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -3092,6 +3198,20 @@ function mealTotals(r) {
   border-radius: 4px;
   padding: 0.2rem 0.3rem;
   font-size: 0.85rem;
+}
+.sales-input {
+  display: block;
+  width: 100%;
+  min-width: 126px;
+  max-width: 148px;
+  margin-left: auto;
+  box-sizing: border-box;
+  text-align: right;
+  border: 1px solid #b8c2d6;
+  border-radius: 4px;
+  padding: 0.26rem 0.46rem;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
 }
 .hint-text {
   color: #888;
