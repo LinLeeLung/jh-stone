@@ -10522,8 +10522,10 @@ async function runPayrollCalculation(yyyyMM) {
     .get();
   const settingsData = settingsDoc.exists ? settingsDoc.data() : {};
   const attRules = settingsData.attendanceRules || {};
-  const workStart = attRules.workStart || "08:30"; // "HH:MM"
-  const workEnd = attRules.workEnd || "17:30"; // "HH:MM"
+  const legacyWorkWindow =
+    attRules.workStart === "08:30" && attRules.workEnd === "17:30";
+  const workStart = legacyWorkWindow ? "08:00" : attRules.workStart || "08:00"; // "HH:MM"
+  const workEnd = legacyWorkWindow ? "17:00" : attRules.workEnd || "17:00"; // "HH:MM"
   const graceMins = Number(attRules.graceMins) || 0;
   const deductUnit = attRules.deductUnit || "minute"; // "minute"|"30min"|"60min"
   const deductEarlyLeave = attRules.deductEarlyLeave !== false;
@@ -10620,6 +10622,37 @@ async function runPayrollCalculation(yyyyMM) {
         seg.start && seg.end && seg.start < windowEnd && seg.end > windowStart,
     );
   }
+  function calcRegularWorkHours(att) {
+    const segments = getWorkSegmentsFromAttendance(att).filter(
+      (seg) => seg.start && seg.end,
+    );
+    if (!segments.length) return 0;
+
+    const lunchStartMins = 12 * 60;
+    const lunchEndMins = 13 * 60;
+    let totalMins = 0;
+    let lunchOverlapMins = 0;
+
+    for (const seg of segments) {
+      const segStart = timeStrToMins(seg.start);
+      const segEnd = timeStrToMins(seg.end);
+      if (!Number.isFinite(segStart) || !Number.isFinite(segEnd)) continue;
+      const clippedStart = Math.max(segStart, workStartMins);
+      const clippedEnd = Math.min(segEnd, workEndMins);
+      if (clippedEnd <= clippedStart) continue;
+
+      totalMins += clippedEnd - clippedStart;
+
+      const overlap =
+        Math.min(clippedEnd, lunchEndMins) -
+        Math.max(clippedStart, lunchStartMins);
+      if (overlap > 0) lunchOverlapMins += overlap;
+    }
+
+    if (totalMins <= 0) return 0;
+    const payableMins = Math.max(0, totalMins - Math.min(60, lunchOverlapMins));
+    return payableMins / 60;
+  }
   function calcOtIntersectionHours(ot, attendanceByDate) {
     const otDate = String(ot && ot.date ? ot.date : "").trim();
     const otStart = normalizeTimeStr(ot && ot.startTime);
@@ -10637,15 +10670,33 @@ async function runPayrollCalculation(yyyyMM) {
     const workSegments = getWorkSegmentsFromAttendance(att).filter(
       (seg) => seg.start && seg.end,
     );
-    let overlapMins = 0;
-    for (const seg of workSegments) {
-      const segStart = timeStrToMins(seg.start);
-      const segEnd = timeStrToMins(seg.end);
-      if (segEnd <= segStart) continue;
-      const start = Math.max(otStartMins, segStart);
-      const end = Math.min(otEndMins, segEnd);
-      if (end > start) overlapMins += end - start;
+    const calcOverlapMins = (segments = []) => {
+      let overlapMins = 0;
+      for (const seg of segments) {
+        const segStart = timeStrToMins(seg.start);
+        const segEnd = timeStrToMins(seg.end);
+        if (segEnd <= segStart) continue;
+        const start = Math.max(otStartMins, segStart);
+        const end = Math.min(otEndMins, segEnd);
+        if (end > start) overlapMins += end - start;
+      }
+      return overlapMins;
+    };
+
+    const overlapBySegments = calcOverlapMins(workSegments);
+
+    // Fallback: some records may have stale/trimmed workSegments,
+    // but punchIn/punchOut still represents the real work window.
+    const punchStart = clampEarliestPunchIn(att.punchIn);
+    const punchEnd = normalizeTimeStr(att.punchOut);
+    let overlapByPunchWindow = 0;
+    if (punchStart && punchEnd) {
+      overlapByPunchWindow = calcOverlapMins([
+        { start: punchStart, end: punchEnd },
+      ]);
     }
+
+    const overlapMins = Math.max(overlapBySegments, overlapByPunchWindow);
     return Math.round((overlapMins / 60) * 10) / 10;
   }
 
@@ -10694,6 +10745,16 @@ async function runPayrollCalculation(yyyyMM) {
     const start = new Date(`${startDate}T00:00:00`);
     const end = new Date(`${endDate}T00:00:00`);
     return Math.floor((end - start) / 86400000) + 1;
+  }
+
+  function resolveLeaveEndDate(lv, startDate) {
+    let end = normalizeDateStr(lv.endDate || lv.date);
+    if (end) return end;
+    if (!startDate) return "";
+    const daysN = lv.unit === "小時" ? 1 : Math.max(1, Number(lv.days) || 1);
+    const d = new Date(`${startDate}T00:00:00`);
+    d.setDate(d.getDate() + (daysN - 1));
+    return d.toISOString().slice(0, 10);
   }
 
   const workStartMins = toMins(workStart);
@@ -10852,9 +10913,7 @@ async function runPayrollCalculation(yyyyMM) {
       leaveSnaps.forEach((snap) => {
         snap.docs.forEach((d) => leaveByDocId.set(d.id, d.data()));
       });
-      leaveRecords = [...leaveByDocId.values()].filter((r) =>
-        String(r.startDate || "").startsWith(monthPrefix),
-      );
+      leaveRecords = [...leaveByDocId.values()];
     }
 
     // Base hourly rate (for OT and leave deduction)
@@ -10888,12 +10947,12 @@ async function runPayrollCalculation(yyyyMM) {
       empEndDate && empEndDate < monthEnd ? empEndDate : monthEnd;
 
     // 月薪制：底薪維持月薪，未上班天數扣薪另列（含月中到職/離職）
-    let effectiveBase = isSalesCommissionSalary
-      ? Math.round(salesAmount * salesCommissionRate)
-      : base;
+    let effectiveBase = base;
+    let basePayForGross = base;
     let partialMonthNoWorkDays = 0;
     let partialMonthDeduction = 0;
     let attendanceDays = 0;
+    let attendanceHours = 0;
     if (salType === "月薪") {
       const employedDays = daysBetweenInclusive(employmentStart, employmentEnd);
       partialMonthNoWorkDays = Math.max(0, daysInMonth - employedDays);
@@ -10946,17 +11005,30 @@ async function runPayrollCalculation(yyyyMM) {
     });
     leaveRecords = leaveRecords.filter((lv) => {
       const start = normalizeDateStr(lv.startDate);
-      let end = normalizeDateStr(lv.endDate);
+      const end = resolveLeaveEndDate(lv, start);
       if (!start) return false;
-      if (!end) {
-        const daysN =
-          lv.unit === "小時" ? 1 : Math.max(1, Number(lv.days) || 1);
-        const d = new Date(`${start}T00:00:00`);
-        d.setDate(d.getDate() + (daysN - 1));
-        end = d.toISOString().slice(0, 10);
-      }
       return start <= employmentEnd && end >= employmentStart;
     });
+
+    const leaveCoveredDates = new Set();
+    for (const lv of leaveRecords) {
+      const start = normalizeDateStr(lv.startDate || lv.date);
+      const end = resolveLeaveEndDate(lv, start);
+      const clippedStart = start > employmentStart ? start : employmentStart;
+      const clippedEnd = end < employmentEnd ? end : employmentEnd;
+      const daysN = daysBetweenInclusive(clippedStart, clippedEnd);
+      for (let i = 0; i < daysN; i++) {
+        const d = new Date(`${clippedStart}T00:00:00`);
+        d.setDate(d.getDate() + i);
+        leaveCoveredDates.add(d.toISOString().slice(0, 10));
+      }
+    }
+
+    const approvedOtDateSet = new Set(
+      otRecords
+        .map((r) => normalizeDateStr(r.date))
+        .filter(Boolean),
+    );
 
     // OT pay (勞基法第24條)
     let otPay = 0;
@@ -11000,31 +11072,39 @@ async function runPayrollCalculation(yyyyMM) {
     const leaveDetail = [];
     for (const lv of leaveRecords) {
       const unit = lv.unit || "天";
+      const start = normalizeDateStr(lv.startDate || lv.date);
+      const end = resolveLeaveEndDate(lv, start);
+      const clippedStart = start > employmentStart ? start : employmentStart;
+      const clippedEnd = end < employmentEnd ? end : employmentEnd;
+      const clippedDays = daysBetweenInclusive(clippedStart, clippedEnd);
+      if (clippedDays <= 0) continue;
       const hrs =
-        unit === "小時" ? Number(lv.hours) || 0 : (Number(lv.days) || 0) * 8;
+        unit === "小時" ? Number(lv.hours) || 0 : clippedDays * 8;
       let deduction = 0;
-      if (
-        lv.type === "年假（特休）" ||
-        lv.type === "特休" ||
-        lv.type === "婚假" ||
-        lv.type === "喪假" ||
-        lv.type === "產假" ||
-        lv.type === "陪產假" ||
-        lv.type === "公假"
-      ) {
-        deduction = 0; // 帶薪假，不扣薪
-      } else if (lv.type === "病假" || lv.type === "生理假") {
-        deduction = Math.round(baseHourlyRate * hrs * 0.5); // 半薪
-      } else {
-        deduction = Math.round(baseHourlyRate * hrs); // 全扣（事假、無薪假等）
+      if (salType !== "時薪") {
+        if (
+          lv.type === "年假（特休）" ||
+          lv.type === "特休" ||
+          lv.type === "婚假" ||
+          lv.type === "喪假" ||
+          lv.type === "產假" ||
+          lv.type === "陪產假" ||
+          lv.type === "公假"
+        ) {
+          deduction = 0; // 帶薪假，不扣薪
+        } else if (lv.type === "病假" || lv.type === "生理假") {
+          deduction = Math.round(baseHourlyRate * hrs * 0.5); // 半薪
+        } else {
+          deduction = Math.round(baseHourlyRate * hrs); // 全扣（事假、無薪假等）
+        }
       }
       leaveDeduction += deduction;
       leaveDetail.push({
         type: lv.type,
         unit,
-        startDate: lv.startDate || lv.date || "",
-        endDate: lv.endDate || lv.startDate || lv.date || "",
-        days: lv.days != null ? lv.days : null,
+        startDate: clippedStart,
+        endDate: clippedEnd,
+        days: unit === "小時" ? null : clippedDays,
         hours: lv.hours != null ? lv.hours : null,
         deduction,
       });
@@ -11034,6 +11114,20 @@ async function runPayrollCalculation(yyyyMM) {
     // 上班時間涵蓋 11:00~14:00 → +100；涵蓋 17:30~18:30 → 再+100
     let mealAllowance = 0;
     const mealDetail = [];
+    const deptRaw = String(s.dept || "").trim();
+    const deptNameRaw = String(s.deptName || "").trim();
+    const isForeignWorker =
+      s.isForeignWorker === true ||
+      deptRaw === "4" ||
+      deptRaw === "外勞" ||
+      deptNameRaw === "外勞";
+    const hasMealAllowance = salType !== "營業額1%";
+
+    // 外勞便當改為整月計算：午餐 + 晚餐 = 200 / 天
+    if (hasMealAllowance && isForeignWorker) {
+      mealAllowance = daysInMonth * 200;
+    }
+
     let lateEarlyDeduction = 0;
     const lateEarlyDetail = [];
     let absentDeduction = 0;
@@ -11067,7 +11161,7 @@ async function runPayrollCalculation(yyyyMM) {
       };
 
       const attRecords = attendanceRecordsThisMonth.filter(
-        (r) => r.punchIn && r.punchOut,
+        (r) => getFirstWorkStart(r) && getLastWorkEnd(r),
       );
       attendanceDays = new Set(
         attRecords.map((r) => String(r.date || "").slice(0, 10)),
@@ -11075,6 +11169,14 @@ async function runPayrollCalculation(yyyyMM) {
       if (salType === "日薪") {
         // 日薪制：底薪依當月實際出勤天數計算
         effectiveBase = Math.round(base * attendanceDays);
+        basePayForGross = effectiveBase;
+      }
+      if (salType === "時薪") {
+        attendanceHours = attRecords.reduce(
+          (sum, att) => sum + calcRegularWorkHours(att),
+          0,
+        );
+        basePayForGross = Math.round(base * attendanceHours);
       }
       for (const att of attRecords) {
         const workSegments = getWorkSegmentsFromAttendance(att).filter(
@@ -11084,23 +11186,38 @@ async function runPayrollCalculation(yyyyMM) {
         const outT = getLastWorkEnd(att);
         if (!inT || !outT) continue;
         const attDate = String(att.date || "").slice(0, 10);
-        let dayMeal = 0;
-        if (overlapsWindow(workSegments, "11:00:00", "14:00:00"))
-          dayMeal += 100; // 午餐
-        if (overlapsWindow(workSegments, "17:30:00", "18:30:00"))
-          dayMeal += 100; // 晚餐
-        if (dayMeal > 0) {
-          mealAllowance += dayMeal;
-          mealDetail.push({
-            date: att.date,
-            punchIn: inT,
-            punchOut: outT,
-            meal: dayMeal,
-          });
+        if (hasMealAllowance && !isForeignWorker) {
+          let dayLunch = 0;
+          let dayDinner = 0;
+          if (overlapsWindow(workSegments, "11:00:00", "14:00:00"))
+            dayLunch += 100; // 午餐
+          if (
+            approvedOtDateSet.has(attDate) &&
+            overlapsWindow(workSegments, "17:30:00", "18:30:00")
+          ) {
+            dayDinner += 100; // 晚餐（需同日核准加班）
+          }
+          const dayMeal = dayLunch + dayDinner;
+          if (dayMeal > 0) {
+            mealAllowance += dayMeal;
+            mealDetail.push({
+              date: att.date,
+              punchIn: inT,
+              punchOut: outT,
+              mealLunch: dayLunch,
+              mealDinner: dayDinner,
+              meal: dayMeal,
+            });
+          }
         }
 
-        // 營業額1%業務與假日（週末/國定假日）都不計遲到早退扣薪
-        if (!isSalesCommissionSalary && !isWeekendOrPublicHoliday(attDate)) {
+        // 假日（週末/國定假日）不計遲到早退扣薪；時薪制與營業額1%不扣遲到早退
+        if (
+          salType !== "時薪" &&
+          salType !== "營業額1%" &&
+          !isWeekendOrPublicHoliday(attDate) &&
+          !leaveCoveredDates.has(attDate)
+        ) {
           const inMins = timeStrToMins(inT);
           const outMins = timeStrToMins(outT);
           const lateMins = Math.max(0, inMins - (workStartMins + graceMins));
@@ -11125,43 +11242,32 @@ async function runPayrollCalculation(yyyyMM) {
         }
       }
 
-      // 曠職自動偵測：工作日（週一至五）無打卡且無請假
-      // 展開核准請假涵蓋的日期
-      const leaveCoveredDates = new Set();
-      for (const lv of leaveRecords) {
-        const lstart = lv.startDate ? String(lv.startDate).slice(0, 10) : null;
-        if (!lstart) continue;
-        const daysN =
-          lv.unit === "小時" ? 1 : Math.max(1, Number(lv.days) || 1);
-        for (let i = 0; i < daysN; i++) {
-          const d = new Date(lstart + "T00:00:00");
-          d.setDate(d.getDate() + i);
-          leaveCoveredDates.add(d.toISOString().slice(0, 10));
+      // 曠職自動偵測：工作日（週一至五）無打卡且無請假；時薪制與營業額1%不扣曠職
+      if (salType !== "時薪" && salType !== "營業額1%") {
+        // 有打卡（至少有 punchIn）的日期
+        const punchedDates = new Set(
+          attendanceRecordsThisMonth
+            .filter(
+              (r) => String(r.date || "").startsWith(monthPrefix) && r.punchIn,
+            )
+            .map((r) => r.date),
+        );
+        // 每天檢查
+        const daysInMonthN = new Date(Number(yyyy), Number(mm), 0).getDate();
+        const todayStr = new Date().toISOString().slice(0, 10);
+        for (let day = 1; day <= daysInMonthN; day++) {
+          const dateStr = `${yyyy}-${mm}-${String(day).padStart(2, "0")}`;
+          if (dateStr >= todayStr) continue; // 未來日期與今天不計（今天可能還在上班）
+          if (dateStr < employmentStart) continue; // 到職前
+          if (dateStr > employmentEnd) continue; // 離職後
+          if (!isRegularWorkday(dateStr)) continue;
+          if (punchedDates.has(dateStr)) continue; // 有打卡
+          if (leaveCoveredDates.has(dateStr)) continue; // 有請假
+          absentDays++;
+          absentDetail.push(dateStr);
         }
+        absentDeduction = Math.round(baseHourlyRate * 8 * absentDays);
       }
-      // 有打卡（至少有 punchIn）的日期
-      const punchedDates = new Set(
-        attendanceRecordsThisMonth
-          .filter(
-            (r) => String(r.date || "").startsWith(monthPrefix) && r.punchIn,
-          )
-          .map((r) => r.date),
-      );
-      // 每天檢查
-      const daysInMonthN = new Date(Number(yyyy), Number(mm), 0).getDate();
-      const todayStr = new Date().toISOString().slice(0, 10);
-      for (let day = 1; day <= daysInMonthN; day++) {
-        const dateStr = `${yyyy}-${mm}-${String(day).padStart(2, "0")}`;
-        if (dateStr >= todayStr) continue; // 未來日期與今天不計（今天可能還在上班）
-        if (dateStr < employmentStart) continue; // 到職前
-        if (dateStr > employmentEnd) continue; // 離職後
-        if (!isRegularWorkday(dateStr)) continue;
-        if (punchedDates.has(dateStr)) continue; // 有打卡
-        if (leaveCoveredDates.has(dateStr)) continue; // 有請假
-        absentDays++;
-        absentDetail.push(dateStr);
-      }
-      absentDeduction = Math.round(baseHourlyRate * 8 * absentDays);
     }
 
     // Fixed monthly bonuses
@@ -11206,6 +11312,25 @@ async function runPayrollCalculation(yyyyMM) {
       lunchFee = Math.max(0, Number(existingPayroll.lunchFee) || 0);
     }
 
+    let performanceSalesAmount = 0;
+    let performancePay = 0;
+    if (salType === "營業額1%") {
+      const existing = existingPayrollSnap.exists ? existingPayrollSnap.data() || {} : {};
+      performanceSalesAmount = Math.max(
+        0,
+        Number(
+          existing.performanceSalesAmount ??
+            existing.salesAmountManual ??
+            existing.salesAmount ??
+            s.performanceSalesAmount ??
+            s.salesAmount,
+        ) || 0,
+      );
+      performancePay = Math.round(performanceSalesAmount * 0.01);
+      effectiveBase = performancePay;
+      basePayForGross = performancePay;
+    }
+
     // 借款扣款（等額本金法）
     // 每筆借款以 processedMonths[yyyyMM] 獨立追蹤是否已處理，
     // 避免重算時漏算新增借款或重複異動餘額。
@@ -11235,9 +11360,12 @@ async function runPayrollCalculation(yyyyMM) {
         const monthlyPrincipal = Math.round(
           (Number(ln.principal) || 0) / (Number(ln.installments) || 1),
         );
-        const monthlyInterestAmt = Math.round(
-          (Number(ln.remainingBalance) || 0) * (annualInterestRate / 12),
-        );
+        const monthlyInterestAmt =
+          loanStartNum === yyyyMM
+            ? 0
+            : Math.round(
+                (Number(ln.remainingBalance) || 0) * (annualInterestRate / 12),
+              );
         loanPrincipal += monthlyPrincipal;
         loanInterest += monthlyInterestAmt;
 
@@ -11261,7 +11389,7 @@ async function runPayrollCalculation(yyyyMM) {
 
     const grossPay = Math.max(
       0,
-      effectiveBase +
+      basePayForGross +
         bonusTotal +
         otPay +
         mealAllowance -
@@ -11304,7 +11432,8 @@ async function runPayrollCalculation(yyyyMM) {
         healthInsurance -
         dependentHealth -
         mutualAid -
-        lunchFee,
+        lunchFee -
+        otherDeduction,
     );
     // 申報所得 = 投保薪資 - 請假扣款 - 曠職扣款 - 遲到/早退扣款
     const reportedIncome = Math.max(
@@ -11324,17 +11453,22 @@ async function runPayrollCalculation(yyyyMM) {
         empNo,
         name: s.name || "",
         dept: s.dept || "",
+        deptName: s.deptName || "",
+        isForeignWorker,
         yyyyMM,
         monthLabel,
         employmentStart,
         employmentEnd,
         salaryType: salType,
         baseSalary: effectiveBase,
+        basePay: basePayForGross,
         baseSalaryFull: base,
-        salesAmount,
-        salesAmountManual: salesAmount,
+        salesAmount: performanceSalesAmount,
+        salesAmountManual: performanceSalesAmount,
         salesCommissionRate: isSalesCommissionSalary ? salesCommissionRate : 0,
-        salesCommissionPay: isSalesCommissionSalary ? effectiveBase : 0,
+        salesCommissionPay: isSalesCommissionSalary ? performancePay : 0,
+        performanceSalesAmount,
+        performancePay,
         bonus1: bonusItems[0],
         bonus2: bonusItems[1],
         bonus3: bonusItems[2],
@@ -11352,6 +11486,7 @@ async function runPayrollCalculation(yyyyMM) {
         leaveDetail,
         leaveDeduction,
         attendanceDays,
+        attendanceHours,
         partialMonthNoWorkDays,
         partialMonthDeduction,
         partialMonthDeductionFirst,

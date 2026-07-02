@@ -1522,9 +1522,10 @@ export async function getSystemSettings() {
     updatedByEmail: data.updatedByEmail || "",
     attendanceRules: (() => {
       const ar = data.attendanceRules || {};
+      const legacyWorkWindow = ar.workStart === "08:30" && ar.workEnd === "17:30";
       return {
-        workStart: ar.workStart || "08:30",
-        workEnd: ar.workEnd || "17:30",
+        workStart: legacyWorkWindow ? "08:00" : ar.workStart || "08:00",
+        workEnd: legacyWorkWindow ? "17:00" : ar.workEnd || "17:00",
         graceMins: Number.isFinite(Number(ar.graceMins))
           ? Number(ar.graceMins)
           : 0,
@@ -1587,8 +1588,8 @@ export async function saveSystemSettings(payload = {}) {
       attendanceRules: (() => {
         const ar = payload.attendanceRules || {};
         return {
-          workStart: String(ar.workStart || "08:30"),
-          workEnd: String(ar.workEnd || "17:30"),
+          workStart: String(ar.workStart || "08:00"),
+          workEnd: String(ar.workEnd || "17:00"),
           graceMins: Number.isFinite(Number(ar.graceMins))
             ? Number(ar.graceMins)
             : 0,
@@ -1752,13 +1753,21 @@ export async function updatePayrollLunchFee(docId, lunchFee) {
   });
 }
 
-export async function updatePayrollSalesAmount(docId, salesAmount) {
+export async function updatePayrollSalesAmount(docId, salesAmount, payload = {}) {
   const amount = Math.max(0, Number(salesAmount) || 0);
+  const commissionPay = Math.round(amount * 0.01);
   await updateDoc(doc(db, "payroll", docId), {
     salesAmount: amount,
     salesAmountManual: amount,
-    salesCommissionPay: Math.round(amount * 0.01),
+    salesCommissionPay: commissionPay,
     salesCommissionRate: 0.01,
+    performanceSalesAmount: amount,
+    performancePay: commissionPay,
+    baseSalary: Number(payload.baseSalary) || commissionPay,
+    basePay: Number(payload.basePay) || commissionPay,
+    grossPay: Number(payload.grossPay) || 0,
+    firstPayment: Number(payload.firstPayment) || 0,
+    secondPayment: Number(payload.secondPayment) || 0,
     updatedAt: serverTimestamp(),
   });
 }

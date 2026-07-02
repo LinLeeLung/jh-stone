@@ -1032,8 +1032,8 @@ const form = ref({
     radiusMeters: 200,
   },
   attendanceRules: {
-    workStart: "08:30",
-    workEnd: "17:30",
+    workStart: "08:00",
+    workEnd: "17:00",
     graceMins: 0,
     deductUnit: "minute",
     deductEarlyLeave: true,
@@ -1480,9 +1480,10 @@ async function loadSettings() {
         : 200,
     };
     const rules = data.attendanceRules || {};
+    const legacyWorkWindow = rules.workStart === "08:30" && rules.workEnd === "17:30";
     form.value.attendanceRules = {
-      workStart: rules.workStart || "08:30",
-      workEnd: rules.workEnd || "17:30",
+      workStart: legacyWorkWindow ? "08:00" : rules.workStart || "08:00",
+      workEnd: legacyWorkWindow ? "17:00" : rules.workEnd || "17:00",
       graceMins: Number.isFinite(Number(rules.graceMins))
         ? Number(rules.graceMins)
         : 0,

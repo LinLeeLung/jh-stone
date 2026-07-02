@@ -183,7 +183,7 @@
         　投保薪資 + 申報加班費<br>
         　− <strong>請假扣薪</strong> − <strong>曠職扣薪</strong> − <strong>遲到/早退扣薪</strong><br>
         　− <strong>勞保費</strong> − <strong>健保費（本人）</strong> − <strong>眷屬健保費</strong><br>
-        　− <strong>互助金</strong> − <strong>便當費</strong><br>
+        　− <strong>互助金</strong> − <strong>便當費</strong> − <strong>其他減項</strong><br>
         　)
       </div>
       <h4>10 日補發</h4>

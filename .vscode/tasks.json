@@ -11,6 +11,17 @@
 			],
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "Deploy Payroll Functions",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"firebase deploy --only functions:calculatePayroll,functions:autoCalculatePayroll --project jh-stone --non-interactive --config d:\\Data\\Desktop\\jh-stone\\firebase.json"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }
