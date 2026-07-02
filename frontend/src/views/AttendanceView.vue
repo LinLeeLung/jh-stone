@@ -222,6 +222,7 @@
             <th>星期</th>
             <th>上班</th>
             <th>下班</th>
+            <th>打卡時間</th>
             <th>工時</th>
           </tr>
         </thead>
@@ -235,6 +236,7 @@
             <td>{{ weekDay(r.date) }}</td>
             <td>{{ displayPunchIn(r) || "—" }}</td>
             <td>{{ displayPunchOut(r) || "—" }}</td>
+            <td>{{ buildTimelineText(r) || "—" }}</td>
             <td>
               {{ hasCompletedWorkRecord(r) ? calcRecordHours(r) + " h" : "—" }}
             </td>
@@ -242,7 +244,7 @@
         </tbody>
         <tfoot>
           <tr class="total-row">
-            <th colspan="4">合計工時</th>
+            <th colspan="5">合計工時</th>
             <th>{{ personalTotalHours }} h</th>
           </tr>
         </tfoot>
@@ -360,6 +362,7 @@
             <th>Email</th>
             <th>上班</th>
             <th>下班</th>
+            <th>打卡時間</th>
             <th>工時</th>
             <th>操作</th>
           </tr>
@@ -396,6 +399,7 @@
                 >{{ r.gpsDistOut }}m</span
               >
             </td>
+            <td>{{ buildTimelineText(r) || "—" }}</td>
             <td>
               {{ hasCompletedWorkRecord(r) ? calcRecordHours(r) + " h" : "—" }}
             </td>
