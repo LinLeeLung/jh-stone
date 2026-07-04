@@ -970,6 +970,7 @@ import {
   getUserByUid,
   getUserActiveRole,
   getUserActiveDepartment,
+  getSystemSettings,
 } from "../firebase";
 import {
   ref as storageRef,
@@ -1141,6 +1142,7 @@ const submittingOT = ref(false);
 const otMsg = ref("");
 const otMsgIsErr = ref(false);
 const OT_START_BASE = "17:30";
+const publicHolidaySet = ref(new Set());
 
 function hmToMinutes(value) {
   if (!value) return null;
@@ -1319,19 +1321,31 @@ async function enrichOTRecordsWithAttendance(records) {
   });
 }
 
-watch([() => otf.startTime, () => otf.endTime], () => {
+function otfIsWeekendOrHoliday() {
+  if (!otf.date) return false;
+  const day = new Date(otf.date).getDay();
+  if (day === 0 || day === 6) return true;
+  return publicHolidaySet.value.has(otf.date);
+}
+
+watch([() => otf.date, () => otf.startTime, () => otf.endTime], () => {
   if (!otf.startTime || !otf.endTime) {
     otf.hours = 0;
     return;
   }
   const startMinutes = hmToMinutes(otf.startTime);
   const endMinutes = hmToMinutes(otf.endTime);
-  const baseMinutes = hmToMinutes(OT_START_BASE) ?? 0;
   if (startMinutes == null || endMinutes == null) {
     otf.hours = 0;
     return;
   }
-  const payableStart = Math.max(startMinutes, baseMinutes);
+  let payableStart;
+  if (otfIsWeekendOrHoliday()) {
+    payableStart = startMinutes;
+  } else {
+    const baseMinutes = hmToMinutes(OT_START_BASE) ?? 0;
+    payableStart = Math.max(startMinutes, baseMinutes);
+  }
   const minutes = endMinutes - payableStart;
   otf.hours = minutes > 0 ? Math.round((minutes / 60) * 10) / 10 : 0;
 });
@@ -1780,6 +1794,13 @@ onMounted(async () => {
   const quotaSnap = await getDoc(doc(db, "leaveQuota", currentUser.value.uid));
   if (quotaSnap.exists()) myQuota.value = quotaSnap.data();
 
+  try {
+    const settings = await getSystemSettings();
+    if (Array.isArray(settings.publicHolidays)) {
+      publicHolidaySet.value = new Set(settings.publicHolidays);
+    }
+  } catch (_) { /* non-critical */ }
+
   // 從 query 自動切到審核分頁（從打卡頁的待審 banner 連結進來）
   if (route.query.tab === "approve" && isApprover.value) {
     try {
@@ -1894,7 +1915,6 @@ async function submitOT() {
   }
   const startMinutes = hmToMinutes(otf.startTime);
   const endMinutes = hmToMinutes(otf.endTime);
-  const baseMinutes = hmToMinutes(OT_START_BASE) ?? 0;
   if (
     startMinutes == null ||
     endMinutes == null ||
@@ -1904,15 +1924,18 @@ async function submitOT() {
     otMsgIsErr.value = true;
     return;
   }
-  if (endMinutes <= baseMinutes) {
-    otMsg.value = "加班僅能計算 17:30 之後時段";
-    otMsgIsErr.value = true;
-    return;
-  }
-  if (startMinutes < baseMinutes) {
-    otMsg.value = "加班起算時間為 17:30，請調整起始時間後再送出";
-    otMsgIsErr.value = true;
-    return;
+  if (!otfIsWeekendOrHoliday()) {
+    const baseMinutes = hmToMinutes(OT_START_BASE) ?? 0;
+    if (endMinutes <= baseMinutes) {
+      otMsg.value = "加班僅能計算 17:30 之後時段";
+      otMsgIsErr.value = true;
+      return;
+    }
+    if (startMinutes < baseMinutes) {
+      otMsg.value = "加班起算時間為 17:30，請調整起始時間後再送出";
+      otMsgIsErr.value = true;
+      return;
+    }
   }
   submittingOT.value = true;
   otMsg.value = "";

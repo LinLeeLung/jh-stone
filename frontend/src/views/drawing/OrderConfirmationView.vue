@@ -348,6 +348,22 @@
         </template>
 
         <button
+          v-if="order?.status === 'confirmed' || confirmedPdfUrl"
+          class="btn-dispatch-single"
+          :disabled="dispatchPdfGenerating || !confirmedPdfUrl"
+          :title="
+            confirmedPdfUrl ? '以目前封存PDF單獨發單' : '請先封存確定單PDF'
+          "
+          @click="onSingleDispatchFromConfirmation"
+        >
+          {{
+            dispatchPdfGenerating
+              ? dispatchPdfProgress || "發單中…"
+              : "單獨發單"
+          }}
+        </button>
+
+        <button
           v-if="order?.status === 'confirmed' && !confirmedPdfUrl"
           class="btn-repdf"
           @click="regeneratePdf"
@@ -1471,6 +1487,12 @@
       @close="showStampPanel = false"
       @insert="onStampInsert"
     />
+    <DispatchStationDialog
+      v-model="dispatchStationDialogOpen"
+      title="單獨發單關別"
+      :message="dispatchStationDialogMessage"
+      @confirm="confirmSingleDispatchFromConfirmation"
+    />
   </div>
 </template>
 
@@ -1489,6 +1511,7 @@ import {
   listOrderDrawings,
   getOrderConfirmation,
   saveOrderConfirmation,
+  batchMarkDispatched,
   updateCustomerPricing,
   uploadOverlayImage,
   uploadConfirmedPdf,
@@ -1496,6 +1519,8 @@ import {
   refreshConfirmedPdfDownloadUrl,
 } from "../../firebase";
 import StampPanel from "../../components/StampPanel.vue";
+import DispatchStationDialog from "../../components/DispatchStationDialog.vue";
+import { buildDispatchPdf } from "../../utils/dispatchPdf";
 
 const route = useRoute();
 const orderId = computed(() => route.params.id);
@@ -2053,6 +2078,9 @@ const priceBreakdown = computed(() => {
 const confirmedPdfUrl = ref(null);
 const pdfGenerating = ref(false);
 const pdfUploading = ref(false);
+const dispatchPdfGenerating = ref(false);
+const dispatchPdfProgress = ref("");
+const dispatchStationDialogOpen = ref(false);
 const exportRenderingActive = ref(false);
 const drawingBlocks = ref([]);
 const saving = ref(false);
@@ -2061,6 +2089,10 @@ const untaxedPriceText = ref("");
 const printableUntaxedPriceText = computed(() => {
   const savedText = String(untaxedPriceText.value || "").trim();
   return savedText || defaultUntaxedPriceText.value;
+});
+const dispatchStationDialogMessage = computed(() => {
+  const currentOrder = order.value || {};
+  return `${currentOrder.orderNo || "—"} ${currentOrder.customerName || ""}，預設全選，可取消不需要的關別。`;
 });
 const untaxedPriceEditorRef = ref(null);
 function onUntaxedPriceEditorInput(event) {
@@ -4097,6 +4129,57 @@ async function archivePrintedPdf() {
   }
 }
 
+async function onSingleDispatchFromConfirmation() {
+  if (dispatchPdfGenerating.value) return;
+  if (!confirmedPdfUrl.value) {
+    saveMsg.value = "請先封存確定單PDF後再發單";
+    return;
+  }
+  dispatchStationDialogOpen.value = true;
+}
+
+async function confirmSingleDispatchFromConfirmation(stations) {
+  if (dispatchPdfGenerating.value || !stations?.length) return;
+
+  const currentOrder = {
+    ...(order.value || {}),
+    id: orderId.value,
+    confirmedPdfUrl: confirmedPdfUrl.value,
+  };
+
+  dispatchPdfGenerating.value = true;
+  dispatchPdfProgress.value = "標記中…";
+  saveMsg.value = "";
+  try {
+    await batchMarkDispatched([orderId.value]);
+    if (order.value) {
+      order.value.status = "inProduction";
+      order.value.dispatchedAt = new Date();
+    }
+
+    dispatchPdfProgress.value = `產生中 0/${stations.length}`;
+    const { blob, errors } = await buildDispatchPdf([currentOrder], stations, {
+      onProgress: (done, total) => {
+        dispatchPdfProgress.value = `產生中 ${done}/${total}`;
+      },
+    });
+    if (errors.length) throw new Error(errors.join("\n"));
+
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    saveMsg.value = "✅ 已產生單獨發單PDF";
+  } catch (err) {
+    console.error("單獨發單失敗", err);
+    saveMsg.value = "❌ 單獨發單失敗：" + (err?.message || err);
+  } finally {
+    dispatchPdfGenerating.value = false;
+    dispatchPdfProgress.value = "";
+    setTimeout(() => {
+      if (!dispatchPdfGenerating.value) saveMsg.value = "";
+    }, 4000);
+  }
+}
+
 function buildConfirmationPrintOverrideCss() {
   return `
     @page { size: A4 landscape; margin: 0; }
@@ -4699,6 +4782,23 @@ onBeforeRouteLeave(async () => {
 }
 .btn-repdf:hover {
   background: #064e3b;
+}
+.btn-dispatch-single {
+  font-size: 12px;
+  color: #fff;
+  background: #0ea5e9;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-dispatch-single:hover:not(:disabled) {
+  background: #0284c7;
+}
+.btn-dispatch-single:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .btn-backend-pdf {
   font-size: 12px;
