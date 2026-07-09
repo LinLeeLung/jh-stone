@@ -1078,6 +1078,10 @@ const leaveMsgIsErr = ref(false);
 const docFile = ref(null);
 const docPreviewUrl = ref("");
 const docFileInput = ref(null);
+const publicHolidaySet = ref(new Set());
+const makeupWorkdaySet = ref(new Set());
+const LUNCH_BREAK_START = "12:00";
+const LUNCH_BREAK_END = "13:00";
 function onDocFileChange(e) {
   const f = e.target.files?.[0];
   if (!f) return;
@@ -1090,6 +1094,73 @@ function clearDocFile() {
   if (docFileInput.value) docFileInput.value.value = "";
 }
 
+function normalizeDateSet(items) {
+  return new Set(
+    (Array.isArray(items) ? items : [])
+      .map((item) =>
+        typeof item === "string" ? item : String(item?.date || ""),
+      )
+      .map((date) => date.slice(0, 10))
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
+  );
+}
+
+function parseLocalDate(dateStr) {
+  const match = String(dateStr || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const [, y, m, d] = match;
+  const date = new Date(Number(y), Number(m) - 1, Number(d));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toLocalYmd(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function isRegularWorkday(dateStr) {
+  const date = parseLocalDate(dateStr);
+  if (!date) return false;
+  const normalized = toLocalYmd(date);
+  const day = date.getDay();
+  const isWeekend = day === 0 || day === 6;
+  if (isWeekend && !makeupWorkdaySet.value.has(normalized)) return false;
+  return !publicHolidaySet.value.has(normalized);
+}
+
+function listRegularWorkdays(startDate, endDate) {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  if (!start || !end || end < start) return [];
+  const out = [];
+  const cursor = new Date(start);
+  const maxDays = 366;
+  let guard = 0;
+  while (cursor <= end && guard < maxDays) {
+    const ymd = toLocalYmd(cursor);
+    if (isRegularWorkday(ymd)) out.push(ymd);
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+  return out;
+}
+
+function calcHourlyLeaveHours(date, startTime, endTime) {
+  if (!date || !startTime || !endTime || !isRegularWorkday(date)) return 0;
+  const startMinutes = hmToMinutes(startTime);
+  const endMinutes = hmToMinutes(endTime);
+  if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+    return 0;
+  }
+  const lunchStart = hmToMinutes(LUNCH_BREAK_START) ?? 0;
+  const lunchEnd = hmToMinutes(LUNCH_BREAK_END) ?? 0;
+  const lunchOverlap = Math.max(
+    0,
+    Math.min(endMinutes, lunchEnd) - Math.max(startMinutes, lunchStart),
+  );
+  return Math.round(((endMinutes - startMinutes - lunchOverlap) / 60) * 10) / 10;
+}
+
 watch(
   [
     () => lf.unit,
@@ -1098,6 +1169,8 @@ watch(
     () => lf.halfDay,
     () => lf.startTime,
     () => lf.endTime,
+    () => publicHolidaySet.value,
+    () => makeupWorkdaySet.value,
   ],
   () => {
     if (lf.unit === "小時") {
@@ -1106,10 +1179,7 @@ watch(
         lf.days = 0;
         return;
       }
-      const [sh, sm] = lf.startTime.split(":").map(Number);
-      const [eh, em] = lf.endTime.split(":").map(Number);
-      const minutes = eh * 60 + em - (sh * 60 + sm);
-      lf.hours = minutes > 0 ? Math.round((minutes / 60) * 10) / 10 : 0;
+      lf.hours = calcHourlyLeaveHours(lf.startDate, lf.startTime, lf.endTime);
       lf.days = Math.round((lf.hours / 8) * 100) / 100;
       return;
     }
@@ -1124,9 +1194,9 @@ watch(
       lf.days = 0;
       return;
     }
-    const d = Math.round((e - s) / 86400000) + 1;
+    const d = listRegularWorkdays(lf.startDate, lf.endDate).length;
     if (lf.startDate !== lf.endDate) lf.halfDay = "";
-    lf.days = lf.halfDay ? 0.5 : d;
+    lf.days = lf.halfDay && d > 0 ? 0.5 : d;
   },
 );
 
@@ -1142,7 +1212,6 @@ const submittingOT = ref(false);
 const otMsg = ref("");
 const otMsgIsErr = ref(false);
 const OT_START_BASE = "17:30";
-const publicHolidaySet = ref(new Set());
 
 function hmToMinutes(value) {
   if (!value) return null;
@@ -1797,7 +1866,10 @@ onMounted(async () => {
   try {
     const settings = await getSystemSettings();
     if (Array.isArray(settings.publicHolidays)) {
-      publicHolidaySet.value = new Set(settings.publicHolidays);
+      publicHolidaySet.value = normalizeDateSet(settings.publicHolidays);
+    }
+    if (Array.isArray(settings.makeupWorkdays)) {
+      makeupWorkdaySet.value = normalizeDateSet(settings.makeupWorkdays);
     }
   } catch (_) { /* non-critical */ }
 

@@ -128,7 +128,6 @@
             <th>部門</th>
             <th class="sales-col">營業額</th>
             <th>底薪</th>
-            <th>業績</th>
             <th>獎金</th>
             <th>加班費</th>
             <th>伙食費</th>
@@ -273,7 +272,7 @@
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="11" class="total-label">合計</td>
+            <td colspan="10" class="total-label">合計</td>
             <td class="num gross">{{ maskTotal(totalFirst) }}</td>
             <td class="num gross">{{ maskTotal(totalSecond) }}</td>
             <td class="num gross">{{ maskTotal(totalGross) }}</td>
@@ -984,6 +983,8 @@ const allStaffForAnnual = ref([]);
 const staffBankMap = ref(new Map());
 const sensitiveView = ref("hidden");
 const lunchSheetUrl = ref("");
+const publicHolidaySet = ref(new Set());
+const makeupWorkdaySet = ref(new Set());
 const importingLunch = ref(false);
 const printOrientation = ref("landscape");
 const printFontSize = ref(20);
@@ -1044,6 +1045,36 @@ function normalizeDateStr(v) {
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
   }
   return "";
+}
+
+function normalizeDateSet(items) {
+  return new Set(
+    (Array.isArray(items) ? items : [])
+      .map((item) =>
+        typeof item === "string" ? item : String(item?.date || ""),
+      )
+      .map((date) => normalizeDateStr(date))
+      .filter(Boolean),
+  );
+}
+
+function parseLocalDate(dateStr) {
+  const normalized = normalizeDateStr(dateStr);
+  if (!normalized) return null;
+  const [y, m, d] = normalized.split("-").map((v) => Number(v));
+  const date = new Date(y, m - 1, d);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isRegularWorkday(dateStr) {
+  const date = parseLocalDate(dateStr);
+  if (!date) return false;
+  const normalized = normalizeDateStr(dateStr);
+  const day = date.getDay();
+  if ((day === 0 || day === 6) && !makeupWorkdaySet.value.has(normalized)) {
+    return false;
+  }
+  return !publicHolidaySet.value.has(normalized);
 }
 
 function resolveResignDate(staff, record) {
@@ -1247,6 +1278,8 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
       hours: row.hours,
       startDate,
       endDate,
+      startTime: normalizePunchTime(row.startTime),
+      endTime: normalizePunchTime(row.endTime),
     };
 
     const empNoKey = String(
@@ -2469,6 +2502,7 @@ async function loadPayroll() {
   loading.value = true;
   const yyyyMM = selectedMonth.value.replace("-", "");
   try {
+    await loadPayrollCalendarSettings();
     const snap = await getDocs(
       query(collection(db, "payroll"), where("yyyyMM", "==", yyyyMM)),
     );
@@ -2630,6 +2664,14 @@ async function loadLoanRate() {
   } catch (_) {}
 }
 
+async function loadPayrollCalendarSettings() {
+  try {
+    const cfg = await getSystemSettings();
+    publicHolidaySet.value = normalizeDateSet(cfg.publicHolidays);
+    makeupWorkdaySet.value = normalizeDateSet(cfg.makeupWorkdays);
+  } catch (_) {}
+}
+
 async function loadLoans() {
   loadingLoans.value = true;
   try {
@@ -2755,6 +2797,47 @@ function formatLeaveUnit(lv = {}) {
   return `${Math.max(1, Number(lv.days) || 1)}天`;
 }
 
+function calcLeaveHoursFromTimes(date, startTime, endTime) {
+  if (!isRegularWorkday(date)) return 0;
+  const start = toMinutes(normalizePunchTime(startTime));
+  const end = toMinutes(normalizePunchTime(endTime));
+  if (start == null || end == null || end <= start) return 0;
+  const lunchStart = toMinutes("12:00") ?? 0;
+  const lunchEnd = toMinutes("13:00") ?? 0;
+  const lunchOverlap = Math.max(
+    0,
+    Math.min(end, lunchEnd) - Math.max(start, lunchStart),
+  );
+  return Math.round(((end - start - lunchOverlap) / 60) * 10) / 10;
+}
+
+function findApprovedLeaveMatch(record = {}, lv = {}) {
+  const approved = Array.isArray(record?._attendanceLeaves)
+    ? record._attendanceLeaves
+    : [];
+  const lvStart = normalizeDateStr(lv.startDate || lv.date);
+  const lvEnd = normalizeDateStr(lv.endDate || lv.startDate || lv.date);
+  const lvType = normalizeLeaveType(lv.type);
+  return approved.find((item) => {
+    if (String(item.unit || "") !== String(lv.unit || "")) return false;
+    if (normalizeLeaveType(item.type) !== lvType) return false;
+    return (
+      normalizeDateStr(item.startDate || item.date) === lvStart &&
+      normalizeDateStr(item.endDate || item.startDate || item.date) === lvEnd
+    );
+  });
+}
+
+function calcLeaveDeductionAmount(record = {}, lv = {}, hours = 0) {
+  if (String(record?.salaryType || "月薪") === "時薪") return 0;
+  const type = normalizeLeaveType(lv.type);
+  if (["年假（特休）", "特休", "婚假", "喪假", "產假", "陪產假", "公假"].includes(type)) {
+    return 0;
+  }
+  const factor = type === "病假" || type === "生理假" ? 0.5 : 1;
+  return Math.round(calcHourlyRate(record) * Math.max(0, Number(hours) || 0) * factor);
+}
+
 function formatDateWithWeekday(dateLike) {
   const ymd = normalizeDateStr(dateLike);
   if (!ymd) return String(dateLike || "").trim();
@@ -2796,6 +2879,10 @@ function expandLeaveDates(lv = {}) {
   return out.length ? out : [start];
 }
 
+function expandRegularLeaveDates(lv = {}) {
+  return expandLeaveDates(lv).filter((date) => isRegularWorkday(date));
+}
+
 function getPayrollMonthBounds(record = {}) {
   return getMonthBounds(record?.yyyyMM || selectedMonth.value);
 }
@@ -2808,20 +2895,34 @@ function getEffectiveLeaveDetail(record = {}) {
 
   return details
     .map((lv) => {
-      const dates = expandLeaveDates(lv);
+      const isHourLeave = String(lv?.unit || "") === "小時";
+      const matchedLeave = findApprovedLeaveMatch(record, lv);
+      const source = matchedLeave || lv;
+      const dates = isHourLeave ? expandLeaveDates(lv) : expandRegularLeaveDates(lv);
       if (!dates.length) return null;
       const clippedDates = dates.filter((d) => d >= monthStart && d <= monthEnd);
       if (!clippedDates.length) return null;
       const rawDeduction = Number(lv?.deduction) || 0;
-      const deduction =
+      const proratedDeduction =
         clippedDates.length === dates.length
           ? rawDeduction
           : Math.round(rawDeduction * (clippedDates.length / dates.length));
+      const hours = isHourLeave
+        ? calcLeaveHoursFromTimes(
+            source.startDate || source.date || clippedDates[0],
+            source.startTime,
+            source.endTime,
+          ) || Number(source.hours ?? lv.hours) || 0
+        : clippedDates.length * 8;
+      const deduction = matchedLeave || !isHourLeave
+        ? calcLeaveDeductionAmount(record, source, hours)
+        : proratedDeduction;
       return {
         ...lv,
         startDate: clippedDates[0],
         endDate: clippedDates[clippedDates.length - 1],
-        days: String(lv?.unit || "") === "小時" ? lv.days : clippedDates.length,
+        days: isHourLeave ? lv.days : clippedDates.length,
+        hours: isHourLeave ? hours : lv.hours,
         deduction,
       };
     })
@@ -3356,7 +3457,7 @@ function buildSlipPrintData(r, mode) {
       ${salaryType === "時薪" ? `<tr><th>時薪底薪（${hourlyFormulaText}）</th><td>${n(displayBaseSalary(r))}</td></tr>` : ""}
       <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
       ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${h1(r.otHoursOfficial)}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ""}
-      ${calcLeaveDeduction(r) > 0 ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(calcLeaveDeduction(r))}</td></tr>${leaveRows}` : ""}
+      ${leaveRows ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(calcLeaveDeduction(r))}</td></tr>${leaveRows}` : ""}
       ${calcLateEarlyDeduction(r) > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(calcLateEarlyDeduction(r))}</td></tr>${lateRows}` : ""}
       ${calcAbsentDeduction(r) > 0 ? `<tr><th>曠職扣薪（${calcAbsentDays(r)}天）</th><td class="deduct">−${n(calcAbsentDeduction(r))}</td></tr>` : ""}
       ${deductRow("勞保費", r.laborInsurance)}
@@ -3421,7 +3522,7 @@ function buildSlipPrintData(r, mode) {
       ${r.otPay > 0 ? `<tr><th>${labelText(`加班費合計（實際，${h1(r.otHours)}h）`, "加班費合計")}</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ""}
       ${r.otPayOfficial != null && r.otPayOfficial !== r.otPay ? `<tr><th>加班費（申報，${h1(r.otHoursOfficial)}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>` : ""}
       ${calcMealAllowance(r) > 0 ? `<tr><th>${labelText("伙食費合計")}</th><td class="meal">+${n(calcMealAllowance(r))}</td></tr>${mealRows}` : ""}
-      ${calcLeaveDeduction(r) > 0 ? `<tr><th>${labelText("請假扣薪合計")}</th><td class="deduct">−${n(calcLeaveDeduction(r))}</td></tr>${leaveRows}` : ""}
+      ${leaveRows ? `<tr><th>${labelText("請假扣薪合計")}</th><td class="deduct">−${n(calcLeaveDeduction(r))}</td></tr>${leaveRows}` : ""}
       ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>${labelText(`未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）`, "未上班扣薪")}</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ""}
       ${calcLateEarlyDeduction(r) > 0 ? `<tr><th>${labelText("遲到/早退扣薪", "遲到早退扣薪")}</th><td class="deduct">−${n(calcLateEarlyDeduction(r))}</td></tr>${lateRows}` : ""}
       ${calcAbsentDeduction(r) > 0 ? `<tr><th>${labelText(`曠職扣薪（${calcAbsentDays(r)}天）`, "曠職扣薪")}</th><td class="deduct">−${n(calcAbsentDeduction(r))}</td></tr>` : ""}

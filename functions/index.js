@@ -10553,6 +10553,60 @@ async function runPayrollCalculation(yyyyMM) {
       : rawHealthInsuranceEmployeeShare
     : 0.3;
 
+  function normalizeCalendarDate(value) {
+    const s = String(value || "").slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  }
+  const publicHolidaySet = new Set(
+    (settingsData.publicHolidays || [])
+      .map((h) =>
+        normalizeCalendarDate(typeof h === "string" ? h : h && h.date),
+      )
+      .filter(Boolean),
+  );
+  const makeupWorkdaySet = new Set(
+    (settingsData.makeupWorkdays || [])
+      .map((h) =>
+        normalizeCalendarDate(typeof h === "string" ? h : h && h.date),
+      )
+      .filter(Boolean),
+  );
+  function calendarDayOfWeek(dateStr) {
+    const d = normalizeCalendarDate(dateStr);
+    if (!d) return null;
+    const [y, m, day] = d.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, day)).getUTCDay();
+  }
+  function isRegularWorkday(dateStr) {
+    const d = normalizeCalendarDate(dateStr);
+    if (!d) return false;
+    const dow = calendarDayOfWeek(d);
+    const isMakeup = makeupWorkdaySet.has(d);
+    if ((dow === 0 || dow === 6) && !isMakeup) return false;
+    if (publicHolidaySet.has(d)) return false;
+    return true;
+  }
+  function isWeekendOrPublicHoliday(dateStr) {
+    const d = normalizeCalendarDate(dateStr);
+    if (!d) return false;
+    const dow = calendarDayOfWeek(d);
+    return dow === 0 || dow === 6 || publicHolidaySet.has(d);
+  }
+  function regularWorkdaysBetween(startDate, endDate) {
+    if (!startDate || !endDate || endDate < startDate) return [];
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+    const dates = [];
+    let guard = 0;
+    while (start <= end && guard < 366) {
+      const d = start.toISOString().slice(0, 10);
+      if (isRegularWorkday(d)) dates.push(d);
+      start.setDate(start.getDate() + 1);
+      guard += 1;
+    }
+    return dates;
+  }
+
   // 將 "HH:MM" 轉成分鐘數
   function toMins(hhmm) {
     const [h, m] = String(hhmm).split(":").map(Number);
@@ -10589,7 +10643,7 @@ async function runPayrollCalculation(yyyyMM) {
     if (normalized.length) {
       normalized[0].start = clampEarliestPunchIn(normalized[0].start);
     }
-    if (normalized.length) return normalized;
+    if (normalized.some((seg) => seg.start && seg.end)) return normalized;
     if (att.punchIn) {
       return [
         {
@@ -10759,6 +10813,25 @@ async function runPayrollCalculation(yyyyMM) {
 
   const workStartMins = toMins(workStart);
   const workEndMins = toMins(workEnd);
+
+  function calcLeaveRequestHours(lv, startDate) {
+    const leaveDate = normalizeDateStr(lv.startDate || lv.date || startDate);
+    if (!leaveDate || !isRegularWorkday(leaveDate)) return 0;
+    const startMins = timeStrToMins(normalizeTimeStr(lv.startTime));
+    const endMins = timeStrToMins(normalizeTimeStr(lv.endTime));
+    if (
+      Number.isFinite(startMins) &&
+      Number.isFinite(endMins) &&
+      endMins > startMins
+    ) {
+      const lunchOverlap = Math.max(
+        0,
+        Math.min(endMins, 13 * 60) - Math.max(startMins, 12 * 60),
+      );
+      return Math.round(((endMins - startMins - lunchOverlap) / 60) * 10) / 10;
+    }
+    return Math.max(0, Number(lv.hours) || 0);
+  }
 
   function tsToMs(value) {
     if (!value) return 0;
@@ -11076,10 +11149,12 @@ async function runPayrollCalculation(yyyyMM) {
       const end = resolveLeaveEndDate(lv, start);
       const clippedStart = start > employmentStart ? start : employmentStart;
       const clippedEnd = end < employmentEnd ? end : employmentEnd;
-      const clippedDays = daysBetweenInclusive(clippedStart, clippedEnd);
-      if (clippedDays <= 0) continue;
+      const clippedWorkdays = regularWorkdaysBetween(clippedStart, clippedEnd);
       const hrs =
-        unit === "小時" ? Number(lv.hours) || 0 : clippedDays * 8;
+        unit === "小時"
+          ? calcLeaveRequestHours(lv, start)
+          : clippedWorkdays.length * 8;
+      if (hrs <= 0) continue;
       let deduction = 0;
       if (salType !== "時薪") {
         if (
@@ -11104,8 +11179,12 @@ async function runPayrollCalculation(yyyyMM) {
         unit,
         startDate: clippedStart,
         endDate: clippedEnd,
-        days: unit === "小時" ? null : clippedDays,
-        hours: lv.hours != null ? lv.hours : null,
+        days: unit === "小時" ? null : clippedWorkdays.length,
+        hours: unit === "小時" ? hrs : null,
+        startTime: unit === "小時" ? lv.startTime || null : null,
+        endTime: unit === "小時" ? lv.endTime || null : null,
+        workdaysOnly: true,
+        workDates: unit === "小時" ? [start].filter(Boolean) : clippedWorkdays,
         deduction,
       });
     }
@@ -11134,32 +11213,6 @@ async function runPayrollCalculation(yyyyMM) {
     let absentDays = 0;
     const absentDetail = [];
     if (candidateUids.length > 0) {
-      const publicHolidaySet = new Set(
-        (settingsData.publicHolidays || [])
-          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
-          .filter(Boolean),
-      );
-      const makeupWorkdaySet = new Set(
-        (settingsData.makeupWorkdays || [])
-          .map((h) => (typeof h === "string" ? h : h && h.date ? h.date : null))
-          .filter(Boolean),
-      );
-      const isRegularWorkday = (dateStr) => {
-        const d = String(dateStr || "").slice(0, 10);
-        if (!d) return false;
-        const dow = new Date(d + "T00:00:00").getDay();
-        const isMakeup = makeupWorkdaySet.has(d);
-        if ((dow === 0 || dow === 6) && !isMakeup) return false;
-        if (publicHolidaySet.has(d)) return false;
-        return true;
-      };
-      const isWeekendOrPublicHoliday = (dateStr) => {
-        const d = String(dateStr || "").slice(0, 10);
-        if (!d) return false;
-        const dow = new Date(d + "T00:00:00").getDay();
-        return dow === 0 || dow === 6 || publicHolidaySet.has(d);
-      };
-
       const attRecords = attendanceRecordsThisMonth.filter(
         (r) => getFirstWorkStart(r) && getLastWorkEnd(r),
       );
