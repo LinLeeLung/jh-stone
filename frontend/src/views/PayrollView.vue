@@ -3726,7 +3726,7 @@ function mealTotals(r) {
       String(ml.punchOut).length <= 5
         ? ml.punchOut + ":00"
         : String(ml.punchOut);
-    if (inT < "14:00:00" && outT > "11:00:00") lunch += 100;
+    if (inT < "13:00:00" && outT > "10:00:00") lunch += 100;
     if (inT < "18:30:00" && outT > "17:30:00") dinner += 100;
   }
   return { lunch, dinner };

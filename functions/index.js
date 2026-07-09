@@ -11190,7 +11190,7 @@ async function runPayrollCalculation(yyyyMM) {
     }
 
     // 伙食費：依打卡紀錄判斷每日餐費
-    // 上班時間涵蓋 11:00~14:00 → +100；涵蓋 17:30~18:30 → 再+100
+    // 上班時間涵蓋 10:00~13:00 → +100；涵蓋 17:30~18:30 → 再+100
     let mealAllowance = 0;
     const mealDetail = [];
     const deptRaw = String(s.dept || "").trim();
@@ -11242,7 +11242,7 @@ async function runPayrollCalculation(yyyyMM) {
         if (hasMealAllowance && !isForeignWorker) {
           let dayLunch = 0;
           let dayDinner = 0;
-          if (overlapsWindow(workSegments, "11:00:00", "14:00:00"))
+          if (overlapsWindow(workSegments, "10:00:00", "13:00:00"))
             dayLunch += 100; // 午餐
           if (
             approvedOtDateSet.has(attDate) &&
