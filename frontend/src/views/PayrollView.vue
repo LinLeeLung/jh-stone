@@ -100,6 +100,20 @@
       </button>
       <button
         v-if="isManager"
+        class="btn-remit"
+        @click="printAllSlips('first', { foreignOnly: true })"
+      >
+        外勞5日明細
+      </button>
+      <button
+        v-if="isManager"
+        class="btn-remit"
+        @click="printAllSlips('second', { foreignOnly: true })"
+      >
+        外勞10日明細
+      </button>
+      <button
+        v-if="isManager"
         class="btn-annual"
         @click="openAnnualReport"
         title="年度薪資彙整（報稅扣繳憑單彙整用）"
@@ -612,6 +626,12 @@
                 −{{ detailRecord.foreignService.toLocaleString() }}
               </td>
             </tr>
+            <tr v-if="calcIncomeTax(detailRecord) > 0">
+              <th>所得稅（6%）</th>
+              <td class="num deduct">
+                −{{ calcIncomeTax(detailRecord).toLocaleString() }}
+              </td>
+            </tr>
             <tr v-if="(detailRecord.lunchFee || 0) > 0">
               <th>便當費</th>
               <td class="num deduct">
@@ -985,10 +1005,21 @@ const sensitiveView = ref("hidden");
 const lunchSheetUrl = ref("");
 const publicHolidaySet = ref(new Set());
 const makeupWorkdaySet = ref(new Set());
+const mealLunchStartSec = ref("10:00:00");
+const mealLunchEndSec = ref("13:00:00");
+const mealDinnerStartSec = ref("17:30:00");
+const mealDinnerEndSec = ref("18:30:00");
 const importingLunch = ref(false);
 const printOrientation = ref("landscape");
 const printFontSize = ref(20);
 const MAX_SALES_AMOUNT_INPUT = 99999999;
+
+function normalizeRuleTimeHHMMSS(value, fallbackHHMM) {
+  const raw = String(value || "").trim();
+  if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) return raw;
+  if (/^\d{2}:\d{2}$/.test(raw)) return `${raw}:00`;
+  return `${fallbackHHMM}:00`;
+}
 
 const sensitiveOptions = computed(() => {
   const activeEmpNos = new Set(
@@ -1556,6 +1587,7 @@ const vietnamesePayslipLabels = {
   電費: "Tiền điện",
   體檢費外勞: "Phí khám sức khỏe",
   服務費外勞: "Phí dịch vụ",
+  所得稅: "Thuế thu nhập",
   其他減項: "Khoản trừ khác",
   借款本金: "Tiền gốc vay",
   借款利息: "Tiền lãi vay",
@@ -1624,6 +1656,7 @@ function calcGrossPay(r) {
       (Number(r.electricFee) || 0) -
       (Number(r.foreignMedical) || 0) -
       (Number(r.foreignService) || 0) -
+      calcIncomeTax(r) -
       (Number(r.otherDeduction) || 0) -
       (Number(r.loanPrincipal) || 0) -
       (Number(r.loanInterest) || 0),
@@ -1678,6 +1711,13 @@ function calcReportedIncome(r) {
       calcAbsentDeduction(r) -
       calcLateEarlyDeduction(r),
   );
+}
+
+function calcIncomeTax(r) {
+  if (!r) return 0;
+  if (r.incomeTax != null) return Math.max(0, Number(r.incomeTax) || 0);
+  if (!isForeignWorkerRecord(r)) return 0;
+  return Math.max(0, Math.round(calcReportedIncome(r) * 0.06));
 }
 
 function calcAbsentDeduction(r) {
@@ -2669,6 +2709,11 @@ async function loadPayrollCalendarSettings() {
     const cfg = await getSystemSettings();
     publicHolidaySet.value = normalizeDateSet(cfg.publicHolidays);
     makeupWorkdaySet.value = normalizeDateSet(cfg.makeupWorkdays);
+    const rules = cfg?.attendanceRules || {};
+    mealLunchStartSec.value = normalizeRuleTimeHHMMSS(rules.mealLunchStart, "10:00");
+    mealLunchEndSec.value = normalizeRuleTimeHHMMSS(rules.mealLunchEnd, "13:00");
+    mealDinnerStartSec.value = normalizeRuleTimeHHMMSS(rules.mealDinnerStart, "17:30");
+    mealDinnerEndSec.value = normalizeRuleTimeHHMMSS(rules.mealDinnerEnd, "18:30");
   } catch (_) {}
 }
 
@@ -3536,6 +3581,7 @@ function buildSlipPrintData(r, mode) {
       ${deductRow("電費", r.electricFee)}
       ${deductRow("體檢費（外勞）", r.foreignMedical, "體檢費外勞")}
       ${deductRow("服務費（外勞）", r.foreignService, "服務費外勞")}
+      ${deductRow("所得稅（6%）", calcIncomeTax(r), "所得稅")}
       ${deductRow(r.otherDeductionNote ? `其他減項（${r.otherDeductionNote}）` : "其他減項", r.otherDeduction, "其他減項")}
       ${deductRow("借款本金", r.loanPrincipal)}
       ${deductRow("借款利息", r.loanInterest)}
@@ -3636,7 +3682,8 @@ function printSlip(r, mode) {
   );
 }
 
-function printAllSlips(mode) {
+function printAllSlips(mode, options = {}) {
+  const foreignOnly = options?.foreignOnly === true;
   const resolveStaffProfile = (record) => {
     const empNoRaw = String(record?.empNo ?? "").trim();
     const nameRaw = String(record?.name ?? "").trim();
@@ -3679,9 +3726,12 @@ function printAllSlips(mode) {
     return Boolean(resignMonth && prevMonth && resignMonth === prevMonth);
   };
 
-  const records = [...allRecords.value].filter(shouldIncludeInSlipPrint);
+  let records = [...allRecords.value].filter(shouldIncludeInSlipPrint);
+  if (foreignOnly) {
+    records = records.filter((record) => isForeignWorkerRecord(record));
+  }
   if (!records.length) {
-    alert("尚無薪資資料");
+    alert(foreignOnly ? "尚無外勞薪資資料" : "尚無薪資資料");
     return;
   }
   const orientation =
@@ -3726,8 +3776,8 @@ function mealTotals(r) {
       String(ml.punchOut).length <= 5
         ? ml.punchOut + ":00"
         : String(ml.punchOut);
-    if (inT < "13:00:00" && outT > "10:00:00") lunch += 100;
-    if (inT < "18:30:00" && outT > "17:30:00") dinner += 100;
+    if (inT <= mealLunchStartSec.value && outT >= mealLunchEndSec.value) lunch += 100;
+    if (inT <= mealDinnerStartSec.value && outT >= mealDinnerEndSec.value) dinner += 100;
   }
   return { lunch, dinner };
 }

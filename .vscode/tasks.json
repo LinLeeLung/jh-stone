@@ -18,7 +18,7 @@
 			"command": "cmd",
 			"args": [
 				"/c",
-				"firebase deploy --only functions:calculatePayroll,functions:autoCalculatePayroll --project jh-stone --non-interactive --config d:\\Data\\Desktop\\jh-stone\\firebase.json"
+				"firebase deploy --only functions --project jh-stone --non-interactive --config firebase.json --force"
 			],
 			"isBackground": false,
 			"group": "build"

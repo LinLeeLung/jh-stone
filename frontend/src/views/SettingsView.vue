@@ -187,6 +187,22 @@
             <label>下班時間</label>
             <input type="time" v-model="form.attendanceRules.workEnd" />
           </div>
+          <div class="att-field">
+            <label>午餐補助起</label>
+            <input type="time" v-model="form.attendanceRules.mealLunchStart" />
+          </div>
+          <div class="att-field">
+            <label>午餐補助迄</label>
+            <input type="time" v-model="form.attendanceRules.mealLunchEnd" />
+          </div>
+          <div class="att-field">
+            <label>晚餐補助起</label>
+            <input type="time" v-model="form.attendanceRules.mealDinnerStart" />
+          </div>
+          <div class="att-field">
+            <label>晚餐補助迄</label>
+            <input type="time" v-model="form.attendanceRules.mealDinnerEnd" />
+          </div>
           <div class="att-field att-field--sm">
             <label>寬限分鐘</label>
             <input
@@ -1034,6 +1050,10 @@ const form = ref({
   attendanceRules: {
     workStart: "08:00",
     workEnd: "17:00",
+    mealLunchStart: "10:00",
+    mealLunchEnd: "13:00",
+    mealDinnerStart: "17:30",
+    mealDinnerEnd: "18:30",
     graceMins: 0,
     deductUnit: "minute",
     deductEarlyLeave: true,
@@ -1484,6 +1504,10 @@ async function loadSettings() {
     form.value.attendanceRules = {
       workStart: legacyWorkWindow ? "08:00" : rules.workStart || "08:00",
       workEnd: legacyWorkWindow ? "17:00" : rules.workEnd || "17:00",
+      mealLunchStart: rules.mealLunchStart || "10:00",
+      mealLunchEnd: rules.mealLunchEnd || "13:00",
+      mealDinnerStart: rules.mealDinnerStart || "17:30",
+      mealDinnerEnd: rules.mealDinnerEnd || "18:30",
       graceMins: Number.isFinite(Number(rules.graceMins))
         ? Number(rules.graceMins)
         : 0,

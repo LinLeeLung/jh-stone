@@ -10526,6 +10526,20 @@ async function runPayrollCalculation(yyyyMM) {
     attRules.workStart === "08:30" && attRules.workEnd === "17:30";
   const workStart = legacyWorkWindow ? "08:00" : attRules.workStart || "08:00"; // "HH:MM"
   const workEnd = legacyWorkWindow ? "17:00" : attRules.workEnd || "17:00"; // "HH:MM"
+  function normalizeRuleTimeHHMM(value, fallback) {
+    const raw = String(value || "").trim();
+    if (/^\d{2}:\d{2}$/.test(raw)) return raw;
+    if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) return raw.slice(0, 5);
+    return fallback;
+  }
+  const mealLunchStart = normalizeRuleTimeHHMM(attRules.mealLunchStart, "10:00");
+  const mealLunchEnd = normalizeRuleTimeHHMM(attRules.mealLunchEnd, "13:00");
+  const mealDinnerStart = normalizeRuleTimeHHMM(attRules.mealDinnerStart, "17:30");
+  const mealDinnerEnd = normalizeRuleTimeHHMM(attRules.mealDinnerEnd, "18:30");
+  const mealLunchStartSec = `${mealLunchStart}:00`;
+  const mealLunchEndSec = `${mealLunchEnd}:00`;
+  const mealDinnerStartSec = `${mealDinnerStart}:00`;
+  const mealDinnerEndSec = `${mealDinnerEnd}:00`;
   const graceMins = Number(attRules.graceMins) || 0;
   const deductUnit = attRules.deductUnit || "minute"; // "minute"|"30min"|"60min"
   const deductEarlyLeave = attRules.deductEarlyLeave !== false;
@@ -10670,10 +10684,10 @@ async function runPayrollCalculation(yyyyMM) {
       null
     );
   }
-  function overlapsWindow(segments, windowStart, windowEnd) {
+  function containsWindow(segments, windowStart, windowEnd) {
     return segments.some(
       (seg) =>
-        seg.start && seg.end && seg.start < windowEnd && seg.end > windowStart,
+        seg.start && seg.end && seg.start <= windowStart && seg.end >= windowEnd,
     );
   }
   function calcRegularWorkHours(att) {
@@ -11242,11 +11256,11 @@ async function runPayrollCalculation(yyyyMM) {
         if (hasMealAllowance && !isForeignWorker) {
           let dayLunch = 0;
           let dayDinner = 0;
-          if (overlapsWindow(workSegments, "10:00:00", "13:00:00"))
+          if (containsWindow(workSegments, mealLunchStartSec, mealLunchEndSec))
             dayLunch += 100; // 午餐
           if (
             approvedOtDateSet.has(attDate) &&
-            overlapsWindow(workSegments, "17:30:00", "18:30:00")
+            containsWindow(workSegments, mealDinnerStartSec, mealDinnerEndSec)
           ) {
             dayDinner += 100; // 晚餐（需同日核准加班）
           }
@@ -11440,30 +11454,6 @@ async function runPayrollCalculation(yyyyMM) {
       }
     }
 
-    const grossPay = Math.max(
-      0,
-      basePayForGross +
-        bonusTotal +
-        otPay +
-        mealAllowance -
-        partialMonthDeduction -
-        leaveDeduction -
-        lateEarlyDeduction -
-        absentDeduction -
-        laborInsurance -
-        healthInsurance -
-        dependentHealth -
-        mutualAid -
-        lunchFee -
-        foreignRent -
-        waterFee -
-        electricFee -
-        foreignMedical -
-        foreignService -
-        otherDeduction -
-        loanPrincipal -
-        loanInterest,
-    );
     // 分兩次發薪：5日依投保薪資為底薪，先扣請假/曠職/遲到早退及員工自付保費/互助金/便當費；10日補差額
     const laborInsuranceSalaryBase = Math.max(
       0,
@@ -11495,6 +11485,33 @@ async function runPayrollCalculation(yyyyMM) {
         leaveDeduction -
         absentDeduction -
         lateEarlyDeduction,
+    );
+    // 外勞所得稅：按申報所得 6% 計算
+    const incomeTax = isForeignWorker ? Math.round(reportedIncome * 0.06) : 0;
+    const grossPay = Math.max(
+      0,
+      basePayForGross +
+        bonusTotal +
+        otPay +
+        mealAllowance -
+        partialMonthDeduction -
+        leaveDeduction -
+        lateEarlyDeduction -
+        absentDeduction -
+        laborInsurance -
+        healthInsurance -
+        dependentHealth -
+        mutualAid -
+        lunchFee -
+        foreignRent -
+        waterFee -
+        electricFee -
+        foreignMedical -
+        foreignService -
+        otherDeduction -
+        loanPrincipal -
+        loanInterest -
+        incomeTax,
     );
     const secondPayment = grossPay - firstPayment;
 
@@ -11558,6 +11575,7 @@ async function runPayrollCalculation(yyyyMM) {
         electricFee,
         foreignMedical,
         foreignService,
+        incomeTax,
         otherDeduction,
         otherDeductionNote,
         loanPrincipal,
