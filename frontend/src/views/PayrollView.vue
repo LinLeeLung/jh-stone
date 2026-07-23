@@ -675,7 +675,7 @@
               </td>
             </tr>
             <tr class="sep">
-              <th>5日發薪（投保薪資＋申報加班費－請假/曠職/遲到早退－保費/互助金/便當費－其他減項）</th>
+              <th>5日發薪（投保薪資＋申報加班費－請假/曠職/遲到早退－保費/互助金/便當費）</th>
               <td class="num gross">
                 {{ calcFirstPayment(detailRecord).toLocaleString() }}
               </td>
@@ -1539,8 +1539,7 @@ function calcFirstPayment(r) {
       (Number(r.healthInsurance) || 0) -
       (Number(r.dependentHealth) || 0) -
       (Number(r.mutualAid) || 0) -
-      (Number(r.lunchFee) || 0) -
-      (Number(r.otherDeduction) || 0),
+      (Number(r.lunchFee) || 0),
   );
 }
 
@@ -1675,7 +1674,7 @@ function calcLaborInsuranceSalaryBase(r) {
   }
   // Legacy fallback for old records missing laborInsuranceSalaryBase.
   // Keep consistent with current rule:
-  // firstPayment = 投保薪資 + 申報加班費 - 請假 - 曠職 - 遲到早退 - 勞保 - 健保 - 眷屬健保 - 互助金 - 便當費 - 其他減項
+  // firstPayment = 投保薪資 + 申報加班費 - 請假 - 曠職 - 遲到早退 - 勞保 - 健保 - 眷屬健保 - 互助金 - 便當費
   return Math.max(
     0,
     (Number(r.firstPayment) || 0) -
@@ -3510,7 +3509,6 @@ function buildSlipPrintData(r, mode) {
       ${deductRow("健保費（眷屬）", r.dependentHealth)}
       ${deductRow("減項互助金", r.mutualAid)}
       ${deductRow("便當費", r.lunchFee)}
-      ${deductRow(r.otherDeductionNote ? `其他扣項（${r.otherDeductionNote}）` : "其他扣項", r.otherDeduction)}
       <tr class="total-row"><th>5日實發</th><td class="gross">${n(calcFirstPayment(r))}</td></tr>
       <tr><th>申報所得（投保薪資-請假/曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
     `;
@@ -3587,7 +3585,7 @@ function buildSlipPrintData(r, mode) {
       ${deductRow("借款利息", r.loanInterest)}
       <tr class="total-row"><th>${labelText("實領薪資")}</th><td class="gross">${n(calcGrossPay(r))}</td></tr>
       <tr class="sep"><th>${labelText("申報所得（投保薪資-請假/曠職/遲到早退）", "申報所得")}</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
-      <tr class="sep"><th>${labelText("5日發薪（投保薪資＋申報加班費－請假/曠職/遲到早退－保費/互助金/便當費－其他減項）", "五日發薪")}</th><td class="gross">${n(calcFirstPayment(r))}</td></tr>
+      <tr class="sep"><th>${labelText("5日發薪（投保薪資＋申報加班費－請假/曠職/遲到早退－保費/互助金/便當費）", "五日發薪")}</th><td class="gross">${n(calcFirstPayment(r))}</td></tr>
       <tr><th>${labelText("10日發薪（補差額）", "十日發薪")}</th><td class="${calcSecondPayment(r) < 0 ? "deduct" : "gross"}">${n(calcSecondPayment(r))}</td></tr>
     `;
   }

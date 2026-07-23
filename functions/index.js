@@ -11475,8 +11475,7 @@ async function runPayrollCalculation(yyyyMM) {
         healthInsurance -
         dependentHealth -
         mutualAid -
-        lunchFee -
-        otherDeduction,
+        lunchFee,
     );
     // 申報所得 = 投保薪資 - 請假扣款 - 曠職扣款 - 遲到/早退扣款
     const reportedIncome = Math.max(
