@@ -2359,23 +2359,38 @@ async function confirmReject() {
 }
 
 // ── Quota management ───────────────────────────────────────────────────────
+function parseEmpNoSortValue(empNo) {
+  const raw = String(empNo || "").trim();
+  if (!raw) return Number.POSITIVE_INFINITY;
+  const digits = raw.match(/\d+/g)?.join("");
+  if (!digits) return Number.POSITIVE_INFINITY;
+  return Number(digits);
+}
+
 async function loadQuotas() {
   loadingQuota.value = true;
   try {
     const snap = await getDocs(collection(db, "leaveQuota"));
-    quotaList.value = snap.docs.map((d) => ({
-      ...{
-        uid: d.id,
-        empNo: "",
-        name: "",
-        annual: { total: 0, used: 0 },
-        sick: { total: 30, used: 0 },
-        personal: { total: 14, used: 0 },
-        maternity: { total: 56, used: 0 },
-        menstrual: { total: 3, used: 0 },
-      },
-      ...d.data(),
-    }));
+    quotaList.value = snap.docs
+      .map((d) => ({
+        ...{
+          uid: d.id,
+          empNo: "",
+          name: "",
+          annual: { total: 0, used: 0 },
+          sick: { total: 30, used: 0 },
+          personal: { total: 14, used: 0 },
+          maternity: { total: 56, used: 0 },
+          menstrual: { total: 3, used: 0 },
+        },
+        ...d.data(),
+      }))
+      .sort((left, right) => {
+        const empNoDiff =
+          parseEmpNoSortValue(left.empNo) - parseEmpNoSortValue(right.empNo);
+        if (empNoDiff !== 0) return empNoDiff;
+        return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant");
+      });
   } finally {
     loadingQuota.value = false;
   }
