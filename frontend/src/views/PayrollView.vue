@@ -82,6 +82,14 @@
             <option :value="24">超大</option>
           </select>
         </label>
+        <label class="print-orientation-label">
+          <input type="checkbox" v-model="printOnePage" />
+          一頁列印
+        </label>
+        <label v-if="printOnePage" class="print-orientation-label">
+          <input type="checkbox" v-model="printOnePageKeepAll" />
+          不省略出勤
+        </label>
         <span class="btn-remit-label">匯款明細</span>
       </span>
       <button
@@ -709,6 +717,14 @@
               <option :value="24">超大</option>
             </select>
           </label>
+          <label class="print-orientation-label">
+            <input type="checkbox" v-model="printOnePage" />
+            一頁列印
+          </label>
+          <label v-if="printOnePage" class="print-orientation-label">
+            <input type="checkbox" v-model="printOnePageKeepAll" />
+            不省略出勤
+          </label>
           <button
             class="btn-sm btn-print"
             @click="printSlip(detailRecord, 'first')"
@@ -1012,6 +1028,8 @@ const mealDinnerEndSec = ref("18:30:00");
 const importingLunch = ref(false);
 const printOrientation = ref("landscape");
 const printFontSize = ref(20);
+const printOnePage = ref(false);
+const printOnePageKeepAll = ref(false);
 const MAX_SALES_AMOUNT_INPUT = 99999999;
 
 function normalizeRuleTimeHHMMSS(value, fallbackHHMM) {
@@ -2995,7 +3013,9 @@ function formatLeaveSummary(lv = {}) {
   return `${first} ~ ${last} 請假（${type}，${unit}）`;
 }
 
-function buildAttendanceRows(r, mode) {
+function buildAttendanceRows(r, mode, options = {}) {
+  const onePage = options?.onePage === true;
+  const keepAllRows = options?.keepAllRows === true;
   const byDate = new Map();
   const workHoursByDate = new Map();
   const overtimeTimeByDate = new Map();
@@ -3103,7 +3123,9 @@ function buildAttendanceRows(r, mode) {
   if (!dates.length) {
     return "<tr><th>—</th><td>本期無出勤明細</td></tr>";
   }
-  const rowsHtml = dates
+  const maxRows = onePage && !keepAllRows ? 12 : dates.length;
+  const visibleDates = dates.slice(0, maxRows);
+  const rowsHtml = visibleDates
     .map((date) => {
       const text = byDate.get(date).filter(Boolean).join("、");
       const dayHours = workHoursByDate.get(date) || 0;
@@ -3111,6 +3133,11 @@ function buildAttendanceRows(r, mode) {
       return `<tr><th>${formatDateWithWeekday(date)}</th><td>${withHours}</td></tr>`;
     })
     .join("");
+  const omitted = keepAllRows ? 0 : dates.length - visibleDates.length;
+  const omittedRow =
+    omitted > 0
+      ? `<tr class="sub"><th>出勤摘要</th><td>其餘 ${omitted} 筆已省略（開啟完整列印可查看全部）</td></tr>`
+      : "";
   const calculatedHours = Array.from(workHoursByDate.values()).reduce(
     (sum, h) => sum + (Number(h) || 0),
     0,
@@ -3122,6 +3149,7 @@ function buildAttendanceRows(r, mode) {
       : totalHoursRaw;
   return (
     rowsHtml +
+    omittedRow +
     `<tr class="total-row"><th>總計算時數</th><td>${h1(totalHours)}h</td></tr>`
   );
 }
@@ -3439,7 +3467,9 @@ ${
   };
 }
 
-function buildSlipPrintData(r, mode) {
+function buildSlipPrintData(r, mode, options = {}) {
+  const onePage = options?.onePage === true;
+  const keepAllRows = options?.keepAllRows === true;
   const title =
     mode === "first"
       ? `${r.name}（${r.empNo}）${r.monthLabel} 5日薪資單`
@@ -3590,7 +3620,10 @@ function buildSlipPrintData(r, mode) {
     `;
   }
 
-  const attendanceRows = buildAttendanceRows(r, mode);
+  const attendanceRows = buildAttendanceRows(r, mode, {
+    onePage,
+    keepAllRows,
+  });
 
   return {
     title,
@@ -3598,6 +3631,7 @@ function buildSlipPrintData(r, mode) {
     attendanceRows,
     attendanceTitle: labelText("出勤記錄", "出勤記錄"),
     orientation,
+    onePage,
   };
 }
 
@@ -3605,7 +3639,7 @@ function buildSlipBodyHtml(data) {
   return `
     <h2>${data.title}</h2>
     <p class="sub">列印時間：${new Date().toLocaleString("zh-TW")}</p>
-    <div class="slip-layout">
+    <div class="slip-layout${data.onePage ? " one-page" : ""}">
       <table><tbody>${data.bodyRows}</tbody></table>
       <section class="att-wrap">
         <p class="att-title">${data.attendanceTitle || "出勤記錄"}</p>
@@ -3615,21 +3649,28 @@ function buildSlipBodyHtml(data) {
   `;
 }
 
-function buildSlipDocumentHtml(bodyHtml, orientation, baseFontSize = 20) {
-  const base = Math.max(12, Number(baseFontSize) || 20);
+function buildSlipDocumentHtml(bodyHtml, orientation, baseFontSize = 20, options = {}) {
+  const onePage = options?.onePage === true;
+  const requestedBase = Number(baseFontSize) || 20;
+  const base = onePage
+    ? Math.max(10, Math.min(16, requestedBase - 3))
+    : Math.max(12, requestedBase);
   const h2Size = base + 7;
   const subSize = Math.max(11, base - 2);
   const cellSize = Math.max(12, base);
   const attTitleSize = base + 2;
   const subRowSize = Math.max(11, base - 1);
+  const bodyMargin = onePage ? "6mm" : "10mm";
+  const pageMargin = onePage ? "4mm" : "8mm";
+  const layoutGap = onePage ? "4px" : "8px";
   return `<!DOCTYPE html><html lang="zh-Hant"><head>
     <meta charset="UTF-8"><title>薪資單列印</title>
     <style>
       * { box-sizing: border-box; }
-      body { font-family: 'Noto Sans TC', Arial, sans-serif; font-size: ${base}px; line-height: 1.4; margin: 10mm; color: #222; }
+      body { font-family: 'Noto Sans TC', Arial, sans-serif; font-size: ${base}px; line-height: 1.4; margin: ${bodyMargin}; color: #222; }
       h2 { font-size: ${h2Size}px; margin: 0 0 6px; }
       p.sub { color: #555; margin: 2px 0 12px; font-size: ${subSize}px; }
-      .slip-layout { display: grid; grid-template-columns: 52% 48%; gap: 8px; align-items: start; }
+      .slip-layout { display: grid; grid-template-columns: 52% 48%; gap: ${layoutGap}; align-items: start; }
       .slip-page { page-break-after: always; }
       .slip-page:last-child { page-break-after: auto; }
       table { width: 100%; border-collapse: collapse; margin-top: 6px; table-layout: fixed; }
@@ -3648,14 +3689,21 @@ function buildSlipDocumentHtml(bodyHtml, orientation, baseFontSize = 20) {
       .gross { color: #1a237e; font-weight: 700; }
       .ot { color: #2e7d32; }
       .meal { color: #e65100; }
+      body.one-page h2 { margin-bottom: 4px; }
+      body.one-page p.sub { margin: 1px 0 6px; }
+      body.one-page .slip-layout { grid-template-columns: 50% 50%; }
+      body.one-page th, body.one-page td { padding: 4px 6px; }
+      body.one-page .att-wrap { padding: 5px 6px; }
+      body.one-page .att-title { margin-bottom: 4px; }
+      body.one-page .att-table th, body.one-page .att-table td { padding: 3px 5px; }
       @media print {
-        @page { size: A4 ${orientation}; margin: 8mm; }
+        @page { size: A4 ${orientation}; margin: ${pageMargin}; }
         html, body { width: auto; margin: 0; }
         body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .slip-layout { grid-template-columns: ${orientation === "landscape" ? "50% 50%" : "52% 48%"}; gap: 8px; }
+        .slip-layout { grid-template-columns: ${orientation === "landscape" ? "50% 50%" : "52% 48%"}; gap: ${layoutGap}; }
       }
     </style>
-  </head><body>${bodyHtml}</body></html>`;
+  </head><body class="${onePage ? "one-page" : ""}">${bodyHtml}</body></html>`;
 }
 
 function openPrintWindow(html) {
@@ -3670,18 +3718,23 @@ function openPrintWindow(html) {
 }
 
 function printSlip(r, mode) {
-  const data = buildSlipPrintData(r, mode);
+  const onePage = printOnePage.value === true;
+  const keepAllRows = printOnePageKeepAll.value === true;
+  const data = buildSlipPrintData(r, mode, { onePage, keepAllRows });
   openPrintWindow(
     buildSlipDocumentHtml(
       buildSlipBodyHtml(data),
       data.orientation,
       printFontSize.value,
+      { onePage },
     ),
   );
 }
 
 function printAllSlips(mode, options = {}) {
   const foreignOnly = options?.foreignOnly === true;
+  const onePage = printOnePage.value === true;
+  const keepAllRows = printOnePageKeepAll.value === true;
   const resolveStaffProfile = (record) => {
     const empNoRaw = String(record?.empNo ?? "").trim();
     const nameRaw = String(record?.name ?? "").trim();
@@ -3736,12 +3789,14 @@ function printAllSlips(mode, options = {}) {
     printOrientation.value === "landscape" ? "landscape" : "portrait";
   const pagesHtml = records
     .map((r) => {
-      const data = buildSlipPrintData(r, mode);
+      const data = buildSlipPrintData(r, mode, { onePage, keepAllRows });
       return `<section class="slip-page">${buildSlipBodyHtml(data)}</section>`;
     })
     .join("");
   openPrintWindow(
-    buildSlipDocumentHtml(pagesHtml, orientation, printFontSize.value),
+    buildSlipDocumentHtml(pagesHtml, orientation, printFontSize.value, {
+      onePage,
+    }),
   );
 }
 
