@@ -10606,6 +10606,12 @@ async function runPayrollCalculation(yyyyMM) {
     const dow = calendarDayOfWeek(d);
     return dow === 0 || dow === 6 || publicHolidaySet.has(d);
   }
+  function isWeekendDate(dateStr) {
+    const d = normalizeCalendarDate(dateStr);
+    if (!d) return false;
+    const dow = calendarDayOfWeek(d);
+    return dow === 0 || dow === 6;
+  }
   function regularWorkdaysBetween(startDate, endDate) {
     if (!startDate || !endDate || endDate < startDate) return [];
     const start = new Date(`${startDate}T00:00:00`);
@@ -11135,6 +11141,7 @@ async function runPayrollCalculation(yyyyMM) {
     let otHoursOfficial = 0;
     const otDetailOfficial = [];
     for (const ot of otRecords) {
+      if (isWeekendDate(ot.date)) continue;
       const actualIntersectionH = Math.max(
         0,
         calcOtIntersectionHours(ot, attendanceByDate),

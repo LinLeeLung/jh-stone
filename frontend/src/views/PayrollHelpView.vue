@@ -180,7 +180,7 @@
       <h4>5 日實發</h4>
       <div class="formula">
         5日實發 = max(0,<br>
-        　投保薪資 + 申報加班費<br>
+        　投保薪資 + 申報加班費（不含週六、週日）<br>
         　− <strong>請假扣薪</strong> − <strong>曠職扣薪</strong> − <strong>遲到/早退扣薪</strong><br>
         　− <strong>勞保費</strong> − <strong>健保費（本人）</strong> − <strong>眷屬健保費</strong><br>
         　− <strong>互助金</strong> − <strong>便當費</strong><br>
@@ -189,6 +189,7 @@
       <h4>10 日補發</h4>
       <p><code>10日補發 = 實領 − 5日實發</code></p>
       <div class="note">
+        週六、週日加班與出勤明細只列入 10 日，不列入 5 日薪資單。<br>
         其他減項會在實領薪資中扣除，因此反映於 10 日補發。<br>
         若底薪高於投保薪資或加班費較多，差額於 10 日補齊。<br>
         若 5 日已多發，10 日補發為負數（補扣）。

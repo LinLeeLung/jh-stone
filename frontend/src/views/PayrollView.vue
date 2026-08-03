@@ -1126,6 +1126,13 @@ function isRegularWorkday(dateStr) {
   return !publicHolidaySet.value.has(normalized);
 }
 
+function isWeekendDate(dateStr) {
+  const date = parseLocalDate(dateStr);
+  if (!date) return false;
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
 function resolveResignDate(staff, record) {
   const fromStaff =
     staff?.endDate ||
@@ -1549,7 +1556,7 @@ function calcFirstPayment(r) {
   return Math.max(
     0,
     calcLaborInsuranceSalaryBase(r) +
-      (Number(r.otPayOfficial) || 0) -
+      calcOfficialOvertimePay(r) -
       calcLeaveDeduction(r) -
       calcLateEarlyDeduction(r) -
       calcAbsentDeduction(r) -
@@ -1563,6 +1570,31 @@ function calcFirstPayment(r) {
 
 function isPerformanceSalary(r) {
   return String(r?.salaryType || "").trim() === "營業額1%";
+}
+
+function getEffectiveOfficialOvertimeDetail(r) {
+  const details = Array.isArray(r?.otDetailOfficial) ? r.otDetailOfficial : [];
+  return details.filter((ot) => !isWeekendDate(ot?.date));
+}
+
+function calcOfficialOvertimePay(r) {
+  if (Array.isArray(r?.otDetailOfficial)) {
+    return getEffectiveOfficialOvertimeDetail(r).reduce(
+      (sum, ot) => sum + (Number(ot?.pay) || 0),
+      0,
+    );
+  }
+  return Number(r?.otPayOfficial) || 0;
+}
+
+function calcOfficialOvertimeHours(r) {
+  if (Array.isArray(r?.otDetailOfficial)) {
+    return getEffectiveOfficialOvertimeDetail(r).reduce(
+      (sum, ot) => sum + (Number(ot?.hours) || 0),
+      0,
+    );
+  }
+  return Number(r?.otHoursOfficial) || 0;
 }
 
 function isForeignWorkerRecord(r) {
@@ -1692,11 +1724,11 @@ function calcLaborInsuranceSalaryBase(r) {
   }
   // Legacy fallback for old records missing laborInsuranceSalaryBase.
   // Keep consistent with current rule:
-  // firstPayment = 投保薪資 + 申報加班費 - 請假 - 曠職 - 遲到早退 - 勞保 - 健保 - 眷屬健保 - 互助金 - 便當費
+  // firstPayment = 投保薪資 + 工作日申報加班費 - 請假 - 曠職 - 遲到早退 - 勞保 - 健保 - 眷屬健保 - 互助金 - 便當費
   return Math.max(
     0,
     (Number(r.firstPayment) || 0) -
-      (Number(r.otPayOfficial) || 0) +
+      calcOfficialOvertimePay(r) +
       calcLeaveDeduction(r) +
       calcAbsentDeduction(r) +
       calcLateEarlyDeduction(r) +
@@ -1950,6 +1982,7 @@ function getAnnualFieldValue(r, key) {
   if (key === "grossPay") return calcGrossPay(r);
   if (key === "firstPayment") return calcFirstPayment(r);
   if (key === "secondPayment") return calcSecondPayment(r);
+  if (key === "otPayOfficial") return calcOfficialOvertimePay(r);
   if (key === "mealAllowance") return calcMealAllowance(r);
   if (key === "absentDeduction") return calcAbsentDeduction(r);
   if (key === "lateEarlyDeduction") return calcLateEarlyDeduction(r);
@@ -3019,10 +3052,14 @@ function buildAttendanceRows(r, mode, options = {}) {
   const byDate = new Map();
   const workHoursByDate = new Map();
   const overtimeTimeByDate = new Map();
+  const firstPaymentMode = mode === "first";
+  const shouldShowAttendanceDate = (date) =>
+    !(firstPaymentMode && isWeekendDate(date));
 
   for (const ot of r._attendanceOvertime || []) {
     const date = String(ot?.date || "").trim();
     if (!date) continue;
+    if (!shouldShowAttendanceDate(date)) continue;
     const start = normalizePunchTime(ot?.startTime);
     const end = normalizePunchTime(ot?.endTime);
     const range = start || end ? `${start || "--:--"}~${end || "--:--"}` : "";
@@ -3042,18 +3079,18 @@ function buildAttendanceRows(r, mode, options = {}) {
 
   const add = (date, text) => {
     const d = String(date || "").trim();
-    if (!d || !text) return;
+    if (!d || !text || !shouldShowAttendanceDate(d)) return;
     if (!byDate.has(d)) byDate.set(d, []);
     byDate.get(d).push(text);
   };
   const addWorkHours = (date, hours) => {
     const d = String(date || "").trim();
-    if (!d) return;
+    if (!d || !shouldShowAttendanceDate(d)) return;
     const h = Number(hours) || 0;
     workHoursByDate.set(d, (workHoursByDate.get(d) || 0) + h);
   };
 
-  const otRows = mode === "first" ? r.otDetailOfficial || [] : r.otDetail || [];
+  const otRows = mode === "first" ? getEffectiveOfficialOvertimeDetail(r) : r.otDetail || [];
   for (const ot of otRows) {
     const hours = Number(ot.hours) || 0;
     const pay = Number(ot.pay) || 0;
@@ -3111,6 +3148,7 @@ function buildAttendanceRows(r, mode, options = {}) {
   );
   const dates = Array.from(byDate.keys())
     .filter((d) => {
+      if (!shouldShowAttendanceDate(d)) return false;
       if (!monthStart || !monthEnd) return true;
       const nd = normalizeDateStr(d) || d;
       return nd >= monthStart && nd <= monthEnd;
@@ -3501,7 +3539,9 @@ function buildSlipPrintData(r, mode, options = {}) {
 
   if (mode === "first") {
     const base = calcLaborInsuranceSalaryBase(r);
-    const otOffRows = (r.otDetailOfficial || [])
+    const officialOvertimePay = calcOfficialOvertimePay(r);
+    const officialOvertimeHours = calcOfficialOvertimeHours(r);
+    const otOffRows = getEffectiveOfficialOvertimeDetail(r)
       .map(
         (ot) =>
           `<tr class="sub"><th>${ot.date}（${h1(ot.hours)}h）</th><td class="ot">+${n(ot.pay)}</td></tr>`,
@@ -3530,7 +3570,7 @@ function buildSlipPrintData(r, mode, options = {}) {
       ${isPerformanceSalary(r) ? `<tr><th>業績（營業額1%）</th><td>${n(r.performanceSalesAmount)} × 1% = ${n(calcPerformancePay(r))}</td></tr>` : ""}
       ${salaryType === "時薪" ? `<tr><th>時薪底薪（${hourlyFormulaText}）</th><td>${n(displayBaseSalary(r))}</td></tr>` : ""}
       <tr class="sep"><th>投保薪資</th><td>${n(base)}</td></tr>
-      ${(r.otPayOfficial || 0) > 0 ? `<tr><th>加班費（申報，${h1(r.otHoursOfficial)}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>${otOffRows}` : ""}
+      ${officialOvertimePay > 0 ? `<tr><th>加班費（申報，${h1(officialOvertimeHours)}h）</th><td class="ot">+${n(officialOvertimePay)}</td></tr>${otOffRows}` : ""}
       ${leaveRows ? `<tr><th>請假扣薪合計</th><td class="deduct">−${n(calcLeaveDeduction(r))}</td></tr>${leaveRows}` : ""}
       ${calcLateEarlyDeduction(r) > 0 ? `<tr><th>遲到/早退扣薪</th><td class="deduct">−${n(calcLateEarlyDeduction(r))}</td></tr>${lateRows}` : ""}
       ${calcAbsentDeduction(r) > 0 ? `<tr><th>曠職扣薪（${calcAbsentDays(r)}天）</th><td class="deduct">−${n(calcAbsentDeduction(r))}</td></tr>` : ""}
@@ -3583,6 +3623,8 @@ function buildSlipPrintData(r, mode, options = {}) {
         return `<tr class="sub"><th>${le.date} ${parts.join("/")}</th><td class="deduct">−${n(le.deduction)}</td></tr>`;
       })
       .join("");
+    const officialOvertimePay = calcOfficialOvertimePay(r);
+    const officialOvertimeHours = calcOfficialOvertimeHours(r);
 
     bodyRows = `
       <tr><th>${labelText("薪資類型")}</th><td>${r.salaryType || ""}</td></tr>
@@ -3593,7 +3635,7 @@ function buildSlipPrintData(r, mode, options = {}) {
       <tr class="sep"><th>${salaryType === "時薪" ? `${labelText("底薪")}（${hourlyFormulaText}）` : labelText("底薪")}</th><td>${n(displayBaseSalary(r))}</td></tr>
       ${r.bonusTotal > 0 ? `<tr><th>${labelText("固定獎金合計")}</th><td>+${n(r.bonusTotal)}</td></tr>${bonuses}` : ""}
       ${r.otPay > 0 ? `<tr><th>${labelText(`加班費合計（實際，${h1(r.otHours)}h）`, "加班費合計")}</th><td class="ot">+${n(r.otPay)}</td></tr>${otRows}` : ""}
-      ${r.otPayOfficial != null && r.otPayOfficial !== r.otPay ? `<tr><th>加班費（申報，${h1(r.otHoursOfficial)}h）</th><td class="ot">+${n(r.otPayOfficial)}</td></tr>` : ""}
+      ${officialOvertimePay > 0 && officialOvertimePay !== r.otPay ? `<tr><th>加班費（申報，${h1(officialOvertimeHours)}h）</th><td class="ot">+${n(officialOvertimePay)}</td></tr>` : ""}
       ${calcMealAllowance(r) > 0 ? `<tr><th>${labelText("伙食費合計")}</th><td class="meal">+${n(calcMealAllowance(r))}</td></tr>${mealRows}` : ""}
       ${leaveRows ? `<tr><th>${labelText("請假扣薪合計")}</th><td class="deduct">−${n(calcLeaveDeduction(r))}</td></tr>${leaveRows}` : ""}
       ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>${labelText(`未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）`, "未上班扣薪")}</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ""}
