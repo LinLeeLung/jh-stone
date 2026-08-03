@@ -2367,30 +2367,107 @@ function parseEmpNoSortValue(empNo) {
   return Number(digits);
 }
 
+function normalizeLookupValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isActiveStaffRecord(staff) {
+  const status = String(staff?.status || "").trim();
+  return !status || status === "在職";
+}
+
+function staffRecordRank(staff, emailToUid) {
+  const email = normalizeLookupValue(staff?.email);
+  let rank = 0;
+  if (email && emailToUid[email]) rank += 4;
+  if (String(staff?.status || "").trim() === "在職") rank += 2;
+  if (staff?.startDate) rank += 1;
+  return rank;
+}
+
+function buildActiveStaffRows(staffSnap, usersSnap) {
+  const emailToUid = {};
+  usersSnap.docs.forEach((d) => {
+    const email = normalizeLookupValue(d.data().email);
+    if (email) emailToUid[email] = d.id;
+  });
+
+  const staffByKey = new Map();
+  staffSnap.docs.forEach((d) => {
+    const staff = { id: d.id, ...d.data() };
+    if (!isActiveStaffRecord(staff)) return;
+
+    const empNo = String(staff.empNo || d.id || "").trim();
+    const email = normalizeLookupValue(staff.email);
+    const key = empNo ? `empNo:${empNo}` : email ? `email:${email}` : `doc:${d.id}`;
+    const existing = staffByKey.get(key);
+    if (!existing || staffRecordRank(staff, emailToUid) > staffRecordRank(existing, emailToUid)) {
+      staffByKey.set(key, staff);
+    }
+  });
+
+  return Array.from(staffByKey.values())
+    .map((staff) => {
+      const email = normalizeLookupValue(staff.email);
+      const uid = emailToUid[email];
+      if (!uid) return null;
+      return {
+        uid,
+        empNo: staff.empNo || staff.id || "",
+        name: staff.name || staff.displayName || "",
+        startDate: staff.startDate || "",
+      };
+    })
+    .filter(Boolean);
+}
+
+function makeQuotaRow(staff, quota = {}) {
+  const defaults = {
+    uid: staff.uid,
+    empNo: staff.empNo || "",
+    name: staff.name || "",
+    startDate: staff.startDate || "",
+    annual: { total: 0, used: 0 },
+    sick: { total: 30, used: 0 },
+    personal: { total: 14, used: 0 },
+    maternity: { total: 56, used: 0 },
+    menstrual: { total: 3, used: 0 },
+  };
+  return {
+    ...quota,
+    uid: staff.uid,
+    empNo: staff.empNo || quota.empNo || "",
+    name: staff.name || quota.name || "",
+    startDate: staff.startDate || quota.startDate || "",
+    annual: { ...defaults.annual, ...(quota.annual || {}) },
+    sick: { ...defaults.sick, ...(quota.sick || {}) },
+    personal: { ...defaults.personal, ...(quota.personal || {}) },
+    maternity: { ...defaults.maternity, ...(quota.maternity || {}) },
+    menstrual: { ...defaults.menstrual, ...(quota.menstrual || {}) },
+  };
+}
+
+function sortQuotaRows(left, right) {
+  const empNoDiff =
+    parseEmpNoSortValue(left.empNo) - parseEmpNoSortValue(right.empNo);
+  if (empNoDiff !== 0) return empNoDiff;
+  return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant");
+}
+
 async function loadQuotas() {
   loadingQuota.value = true;
   try {
-    const snap = await getDocs(collection(db, "leaveQuota"));
-    quotaList.value = snap.docs
-      .map((d) => ({
-        ...{
-          uid: d.id,
-          empNo: "",
-          name: "",
-          annual: { total: 0, used: 0 },
-          sick: { total: 30, used: 0 },
-          personal: { total: 14, used: 0 },
-          maternity: { total: 56, used: 0 },
-          menstrual: { total: 3, used: 0 },
-        },
-        ...d.data(),
-      }))
-      .sort((left, right) => {
-        const empNoDiff =
-          parseEmpNoSortValue(left.empNo) - parseEmpNoSortValue(right.empNo);
-        if (empNoDiff !== 0) return empNoDiff;
-        return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant");
-      });
+    const [quotaSnap, staffSnap, usersSnap] = await Promise.all([
+      getDocs(collection(db, "leaveQuota")),
+      getDocs(collection(db, "staff")),
+      getDocs(collection(db, "Users")),
+    ]);
+    const quotaByUid = new Map(
+      quotaSnap.docs.map((d) => [d.id, { uid: d.id, ...d.data() }]),
+    );
+    quotaList.value = buildActiveStaffRows(staffSnap, usersSnap)
+      .map((staff) => makeQuotaRow(staff, quotaByUid.get(staff.uid)))
+      .sort(sortQuotaRows);
   } finally {
     loadingQuota.value = false;
   }
@@ -2428,24 +2505,17 @@ async function initQuotaForAll() {
       getDocs(collection(db, "staff")),
       getDocs(collection(db, "Users")),
     ]);
-    const emailToUid = {};
-    usersSnap.docs.forEach((d) => {
-      const v = d.data();
-      if (v.email) emailToUid[v.email] = d.id;
-    });
 
     const existing = new Set(quotaList.value.map((q) => q.uid));
     let added = 0;
-    for (const d of staffSnap.docs) {
-      const s = d.data();
-      const uid = emailToUid[s.email];
-      if (!uid || existing.has(uid)) continue;
-      await setDoc(doc(db, "leaveQuota", uid), {
-        uid,
-        empNo: s.empNo || d.id,
-        name: s.name || "",
+    for (const staff of buildActiveStaffRows(staffSnap, usersSnap)) {
+      if (existing.has(staff.uid)) continue;
+      await setDoc(doc(db, "leaveQuota", staff.uid), {
+        uid: staff.uid,
+        empNo: staff.empNo || "",
+        name: staff.name || "",
         year: new Date().getFullYear(),
-        annual: { total: calcAnnualLeaveDays(s.startDate), used: 0 },
+        annual: { total: calcAnnualLeaveDays(staff.startDate), used: 0 },
         sick: { total: 30, used: 0 },
         personal: { total: 14, used: 0 },
         maternity: { total: 56, used: 0 },
@@ -2491,24 +2561,16 @@ async function recalcAnnualLeave() {
       getDocs(collection(db, "staff")),
       getDocs(collection(db, "Users")),
     ]);
-    const emailToUid = {};
-    usersSnap.docs.forEach((d) => {
-      const v = d.data();
-      if (v.email) emailToUid[v.email] = d.id;
-    });
-    const emailToStart = {};
-    staffSnap.docs.forEach((d) => {
-      const v = d.data();
-      if (v.email && v.startDate) emailToStart[v.email] = v.startDate;
-    });
+    const startDateByUid = new Map(
+      buildActiveStaffRows(staffSnap, usersSnap).map((staff) => [
+        staff.uid,
+        staff.startDate,
+      ]),
+    );
 
     let updated = 0;
     for (const q of quotaList.value) {
-      // find staff email by uid
-      const userDoc = usersSnap.docs.find((d) => d.id === q.uid);
-      if (!userDoc) continue;
-      const email = userDoc.data().email;
-      const startDate = emailToStart[email];
+      const startDate = startDateByUid.get(q.uid);
       if (!startDate) continue;
       const days = calcAnnualLeaveDays(startDate);
       await updateDoc(doc(db, "leaveQuota", q.uid), {
