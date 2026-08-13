@@ -2148,7 +2148,15 @@ async function loadInventoryColorCatalog() {
     );
     const csvKeys = new Set(csvColors.map((row) => keyOf(row)));
 
-    const merged = csvColors.map((row) => firestoreMap.get(keyOf(row)) || row);
+    const merged = csvColors.map((row) => {
+      const firestoreRow = firestoreMap.get(keyOf(row));
+      if (!firestoreRow) return row;
+      return {
+        ...row,
+        imageUrl: firestoreRow.imageUrl || row.imageUrl,
+        status: firestoreRow.status || row.status,
+      };
+    });
     normalizedFirestoreColors.forEach((row) => {
       if (!csvKeys.has(keyOf(row))) {
         merged.push(row);
