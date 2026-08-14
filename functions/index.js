@@ -10585,6 +10585,13 @@ async function runPayrollCalculation(yyyyMM) {
       )
       .filter(Boolean),
   );
+  const typhoonLeaveDateSet = new Set(
+    (settingsData.typhoonLeaveDates || [])
+      .map((h) =>
+        normalizeCalendarDate(typeof h === "string" ? h : h && h.date),
+      )
+      .filter(Boolean),
+  );
   function calendarDayOfWeek(dateStr) {
     const d = normalizeCalendarDate(dateStr);
     if (!d) return null;
@@ -10851,6 +10858,41 @@ async function runPayrollCalculation(yyyyMM) {
       return Math.round(((endMins - startMins - lunchOverlap) / 60) * 10) / 10;
     }
     return Math.max(0, Number(lv.hours) || 0);
+  }
+
+  function calcDayBasedLeaveDays(lv, clippedWorkdays = []) {
+    const workdayCount = clippedWorkdays.length;
+    if (workdayCount <= 0) return 0;
+    const requestedDays = Number(lv.days);
+    if (workdayCount === 1 && requestedDays > 0 && requestedDays < 1) {
+      return requestedDays;
+    }
+    if (workdayCount === 1 && lv.halfDay) return 0.5;
+    return workdayCount;
+  }
+
+  function calcDayBasedLeaveHours(lv, clippedWorkdays = [], attendanceByDateMap) {
+    const leaveDays = calcDayBasedLeaveDays(lv, clippedWorkdays);
+    if (leaveDays <= 0) return 0;
+    const requestedDays = Number(lv.days);
+    if (
+      clippedWorkdays.length === 1 &&
+      ((requestedDays > 0 && requestedDays < 1) || lv.halfDay)
+    ) {
+      return leaveDays * 8;
+    }
+
+    let totalHours = 0;
+    for (const dateStr of clippedWorkdays) {
+      const att = attendanceByDateMap.get(dateStr);
+      if (att && getFirstWorkStart(att) && getLastWorkEnd(att)) {
+        const workedHours = Math.max(0, Math.min(8, calcRegularWorkHours(att)));
+        totalHours += Math.max(0, 8 - workedHours);
+      } else {
+        totalHours += 8;
+      }
+    }
+    return Math.min(totalHours, leaveDays * 8);
   }
 
   function tsToMs(value) {
@@ -11174,7 +11216,8 @@ async function runPayrollCalculation(yyyyMM) {
       const hrs =
         unit === "小時"
           ? calcLeaveRequestHours(lv, start)
-          : clippedWorkdays.length * 8;
+          : calcDayBasedLeaveHours(lv, clippedWorkdays, attendanceByDate);
+      const leaveDays = unit === "小時" ? null : Math.round((hrs / 8) * 100) / 100;
       if (hrs <= 0) continue;
       let deduction = 0;
       if (salType !== "時薪") {
@@ -11200,12 +11243,48 @@ async function runPayrollCalculation(yyyyMM) {
         unit,
         startDate: clippedStart,
         endDate: clippedEnd,
-        days: unit === "小時" ? null : clippedWorkdays.length,
+        halfDay: unit === "天" ? lv.halfDay || null : null,
+        days: leaveDays,
         hours: unit === "小時" ? hrs : null,
         startTime: unit === "小時" ? lv.startTime || null : null,
         endTime: unit === "小時" ? lv.endTime || null : null,
         workdaysOnly: true,
         workDates: unit === "小時" ? [start].filter(Boolean) : clippedWorkdays,
+        deduction,
+      });
+    }
+
+    const punchedDatesForTyphoon = new Set(
+      attendanceRecordsThisMonth
+        .filter(
+          (r) => String(r.date || "").startsWith(monthPrefix) && r.punchIn,
+        )
+        .map((r) => String(r.date || "").slice(0, 10)),
+    );
+    for (const dateStr of typhoonLeaveDateSet) {
+      if (dateStr < employmentStart) continue;
+      if (dateStr > employmentEnd) continue;
+      if (!dateStr.startsWith(monthPrefix)) continue;
+      if (!isRegularWorkday(dateStr)) continue;
+      if (punchedDatesForTyphoon.has(dateStr)) continue;
+      if (leaveCoveredDates.has(dateStr)) continue;
+
+      const hrs = 8;
+      const deduction = salType === "時薪" ? 0 : Math.round(baseHourlyRate * hrs);
+      leaveDeduction += deduction;
+      leaveCoveredDates.add(dateStr);
+      leaveDetail.push({
+        type: "無薪假(颱風)",
+        unit: "天",
+        startDate: dateStr,
+        endDate: dateStr,
+        halfDay: null,
+        days: 1,
+        hours: null,
+        startTime: null,
+        endTime: null,
+        workdaysOnly: true,
+        workDates: [dateStr],
         deduction,
       });
     }

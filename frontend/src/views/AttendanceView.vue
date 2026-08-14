@@ -485,7 +485,7 @@
                       : "—"
                   }}
                 </td>
-                <td>{{ leaveSummary(emp.byDate[day]) }}</td>
+                <td>{{ leaveSummary(emp.byDate[day], day) }}</td>
               </tr>
             </tbody>
             <tfoot>
@@ -1055,8 +1055,12 @@ function hasCompletedWorkRecord(record) {
   return calcRecordHours(record) !== "—";
 }
 
-function leaveSummary(record) {
+function leaveSummary(record, date = "") {
+  if (!record && typhoonLeaveDateSet.value.has(date)) return "無薪假(颱風)";
   const segments = getLeaveSegments(record);
+  if (!segments.length && typhoonLeaveDateSet.value.has(date)) {
+    return "無薪假(颱風)";
+  }
   if (!segments.length) return "";
   return segments
     .map(
@@ -2269,6 +2273,18 @@ const laborEmployee = ref("");
 const loadingLabor = ref(false);
 const laborData = ref([]);
 const laborStaffList = ref([]);
+const typhoonLeaveDateSet = ref(new Set());
+
+function normalizeDateSet(items) {
+  return new Set(
+    (Array.isArray(items) ? items : [])
+      .map((item) =>
+        typeof item === "string" ? item : String(item?.date || ""),
+      )
+      .map((date) => date.slice(0, 10))
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
+  );
+}
 
 function laborEmpNo(source = {}) {
   const candidates = [
@@ -2326,7 +2342,7 @@ async function fetchLaborReport() {
   loadingLabor.value = true;
   try {
     const m = laborMonth.value;
-    const [snaps, allUsers, staffSnap] = await Promise.all([
+    const [snaps, allUsers, staffSnap, settings] = await Promise.all([
       getDocs(
         query(
           collection(db, "attendance"),
@@ -2336,7 +2352,9 @@ async function fetchLaborReport() {
       ),
       fetchAllUsers(),
       getDocs(collection(db, "staff")),
+      getSystemSettings(),
     ]);
+    typhoonLeaveDateSet.value = normalizeDateSet(settings.typhoonLeaveDates);
 
     const staffRows = staffSnap.docs.map((d) => d.data() || {});
     const staffByEmail = Object.fromEntries(

@@ -1543,6 +1543,13 @@ export async function getSystemSettings() {
             : { date: h.date || "", name: h.name || "" },
         )
       : [],
+    typhoonLeaveDates: Array.isArray(data.typhoonLeaveDates)
+      ? data.typhoonLeaveDates.map((h) =>
+          typeof h === "string"
+            ? { date: h, name: "颱風" }
+            : { date: h.date || "", name: h.name || "颱風" },
+        )
+      : [],
     makeupWorkdays: Array.isArray(data.makeupWorkdays)
       ? data.makeupWorkdays.map((h) =>
           typeof h === "string"
@@ -1609,6 +1616,16 @@ export async function saveSystemSettings(payload = {}) {
                 /^\d{4}-\d{2}-\d{2}$/.test(h.date),
             )
             .map((h) => ({ date: h.date, name: String(h.name || "") }))
+        : [],
+      typhoonLeaveDates: Array.isArray(payload.typhoonLeaveDates)
+        ? payload.typhoonLeaveDates
+            .filter(
+              (h) =>
+                h &&
+                typeof h.date === "string" &&
+                /^\d{4}-\d{2}-\d{2}$/.test(h.date),
+            )
+            .map((h) => ({ date: h.date, name: String(h.name || "颱風") }))
         : [],
       makeupWorkdays: Array.isArray(payload.makeupWorkdays)
         ? payload.makeupWorkdays

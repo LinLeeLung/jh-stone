@@ -341,6 +341,84 @@
         </div>
       </div>
 
+      <!-- 颱風無薪假設定 -->
+      <div class="settings-section">
+        <div class="section-head">
+          <h3 class="section-title">颱風無薪假日</h3>
+          <p class="section-desc">
+            設定因颱風停班且不支薪的日期，薪資與出勤明細會顯示為無薪假(颱風)，不列為曠職。
+          </p>
+        </div>
+        <div class="field-row" style="gap: 8px; align-items: flex-end">
+          <div class="field-item">
+            <label>新增颱風日</label>
+            <input
+              type="date"
+              v-model="newTyphoonLeaveDay"
+              style="
+                padding: 5px 8px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+              "
+            />
+          </div>
+          <button
+            class="btn-aux"
+            @click="addTyphoonLeaveDay"
+            :disabled="!newTyphoonLeaveDay || saving"
+          >
+            {{ saving ? "儲存中…" : "新增並儲存" }}
+          </button>
+        </div>
+        <div
+          v-if="form.typhoonLeaveDates && form.typhoonLeaveDates.length"
+          style="margin-top: 10px"
+        >
+          <div
+            v-for="h in form.typhoonLeaveDates
+              .slice()
+              .sort((a, b) => (a.date < b.date ? -1 : 1))"
+            :key="h.date"
+            style="
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              margin: 3px 6px 3px 0;
+              background: #eef7f2;
+              border: 1px solid #9fd4b4;
+              border-radius: 5px;
+              padding: 3px 8px;
+              font-size: 0.88rem;
+            "
+          >
+            <span
+              >{{ h.date
+              }}<span v-if="h.name" style="margin-left: 5px; color: #555">{{
+                h.name
+              }}</span></span
+            >
+            <button
+              @click="removeTyphoonLeaveDay(h.date)"
+              :disabled="saving"
+              style="
+                background: none;
+                border: none;
+                cursor: pointer;
+                color: #c0392b;
+                font-size: 0.95rem;
+                padding: 0;
+                line-height: 1;
+              "
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <div v-else style="color: #aaa; font-size: 0.85rem; margin-top: 8px">
+          尚未設定颱風無薪假日
+        </div>
+      </div>
+
       <!-- 補班日設定 -->
       <div class="settings-section">
         <div class="section-head">
@@ -1060,6 +1138,7 @@ const form = ref({
   },
   loanInterestRate: 2,
   publicHolidays: [],
+  typhoonLeaveDates: [],
   makeupWorkdays: [],
 });
 
@@ -1080,9 +1159,25 @@ const batchResults = ref([]);
 // 假日管理
 const newHoliday = ref("");
 const loadingHolidays = ref(false);
+const newTyphoonLeaveDay = ref("");
 // 補班日管理
 const newMakeupDay = ref("");
 const loadingMakeupDays = ref(false);
+async function addTyphoonLeaveDay() {
+  const d = newTyphoonLeaveDay.value;
+  if (!d) return;
+  if (!form.value.typhoonLeaveDates.some((h) => h.date === d)) {
+    form.value.typhoonLeaveDates.push({ date: d, name: "颱風" });
+  }
+  newTyphoonLeaveDay.value = "";
+  await save();
+}
+async function removeTyphoonLeaveDay(d) {
+  form.value.typhoonLeaveDates = form.value.typhoonLeaveDates.filter(
+    (h) => h.date !== d,
+  );
+  await save();
+}
 function addMakeupDay() {
   const d = newMakeupDay.value;
   if (!d) return;
@@ -1519,6 +1614,9 @@ async function loadSettings() {
       : 2;
     form.value.publicHolidays = Array.isArray(data.publicHolidays)
       ? data.publicHolidays.slice()
+      : [];
+    form.value.typhoonLeaveDates = Array.isArray(data.typhoonLeaveDates)
+      ? data.typhoonLeaveDates.slice()
       : [];
     form.value.makeupWorkdays = Array.isArray(data.makeupWorkdays)
       ? data.makeupWorkdays.slice()

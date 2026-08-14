@@ -2889,7 +2889,8 @@ function getEarlyMinutes(row = {}) {
 
 function formatLeaveUnit(lv = {}) {
   if (lv.unit === "小時") return `${Number(lv.hours) || 0}h`;
-  return `${Math.max(1, Number(lv.days) || 1)}天`;
+  const days = Number(lv.days);
+  return `${days > 0 ? days : 1}天`;
 }
 
 function calcLeaveHoursFromTimes(date, startTime, endTime) {
@@ -2978,6 +2979,46 @@ function expandRegularLeaveDates(lv = {}) {
   return expandLeaveDates(lv).filter((date) => isRegularWorkday(date));
 }
 
+function calcDayBasedLeaveDays(lv = {}, clippedDates = []) {
+  const workdayCount = clippedDates.length;
+  if (workdayCount <= 0) return 0;
+  const requestedDays = Number(lv.days);
+  if (workdayCount === 1 && requestedDays > 0 && requestedDays < 1) {
+    return requestedDays;
+  }
+  if (workdayCount === 1 && lv.halfDay) return 0.5;
+  return workdayCount;
+}
+
+function calcDayBasedLeaveHours(record = {}, lv = {}, clippedDates = []) {
+  const leaveDays = calcDayBasedLeaveDays(lv, clippedDates);
+  if (leaveDays <= 0) return 0;
+  const requestedDays = Number(lv.days);
+  if (
+    clippedDates.length === 1 &&
+    ((requestedDays > 0 && requestedDays < 1) || lv.halfDay)
+  ) {
+    return leaveDays * 8;
+  }
+
+  const attendanceByDate = new Map(
+    (Array.isArray(record?._attendanceRecords) ? record._attendanceRecords : [])
+      .map((row) => [normalizeDateStr(row?.date), row])
+      .filter(([date]) => Boolean(date)),
+  );
+  let totalHours = 0;
+  for (const date of clippedDates) {
+    const att = attendanceByDate.get(date);
+    if (att && getAttendancePunchRange(att)) {
+      const workedHours = Math.max(0, Math.min(8, calcAttendanceWorkedHours(att)));
+      totalHours += Math.max(0, 8 - workedHours);
+    } else {
+      totalHours += 8;
+    }
+  }
+  return Math.min(totalHours, leaveDays * 8);
+}
+
 function getPayrollMonthBounds(record = {}) {
   return getMonthBounds(record?.yyyyMM || selectedMonth.value);
 }
@@ -3008,7 +3049,10 @@ function getEffectiveLeaveDetail(record = {}) {
             source.startTime,
             source.endTime,
           ) || Number(source.hours ?? lv.hours) || 0
-        : clippedDates.length * 8;
+        : calcDayBasedLeaveHours(record, source, clippedDates);
+      const leaveDays = isHourLeave
+        ? lv.days
+        : Math.round((hours / 8) * 100) / 100;
       const deduction = matchedLeave || !isHourLeave
         ? calcLeaveDeductionAmount(record, source, hours)
         : proratedDeduction;
@@ -3016,12 +3060,22 @@ function getEffectiveLeaveDetail(record = {}) {
         ...lv,
         startDate: clippedDates[0],
         endDate: clippedDates[clippedDates.length - 1],
-        days: isHourLeave ? lv.days : clippedDates.length,
+        halfDay: source.halfDay ?? lv.halfDay,
+        days: leaveDays,
         hours: isHourLeave ? hours : lv.hours,
         deduction,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aStart = normalizeDateStr(a.startDate || a.date) || "";
+      const bStart = normalizeDateStr(b.startDate || b.date) || "";
+      if (aStart !== bStart) return aStart.localeCompare(bStart);
+      const aEnd = normalizeDateStr(a.endDate || a.startDate || a.date) || "";
+      const bEnd = normalizeDateStr(b.endDate || b.startDate || b.date) || "";
+      if (aEnd !== bEnd) return aEnd.localeCompare(bEnd);
+      return String(a.type || "").localeCompare(String(b.type || ""), "zh-Hant");
+    });
 }
 
 function calcLeaveDeduction(record = {}) {
@@ -3044,6 +3098,14 @@ function formatLeaveSummary(lv = {}) {
   const first = formatDateWithWeekday(dates[0]);
   const last = formatDateWithWeekday(dates[dates.length - 1]);
   return `${first} ~ ${last} 請假（${type}，${unit}）`;
+}
+
+function formatAttendanceLeaveTag(lv = {}) {
+  const type = String(lv.type || "請假").trim();
+  if (type === "無薪假(颱風)" || type === "無薪假（颱風）") {
+    return "無薪假(颱風)";
+  }
+  return type ? `請假 ${type}` : "請假";
 }
 
 function buildAttendanceRows(r, mode, options = {}) {
@@ -3108,8 +3170,7 @@ function buildAttendanceRows(r, mode, options = {}) {
       ? r._attendanceLeaves
       : r.leaveDetail || [];
   for (const lv of leaveRowsForAttendance) {
-    const type = String(lv.type || "請假").trim();
-    const tag = type ? `請假 ${type}` : "請假";
+    const tag = formatAttendanceLeaveTag(lv);
     const dates = expandLeaveDates(lv);
     if (dates.length) {
       for (const d of dates) add(d, tag);
