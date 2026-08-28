@@ -1096,6 +1096,36 @@ function normalizeDateStr(v) {
   return "";
 }
 
+function normalizePayrollNameText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function normalizePayrollLatinName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function isLikelySamePayrollName(a, b) {
+  const left = normalizePayrollNameText(a);
+  const right = normalizePayrollNameText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  const leftLatin = normalizePayrollLatinName(left);
+  const rightLatin = normalizePayrollLatinName(right);
+  if (!leftLatin || !rightLatin) return false;
+  if (leftLatin.length < 6 || rightLatin.length < 6) return false;
+  return leftLatin.startsWith(rightLatin) || rightLatin.startsWith(leftLatin);
+}
+
 function normalizeDateSet(items) {
   return new Set(
     (Array.isArray(items) ? items : [])
@@ -1282,6 +1312,7 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
 
   let leaveSnap;
   let overtimeSnap;
+  let usersSnap;
   try {
     leaveSnap = await getDocs(
       query(collection(db, "leaveRequests"), where("status", "==", "approved2")),
@@ -1297,6 +1328,12 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
     );
   } catch (error) {
     console.warn("load approved overtimeRequests failed", error);
+  }
+
+  try {
+    usersSnap = await getDocs(collection(db, "Users"));
+  } catch (error) {
+    console.warn("load Users for payroll attendance matching failed", error);
   }
 
   let attendanceSnap;
@@ -1318,6 +1355,21 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
   const otByUid = new Map();
   const attendanceByUid = new Map();
   const attendanceByName = new Map();
+  const attendanceByEmpNo = new Map();
+  const allAttendanceEntries = [];
+  const userEmpNoByUid = new Map();
+  const userUidsByEmpNo = new Map();
+
+  for (const snap of usersSnap?.docs || []) {
+    const row = snap.data() || {};
+    const uid = String(snap.id || "").trim();
+    const empNo = String(row.empNo || row.employeeNo || row.staffNo || "").trim();
+    if (!uid || !empNo) continue;
+    userEmpNoByUid.set(uid, empNo);
+    const arr = userUidsByEmpNo.get(empNo) || [];
+    arr.push(uid);
+    userUidsByEmpNo.set(empNo, arr);
+  }
 
   for (const snap of leaveSnap.docs || []) {
     const row = snap.data() || {};
@@ -1338,10 +1390,11 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
       endTime: normalizePunchTime(row.endTime),
     };
 
-    const empNoKey = String(
+    const rawEmpNoKey = String(
       row.empNo || row.employeeNo || row.staffNo || row.staffCode || "",
     ).trim();
     const uidKey = String(row.uid || row.userId || row.staffUid || "").trim();
+    const empNoKey = rawEmpNoKey || userEmpNoByUid.get(uidKey) || "";
 
     if (empNoKey) {
       const arr = byEmpNo.get(empNoKey) || [];
@@ -1368,10 +1421,11 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
       hours: Number(row.officialHours ?? row.approvedHours ?? row.hours) || 0,
     };
 
-    const empNoKey = String(
+    const rawEmpNoKey = String(
       row.empNo || row.employeeNo || row.staffNo || row.staffCode || "",
     ).trim();
     const uidKey = String(row.uid || row.userId || row.staffUid || "").trim();
+    const empNoKey = rawEmpNoKey || userEmpNoByUid.get(uidKey) || "";
 
     if (empNoKey) {
       const arr = otByEmpNo.get(empNoKey) || [];
@@ -1390,8 +1444,12 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
     const date = normalizeDateStr(row.date);
     if (!date) continue;
     const uidKey = String(row.uid || row.userId || row.staffUid || "").trim();
+    const empNoKey = userEmpNoByUid.get(uidKey) || "";
     const nameKey = String(row.name || row.staffName || "").trim();
     const attendanceEntry = {
+      id: snap.id,
+      uid: uidKey,
+      name: nameKey,
       date,
       punchIn: row.punchIn || "",
       punchOut: row.punchOut || "",
@@ -1403,26 +1461,42 @@ async function attachApprovedLeavesForAttendance(records = [], monthKey = "") {
       arr.push(attendanceEntry);
       attendanceByUid.set(uidKey, arr);
     }
+    if (empNoKey) {
+      const arr = attendanceByEmpNo.get(empNoKey) || [];
+      arr.push(attendanceEntry);
+      attendanceByEmpNo.set(empNoKey, arr);
+    }
     if (nameKey) {
       const arr = attendanceByName.get(nameKey) || [];
       arr.push(attendanceEntry);
       attendanceByName.set(nameKey, arr);
     }
+    allAttendanceEntries.push(attendanceEntry);
   }
 
   return list.map((r) => {
     const empNoKey = String(r.empNo || "").trim();
     const uidKey = String(r.uid || r.staffUid || "").trim();
     const nameKey = String(r.name || "").trim();
+    const linkedUidKeys = [uidKey, ...(userUidsByEmpNo.get(empNoKey) || [])]
+      .map((uid) => String(uid || "").trim())
+      .filter(Boolean);
     const matched = [
       ...(byEmpNo.get(empNoKey) || []),
-      ...(byUid.get(uidKey) || []),
+      ...linkedUidKeys.flatMap((uid) => byUid.get(uid) || []),
     ];
     const matchedAttendance = [
-      ...(attendanceByUid.get(uidKey) || []),
+      ...(attendanceByEmpNo.get(empNoKey) || []),
+      ...linkedUidKeys.flatMap((uid) => attendanceByUid.get(uid) || []),
       ...(attendanceByName.get(nameKey) || []),
+      ...allAttendanceEntries.filter((at) =>
+        isLikelySamePayrollName(nameKey, at.name),
+      ),
     ];
-    const matchedOt = [...(otByEmpNo.get(empNoKey) || []), ...(otByUid.get(uidKey) || [])];
+    const matchedOt = [
+      ...(otByEmpNo.get(empNoKey) || []),
+      ...linkedUidKeys.flatMap((uid) => otByUid.get(uid) || []),
+    ];
     const unique = [];
     const seen = new Set();
     for (const lv of matched) {

@@ -10920,8 +10920,76 @@ async function runPayrollCalculation(yyyyMM) {
       : existing;
   }
 
+  function normalizePayrollNameText(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function normalizePayrollLatinName(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  function isLikelySamePayrollName(a, b) {
+    const left = normalizePayrollNameText(a);
+    const right = normalizePayrollNameText(b);
+    if (!left || !right) return false;
+    if (left === right) return true;
+
+    const leftLatin = normalizePayrollLatinName(left);
+    const rightLatin = normalizePayrollLatinName(right);
+    if (!leftLatin || !rightLatin) return false;
+    if (leftLatin.length < 6 || rightLatin.length < 6) return false;
+    return leftLatin.startsWith(rightLatin) || rightLatin.startsWith(leftLatin);
+  }
+
   const staffSnap = await db.collection("staff").get();
   const usersSnap = await db.collection("Users").get();
+  const staffRowsForPayroll = staffSnap.docs.map((staffDoc) => {
+    const data = staffDoc.data() || {};
+    const empNo = data.empNo || staffDoc.id;
+    return {
+      doc: staffDoc,
+      data,
+      empNo,
+      empNoKey: String(empNo || "").trim(),
+      name: String(data.name || "").trim(),
+    };
+  });
+  const attendanceMonthSnap = await db
+    .collection("attendance")
+    .where("date", ">=", monthStart)
+    .where("date", "<=", monthEnd)
+    .get();
+  const attendanceRecordsInMonth = attendanceMonthSnap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() || {}),
+  }));
+  const attendanceUidsByEmpNoFromName = new Map();
+  for (const attendance of attendanceRecordsInMonth) {
+    const uid = String(attendance.uid || "").trim();
+    if (!uid) continue;
+    const attendanceName = String(
+      attendance.name || attendance.staffName || "",
+    ).trim();
+    if (!attendanceName) continue;
+    const matchedStaffRows = staffRowsForPayroll.filter(
+      (staff) => staff.empNoKey && isLikelySamePayrollName(staff.name, attendanceName),
+    );
+    if (matchedStaffRows.length !== 1) continue;
+    const empNoKey = matchedStaffRows[0].empNoKey;
+    if (!attendanceUidsByEmpNoFromName.has(empNoKey)) {
+      attendanceUidsByEmpNoFromName.set(empNoKey, new Set());
+    }
+    attendanceUidsByEmpNoFromName.get(empNoKey).add(uid);
+  }
   const usersByEmpNo = new Map();
   const usersByEmail = new Map();
   const userUidsByEmpNo = new Map();
@@ -10955,10 +11023,10 @@ async function runPayrollCalculation(yyyyMM) {
 
   const results = [];
 
-  for (const staffDoc of staffSnap.docs) {
-    const s = staffDoc.data();
-    const empNo = s.empNo || staffDoc.id;
-    const empNoKey = String(empNo || "").trim();
+  for (const staffRow of staffRowsForPayroll) {
+    const s = staffRow.data;
+    const empNo = staffRow.empNo;
+    const empNoKey = staffRow.empNoKey;
     const email = String(s.email || "")
       .trim()
       .toLowerCase();
@@ -10994,6 +11062,10 @@ async function runPayrollCalculation(yyyyMM) {
       const emailUids = userUidsByEmail.get(email);
       if (emailUids)
         emailUids.forEach((uid) => candidateUidSet.add(String(uid)));
+    }
+    const nameMatchedUids = attendanceUidsByEmpNoFromName.get(empNoKey);
+    if (nameMatchedUids) {
+      nameMatchedUids.forEach((uid) => candidateUidSet.add(String(uid)));
     }
     const candidateUids = [...candidateUidSet].filter(Boolean);
     if (candidateUids.length > 1) {
@@ -11113,21 +11185,17 @@ async function runPayrollCalculation(yyyyMM) {
     // 當月打卡資料（供加班交集計算與伙食/遲到早退）
     let attendanceRecordsThisMonth = [];
     if (candidateUids.length > 0) {
-      const attSnaps = await Promise.all(
-        candidateUids.map((uid) =>
-          db.collection("attendance").where("uid", "==", uid).get(),
-        ),
-      );
-      const attendanceByDocId = new Map();
-      attSnaps.forEach((snap) => {
-        snap.docs.forEach((d) => attendanceByDocId.set(d.id, d.data()));
+      const candidateUidSetForAttendance = new Set(candidateUids);
+      attendanceRecordsThisMonth = attendanceRecordsInMonth.filter((r) => {
+        const d = normalizeDateStr(r.date);
+        const uid = String(r.uid || "").trim();
+        return (
+          d &&
+          d >= employmentStart &&
+          d <= employmentEnd &&
+          candidateUidSetForAttendance.has(uid)
+        );
       });
-      attendanceRecordsThisMonth = [...attendanceByDocId.values()].filter(
-        (r) => {
-          const d = normalizeDateStr(r.date);
-          return d && d >= employmentStart && d <= employmentEnd;
-        },
-      );
     }
     const attendanceByDate = new Map(
       attendanceRecordsThisMonth.map((r) => [String(r.date || ""), r]),

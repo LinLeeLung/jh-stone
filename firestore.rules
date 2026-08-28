@@ -46,6 +46,16 @@ service cloud.firestore {
       );
     }
 
+    function isSameEmployeeUid(uid) {
+      return signedIn()
+        && uid != null
+        && uid != ''
+        && exists(/databases/$(database)/documents/Users/$(uid))
+        && userDoc().data.empNo != null
+        && userDoc().data.empNo != ''
+        && get(/databases/$(database)/documents/Users/$(uid)).data.empNo == userDoc().data.empNo;
+    }
+
     function myDept() {
       return signedIn() ? userDoc().data.dept : null;
     }
@@ -172,10 +182,12 @@ service cloud.firestore {
       allow create: if isAdminOrManager()
         || ((isStaff() || isMobileStaff()) && request.resource.data.uid == request.auth.uid);
       allow update: if isAdminOrManager()
-        || ((isStaff() || isMobileStaff()) && resource.data.uid == request.auth.uid);
+        || ((isStaff() || isMobileStaff())
+            && (resource.data.uid == request.auth.uid || isSameEmployeeUid(resource.data.uid))
+            && request.resource.data.uid == resource.data.uid);
       // resource == null when the doc doesn't exist yet; allow the read so getDoc returns "not found"
       allow read: if (isStaff() || isMobileStaff())
-        && (resource == null || resource.data.uid == request.auth.uid || isLeaveApprover());
+        && (resource == null || resource.data.uid == request.auth.uid || isSameEmployeeUid(resource.data.uid) || isLeaveApprover());
       allow delete: if isAdminOrManager();
     }
 

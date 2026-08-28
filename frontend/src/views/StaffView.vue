@@ -915,7 +915,7 @@ async function save() {
       const { id: _id, ...data } = form.value;
       await updateDoc(ref, data);
     }
-    // 同步 staffRole / dept / empNo 到對應 Users 文件（依 email 查詢）
+    // 同步 staffRole / dept / empNo 到對應 Users 文件（依 email 或員編查詢）
     await syncStaffToUser(form.value);
     await fetchStaff();
     closeDialog();
@@ -927,13 +927,24 @@ async function save() {
 }
 
 async function syncStaffToUser(s) {
-  if (!s || !s.email) return;
+  const email = String(s?.email || "").trim();
+  const empNo = String(s?.empNo || "").trim();
+  if (!email && !empNo) return;
   try {
-    const snaps = await getDocs(
-      query(collection(db, "Users"), where("email", "==", s.email)),
-    );
-    if (snaps.empty) return;
-    for (const d of snaps.docs) {
+    const queries = [];
+    if (email) {
+      queries.push(query(collection(db, "Users"), where("email", "==", email)));
+    }
+    if (empNo) {
+      queries.push(query(collection(db, "Users"), where("empNo", "==", empNo)));
+    }
+    const snaps = await Promise.all(queries.map((q) => getDocs(q)));
+    const userDocs = new Map();
+    snaps.forEach((snap) => {
+      snap.docs.forEach((d) => userDocs.set(d.id, d));
+    });
+    if (!userDocs.size) return;
+    for (const d of userDocs.values()) {
       const user = d.data() || {};
       const currentRoles = Array.isArray(user.roles)
         ? user.roles.map((role) => String(role || "").trim()).filter(Boolean)
@@ -967,7 +978,7 @@ async function syncStaffToUser(s) {
       });
     }
   } catch (e) {
-    console.warn("syncStaffToUser failed for", s.email, e.message);
+    console.warn("syncStaffToUser failed for", email || empNo, e.message);
   }
 }
 </script>

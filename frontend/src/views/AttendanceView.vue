@@ -728,6 +728,7 @@ const geoBlocked = ref(false);
 const todayRec = ref(null);
 const isAdminOrManager = ref(false);
 const lastPunchActionAt = ref(0);
+const currentAttendanceUids = ref([]);
 
 const PUNCH_ACTION_COOLDOWN_MS = 60 * 1000;
 
@@ -745,6 +746,127 @@ const queryDate = ref(todayStr());
 const queryName = ref("");
 const allUsersCache = ref([]);
 const newRecEmployeeQuery = ref("");
+
+function normalizeLookupText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeLookupEmail(value) {
+  return normalizeLookupText(value).toLowerCase();
+}
+
+function getEmpNoFromUserLike(source = {}) {
+  const candidates = [
+    source.empNo,
+    source.employeeNo,
+    source.staffNo,
+    source.staffId,
+    source.employeeId,
+    source.code,
+  ];
+  for (const value of candidates) {
+    const text = normalizeLookupText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function uniqueTexts(values) {
+  return [
+    ...new Set(values.map((value) => normalizeLookupText(value)).filter(Boolean)),
+  ];
+}
+
+async function findCurrentStaffEmpNo() {
+  const userEmpNo = getEmpNoFromUserLike(userDoc || {});
+  if (userEmpNo) return userEmpNo;
+  const email = normalizeLookupEmail(currentUser?.email);
+  if (!email) return "";
+  try {
+    const snaps = await getDocs(
+      query(collection(db, "staff"), where("email", "==", currentUser.email)),
+    );
+    const matched = snaps.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .find((staff) => normalizeLookupEmail(staff.email) === email);
+    return (
+      getEmpNoFromUserLike(matched || {}) || normalizeLookupText(matched?.id)
+    );
+  } catch (e) {
+    console.warn("findCurrentStaffEmpNo:", e);
+    return "";
+  }
+}
+
+async function refreshCurrentAttendanceUids() {
+  if (!currentUser?.uid) {
+    currentAttendanceUids.value = [];
+    return [];
+  }
+  const empNo = await findCurrentStaffEmpNo();
+  const uidSet = new Set([currentUser.uid]);
+  if (empNo) {
+    try {
+      const allUsers = await fetchAllUsers();
+      allUsers.forEach((user) => {
+        if (getEmpNoFromUserLike(user) === empNo && user.id) {
+          uidSet.add(String(user.id));
+        }
+      });
+    } catch (e) {
+      console.warn("refreshCurrentAttendanceUids:", e);
+    }
+  }
+  currentAttendanceUids.value = uniqueTexts([...uidSet]);
+  return currentAttendanceUids.value;
+}
+
+async function getCurrentAttendanceUidList() {
+  if (currentAttendanceUids.value.length) return currentAttendanceUids.value;
+  return refreshCurrentAttendanceUids();
+}
+
+async function fetchAttendanceRecordsForUids(uids, extraClauses = []) {
+  const uidList = uniqueTexts(uids);
+  if (!uidList.length) return [];
+  const snaps = await Promise.all(
+    uidList.map((uid) =>
+      getDocs(
+        query(
+          collection(db, "attendance"),
+          where("uid", "==", uid),
+          ...extraClauses,
+        ),
+      ),
+    ),
+  );
+  const byDocId = new Map();
+  snaps.forEach((snap) => {
+    snap.docs.forEach((d) => byDocId.set(d.id, { id: d.id, ...d.data() }));
+  });
+  return [...byDocId.values()];
+}
+
+function pickTodayAttendanceRecord(records) {
+  if (!records.length) return null;
+  return (
+    records.find((record) => record.uid === currentUser?.uid) ||
+    records.find((record) => record.punchIn && !record.punchOut) ||
+    records[0]
+  );
+}
+
+async function fetchTodayAttendanceRecord() {
+  const uidList = await getCurrentAttendanceUidList();
+  const records = await fetchAttendanceRecordsForUids(uidList, [
+    where("date", "==", todayStr()),
+  ]);
+  return pickTodayAttendanceRecord(records);
+}
+
+function getCurrentAttendanceDocId(record = todayRec.value) {
+  return record?.id || `${todayStr()}_${currentUser.uid}`;
+}
 
 // ── 修改打卡 modal ──────────────────────────────────────────
 const editModal = ref({
@@ -775,7 +897,7 @@ const filteredNewRecUsers = computed(() => {
   const kw = newRecEmployeeQuery.value.trim().toLowerCase();
   if (!kw) return allUsersCache.value;
   return allUsersCache.value.filter((user) => {
-    const fields = [user.displayName, user.email, user.id]
+    const fields = [user.displayName, user.email, getEmpNoFromUserLike(user), user.id]
       .filter(Boolean)
       .map((value) => String(value).toLowerCase());
     return fields.some((value) => value.includes(kw));
@@ -801,18 +923,31 @@ const notPunchedList = ref([]);
 async function fetchNotPunched() {
   try {
     const today = todayStr();
-    const [staffSnap, attSnap] = await Promise.all([
+    const [staffSnap, attSnap, allUsers] = await Promise.all([
       getDocs(query(collection(db, "staff"), where("status", "==", "在職"))),
       getDocs(query(collection(db, "attendance"), where("date", "==", today))),
+      fetchAllUsers().catch(() => []),
     ]);
+    const userEmpNoByUid = Object.fromEntries(
+      allUsers
+        .map((user) => [String(user.id || ""), getEmpNoFromUserLike(user)])
+        .filter(([uid, empNo]) => uid && empNo),
+    );
+    const punchedEmpNos = new Set(
+      attSnap.docs
+        .map((d) => userEmpNoByUid[String(d.data().uid || "")])
+        .filter(Boolean),
+    );
     const punchedEmails = new Set(
       attSnap.docs
         .map((d) => (d.data().email || "").toLowerCase())
         .filter(Boolean),
     );
     notPunchedList.value = staffSnap.docs
-      .map((d) => d.data())
+      .map((d) => ({ id: d.id, ...d.data() }))
       .filter((s) => {
+        const empNo = getEmpNoFromUserLike(s) || normalizeLookupText(s.id);
+        if (empNo && punchedEmpNos.has(empNo)) return false;
         if (!s.email) return false;
         return !punchedEmails.has(s.email.toLowerCase());
       })
@@ -1574,6 +1709,7 @@ onMounted(async () => {
   } catch (_) {}
 
   isLoggedIn.value = true;
+  await refreshCurrentAttendanceUids();
   await loadTodayRec();
   fetchPersonalRecords();
   loadMyCorrectionRequests();
@@ -1598,14 +1734,7 @@ async function loadTodayRec() {
   loaded.value = false;
   punchErr.value = "";
   try {
-    const snaps = await getDocs(
-      query(
-        collection(db, "attendance"),
-        where("uid", "==", currentUser.uid),
-        where("date", "==", todayStr()),
-      ),
-    );
-    todayRec.value = snaps.empty ? null : snaps.docs[0].data();
+    todayRec.value = await fetchTodayAttendanceRecord();
   } catch (e) {
     punchErr.value = "讀取失敗：" + e.message;
   } finally {
@@ -1614,15 +1743,8 @@ async function loadTodayRec() {
 }
 
 async function loadTodayRecSnapshot() {
-  const id = `${todayStr()}_${currentUser.uid}`;
-  const snap = await getDoc(doc(db, "attendance", id));
-  if (!snap.exists()) {
-    todayRec.value = null;
-    return null;
-  }
-  const data = snap.data();
-  todayRec.value = data;
-  return data;
+  todayRec.value = await fetchTodayAttendanceRecord();
+  return todayRec.value;
 }
 
 function beginPunchAction() {
@@ -1816,7 +1938,7 @@ async function startLeave() {
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
-    const id = `${todayStr()}_${currentUser.uid}`;
+    const id = getCurrentAttendanceDocId();
     const tStr = timeStr();
     const leaveOptions = await fetchApprovedLeaveOptions(
       currentUser.uid,
@@ -1874,7 +1996,7 @@ async function resumeWork() {
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
-    const id = `${todayStr()}_${currentUser.uid}`;
+    const id = getCurrentAttendanceDocId();
     const tStr = timeStr();
     const leaveOptions = await fetchApprovedLeaveOptions(
       currentUser.uid,
@@ -1943,7 +2065,7 @@ async function punchOut() {
     const freshSettings = await getSystemSettings();
     punchLocationCfg = freshSettings.punchLocation || punchLocationCfg;
     const geo = await checkGeofence();
-    const id = `${todayStr()}_${currentUser.uid}`;
+    const id = getCurrentAttendanceDocId();
     const tStr = timeStr();
     const workSegments = cloneSegments(todayRec.value, "workSegments");
     const leaveSegments = cloneSegments(todayRec.value, "leaveSegments");
@@ -2244,11 +2366,9 @@ async function fetchPersonalRecords() {
   loadingPersonal.value = true;
   try {
     const m = personalMonth.value;
-    const snaps = await getDocs(
-      query(collection(db, "attendance"), where("uid", "==", currentUser.uid)),
-    );
-    personalRecords.value = snaps.docs
-      .map((d) => d.data())
+    const uidList = await getCurrentAttendanceUidList();
+    const records = await fetchAttendanceRecordsForUids(uidList);
+    personalRecords.value = records
       .filter((r) => r.date && r.date.startsWith(m))
       .sort((a, b) => a.date.localeCompare(b.date));
   } catch (e) {
