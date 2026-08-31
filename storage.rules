@@ -72,7 +72,7 @@ service firebase.storage {
     match /leaveDocuments/{fileName} {
       allow read: if signedIn();
       allow write: if signedIn()
-        && request.resource.size < 10 * 1024 * 1024;
+        && request.resource.size < 25 * 1024 * 1024;
     }
 
     // 圖章庫圖片: 登入員工可讀; 只能寫自己目錄下的

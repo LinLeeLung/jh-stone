@@ -984,6 +984,8 @@ const route = useRoute();
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const DOC_REQUIRED = ["病假", "喪假", "公假"];
+const LEAVE_DOCUMENT_MAX_BYTES = 25 * 1024 * 1024;
+const LEAVE_DOCUMENT_MAX_MB = LEAVE_DOCUMENT_MAX_BYTES / 1024 / 1024;
 const LEAVE_TYPES = [
   "事假",
   "病假",
@@ -1085,6 +1087,12 @@ const LUNCH_BREAK_END = "13:00";
 function onDocFileChange(e) {
   const f = e.target.files?.[0];
   if (!f) return;
+  if (f.size > LEAVE_DOCUMENT_MAX_BYTES) {
+    leaveMsg.value = `附件檔案不可超過 ${LEAVE_DOCUMENT_MAX_MB}MB，請壓縮或重新選擇較小的檔案`;
+    leaveMsgIsErr.value = true;
+    clearDocFile();
+    return;
+  }
   docFile.value = f;
   docPreviewUrl.value = URL.createObjectURL(f);
 }
@@ -1919,6 +1927,11 @@ async function submitLeave() {
     // Upload document if provided
     let docUrl = null;
     if (docFile.value) {
+      if (docFile.value.size > LEAVE_DOCUMENT_MAX_BYTES) {
+        throw new Error(
+          `附件檔案不可超過 ${LEAVE_DOCUMENT_MAX_MB}MB，請壓縮或重新選擇較小的檔案`,
+        );
+      }
       const ext = docFile.value.name.split(".").pop();
       const path = `leaveDocuments/${currentUser.value.uid}_${Date.now()}.${ext}`;
       const snap = await uploadBytes(storageRef(storage, path), docFile.value);
