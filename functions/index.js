@@ -1943,11 +1943,31 @@ async function buildOrderNasFolderParts(orderId, completionPhotoData = {}) {
     return "";
   }
 
+  function readOwnerName(source) {
+    const direct = readByKeys(source, [
+      "ownerName",
+      "業主名稱",
+      "業主",
+      "屋主名稱",
+      "屋主",
+    ]);
+    if (direct) return direct;
+
+    const owner = source?.owner;
+    if (owner && typeof owner === "object") {
+      return readByKeys(owner, ["name", "姓名", "業主", "屋主"]);
+    }
+    if (typeof owner === "string") return owner.trim();
+
+    return "";
+  }
+
   let customerName = readByKeys(completionPhotoData, [
     "customerName",
     "客戶名稱",
     "客戶",
   ]);
+  let ownerName = readOwnerName(completionPhotoData);
   let orderNumber = readByKeys(completionPhotoData, [
     "orderNumber",
     "訂單號碼",
@@ -1967,7 +1987,7 @@ async function buildOrderNasFolderParts(orderId, completionPhotoData = {}) {
   ]);
 
   // Fallback to parent order document when photo metadata is incomplete.
-  if (!customerName || !orderNumber || !color || !installAddress) {
+  if (!customerName || !ownerName || !orderNumber || !color || !installAddress) {
     const orderSnap = await admin
       .firestore()
       .collection("Orders")
@@ -1979,6 +1999,9 @@ async function buildOrderNasFolderParts(orderId, completionPhotoData = {}) {
       customerName =
         readByKeys(orderData, ["客戶名稱", "客戶", "customerName"]) ||
         readByKeyword(orderData, "客戶");
+    }
+    if (!ownerName) {
+      ownerName = readOwnerName(orderData);
     }
     if (!orderNumber) {
       orderNumber =
@@ -2007,9 +2030,10 @@ async function buildOrderNasFolderParts(orderId, completionPhotoData = {}) {
   const customerFolder =
     sanitizePathSegment(customerName || "unknown-customer") ||
     "unknown-customer";
+  const detailOwnerName = String(ownerName || customerName || "").trim();
 
-  // 明細資料夾名稱：訂單號 + 顏色（不含安裝地址，避免名稱過長）
-  const detailFolderRaw = [orderNumber, color]
+  // 明細資料夾名稱：訂單號 + 業主 + 顏色（不含安裝地址，避免名稱過長）
+  const detailFolderRaw = [orderNumber, detailOwnerName, color]
     .map((part) => String(part || "").trim())
     .filter(Boolean)
     .join(" ");
@@ -2022,6 +2046,7 @@ async function buildOrderNasFolderParts(orderId, completionPhotoData = {}) {
     customerFolder,
     detailFolder,
     orderNumber: String(orderNumber || "").trim(),
+    ownerName: detailOwnerName,
     installAddress: String(installAddress || "").trim(),
   };
 }
@@ -5151,6 +5176,78 @@ async function synologyDownloadFile({ baseUrl, sid, filePath }) {
   });
 }
 
+function pickFirstNonEmpty(source, keys = []) {
+  for (const key of keys) {
+    const value = String(source?.[key] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+async function resolveTaskInstallerNames(taskData = {}) {
+  const explicitNames = [
+    pickFirstNonEmpty(taskData, ["installer1", "安裝人員1"]),
+    pickFirstNonEmpty(taskData, ["installer2", "安裝人員2"]),
+    pickFirstNonEmpty(taskData, ["installer3", "安裝人員3"]),
+  ].filter(Boolean);
+  if (explicitNames.length) return explicitNames.slice(0, 3);
+
+  const storedNames = Array.isArray(taskData.installerNames)
+    ? taskData.installerNames
+    : Array.isArray(taskData.installers)
+      ? taskData.installers
+      : [];
+  const normalizedStoredNames = storedNames
+    .map((name) => String(name || "").trim())
+    .filter(Boolean);
+  if (normalizedStoredNames.length) return normalizedStoredNames.slice(0, 3);
+
+  const assignedCrew = Array.isArray(taskData.assignedCrew)
+    ? taskData.assignedCrew
+        .map((uid) => String(uid || "").trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  if (!assignedCrew.length) return [];
+
+  const userSnaps = await Promise.all(
+    assignedCrew.map((uid) =>
+      admin.firestore().collection("Users").doc(uid).get().catch(() => null),
+    ),
+  );
+
+  return userSnaps
+    .map((snap, index) => {
+      const data = snap?.exists ? snap.data() || {} : {};
+      return (
+        pickFirstNonEmpty(data, ["displayName", "name", "姓名", "email"]) ||
+        assignedCrew[index]
+      );
+    })
+    .filter(Boolean);
+}
+
+async function resolveTaskCarNumber(taskData = {}) {
+  const explicitCar = pickFirstNonEmpty(taskData, [
+    "carNumber",
+    "vehiclePlate",
+    "車號",
+  ]);
+  if (explicitCar) return explicitCar;
+
+  const vehicleId = String(taskData.assignedVehicleId || "").trim();
+  if (!vehicleId) return "";
+
+  const vehicleSnap = await admin
+    .firestore()
+    .collection("vehicles")
+    .doc(vehicleId)
+    .get()
+    .catch(() => null);
+  const vehicleData = vehicleSnap?.exists ? vehicleSnap.data() || {} : {};
+  return pickFirstNonEmpty(vehicleData, ["plate", "carNumber", "name", "車號"]);
+}
+
 exports.uploadCompletionPhotoToNasHttp = onRequestV2(
   {
     secrets: [SYNO_USERNAME_SECRET, SYNO_PASSWORD_SECRET],
@@ -5276,11 +5373,27 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     });
 
     // 計算期望的資料夾名稱：年-月-日[原資料夾名稱][安裝人員1][安裝人員2][安裝人員3]
-    const installDate = String(form?.fields?.installDate || "").trim();
-    const installer1 = String(form?.fields?.installer1 || "").trim();
-    const installer2 = String(form?.fields?.installer2 || "").trim();
-    const installer3 = String(form?.fields?.installer3 || "").trim();
-    const carNumber = String(form?.fields?.carNumber || "").trim();
+    const taskInstallerNames = taskData
+      ? await resolveTaskInstallerNames(taskData)
+      : [];
+    const taskCarNumber = taskData ? await resolveTaskCarNumber(taskData) : "";
+    const installDate = String(
+      form?.fields?.installDate || taskData?.assignedDate || "",
+    )
+      .trim()
+      .replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+    const installer1 = String(
+      form?.fields?.installer1 || taskInstallerNames[0] || "",
+    ).trim();
+    const installer2 = String(
+      form?.fields?.installer2 || taskInstallerNames[1] || "",
+    ).trim();
+    const installer3 = String(
+      form?.fields?.installer3 || taskInstallerNames[2] || "",
+    ).trim();
+    const carNumber = String(
+      form?.fields?.carNumber || taskCarNumber || "",
+    ).trim();
     const installerParts = [installer1, installer2, installer3].filter(Boolean);
     const carPart = carNumber ? `+${carNumber}` : "";
     // 新建資料夾用：日期 + 訂單號+顏色 + 安裝員 + 車號（不含安裝地址，名稱較短）
@@ -5292,18 +5405,33 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     if (carPart) desiredParts.push(carPart);
     const desiredDetailFolder =
       sanitizePathSegment(desiredParts.join(" ")) || folderParts.detailFolder;
-    // 找到既有 PDF 資料夾時改名用：日期 + 訂單號+顏色 + 安裝地址 + 安裝員 + 車號
+    function folderCompareText(value) {
+      return String(value || "")
+        .replace(/\s+/g, "")
+        .toLowerCase();
+    }
+
+    function appendFolderPartIfMissing(parts, part) {
+      const cleanPart = String(part || "").trim();
+      if (!cleanPart) return;
+      const currentText = folderCompareText(parts.join(" "));
+      const partText = folderCompareText(cleanPart);
+      if (!partText || currentText.includes(partText)) return;
+      parts.push(cleanPart);
+    }
+
+    // 找到既有 PDF 資料夾時改名用：日期 + NAS 原資料夾完整名稱 + 缺少時補地址 + 安裝員 + 車號
     const addressPart = String(folderParts.installAddress || "").trim();
-    const desiredPartsWithAddress = [
-      installDate,
-      folderParts.detailFolder,
-      addressPart,
-      ...installerParts,
-    ].filter(Boolean);
-    if (carPart) desiredPartsWithAddress.push(carPart);
-    const desiredDetailFolderWithAddress =
-      sanitizePathSegment(desiredPartsWithAddress.join(" ")) ||
-      desiredDetailFolder;
+
+    function buildExistingFolderRenameTarget(currentName) {
+      const originalDetailFolder =
+        sanitizePathSegment(currentName) || folderParts.detailFolder;
+      const parts = [installDate, originalDetailFolder].filter(Boolean);
+      appendFolderPartIfMissing(parts, addressPart);
+      installerParts.forEach((part) => appendFolderPartIfMissing(parts, part));
+      appendFolderPartIfMissing(parts, carPart);
+      return sanitizePathSegment(parts.join(" ")) || desiredDetailFolder;
+    }
 
     const targetName = `${photoRef.id}-${logicalFileName}`;
 
@@ -5338,6 +5466,13 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
 
       // Cached folder should still look like this order's folder.
       if (orderToken && !normalizeOrderToken(candidate).includes(orderToken)) {
+        return false;
+      }
+
+      // Stale generated folders may contain only order/color and miss owner text.
+      const cachedFolderName = candidate.split("/").pop() || "";
+      const ownerText = folderCompareText(folderParts.ownerName);
+      if (ownerText && !folderCompareText(cachedFolderName).includes(ownerText)) {
         return false;
       }
 
@@ -5379,7 +5514,25 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     // 共用的資料夾解析 + 上傳邏輯
     async function resolveAndUpload(useCachedFolder) {
       if (useCachedFolder) {
-        uploadFolder = cachedNasFolder;
+        uploadFolder = normalizeSynologyDirPath(cachedNasFolder);
+        try {
+          await synologyListFolderEntries({
+            baseUrl,
+            sid,
+            folderPath: uploadFolder,
+          });
+        } catch (cacheListErr) {
+          logger.warn(
+            "uploadCompletionPhotoToNasHttp: cached NAS folder missing, retry fresh resolve",
+            { orderDocId, cachedNasFolder, error: cacheListErr?.message },
+          );
+          orderDocRef
+            .update({
+              nasOrderFolderPath: admin.firestore.FieldValue.delete(),
+            })
+            .catch(() => {});
+          return resolveAndUpload(false);
+        }
         matchMeta = { matched: true, matchedFolderName: "", matchScore: -1 };
         searchDiag.usedCachedFolder = true;
         searchDiag.cachedFolder = cachedNasFolder;
@@ -5388,9 +5541,8 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
           uploadFolder,
         });
       } else {
-        // 只走一條路：用訂單號碼.pdf 搜尋（含剝尾碼 fallback）。
-        // 找到 → 用它；找不到 → 直接建新資料夾並寫稽核紀錄，
-        // 不再做名稱模糊比對、不再 list 父層，以維持「同一張完工照片只會落在唯一正確資料夾」的一致性。
+        // 先用訂單號碼.pdf 搜尋（含剝尾碼 fallback）。
+        // 若 PDF 找不到，再用完整訂單號碼搜尋既有資料夾；只有兩者都失敗才新建。
         const pdfFileName = `${folderParts.orderNumber || orderNumber}.pdf`;
         searchDiag.pdfSearchAttempted = true;
         let pdfPath = "";
@@ -5443,6 +5595,49 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
                 },
               );
             }
+          }
+        }
+
+        if (!matchMeta.matched) {
+          searchDiag.nameMatchAttempted = true;
+          try {
+            const nameMatch = await resolveExistingOrderFolderPath({
+              baseUrl,
+              sid,
+              basePath: pathCheck.normalized,
+              customerFolder: folderParts.customerFolder,
+              orderNumber: folderParts.orderNumber || orderNumber,
+              defaultDetailFolder: folderParts.detailFolder,
+            });
+            searchDiag.nameMatchScore = Number(nameMatch?.matchScore || 0);
+            searchDiag.nameMatched = Boolean(nameMatch?.matched);
+            searchDiag.nameMatchedFolderName = String(
+              nameMatch?.matchedFolderName || "",
+            );
+            const candidateFolder = normalizeSynologyDirPath(
+              String(nameMatch?.uploadFolder || "").trim(),
+            );
+            const isOutbox = /\/outbox\//i.test(candidateFolder);
+            if (nameMatch?.matched && candidateFolder && !isOutbox) {
+              uploadFolder = candidateFolder;
+              matchMeta = {
+                matched: true,
+                matchedFolderName: nameMatch.matchedFolderName || "",
+                matchScore: Number(nameMatch.matchScore || 0),
+              };
+              logger.info(
+                "uploadCompletionPhotoToNasHttp: found order folder via name search",
+                { orderDocId, uploadFolder, matchScore: matchMeta.matchScore },
+              );
+              orderDocRef
+                .update({ nasOrderFolderPath: uploadFolder })
+                .catch(() => {});
+            }
+          } catch (nameMatchErr) {
+            logger.warn(
+              "uploadCompletionPhotoToNasHttp: name search threw error",
+              { orderDocId, error: nameMatchErr?.message },
+            );
           }
         }
       }
@@ -5531,19 +5726,19 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       // Post-upload: rename folder to include date prefix + installer names if needed.
       // Runs after a successful upload so photos are never split across two folders.
       // 兩種情況：
-      //   1) 找到既有訂單.pdf 資料夾 → 改名加入安裝地址：日期+訂單號+顏色+地址+安裝員+車號
+      //   1) 找到既有訂單.pdf 資料夾 → 保留 NAS 原資料夾完整名稱，再補日期/地址/安裝員/車號
       //   2) 新建資料夾（PDF 找不到）→ 已經是 desiredDetailFolder（不含地址），不用改名
-      const renameTarget = searchDiag.pdfSearchSucceeded
-        ? desiredDetailFolderWithAddress
-        : desiredDetailFolder;
-      if (renameTarget && uploadFolder) {
+      if (uploadFolder) {
         const lastSlash = uploadFolder.lastIndexOf("/");
         if (lastSlash > 0) {
           const parentPath = uploadFolder.slice(0, lastSlash);
           const currentName = uploadFolder.slice(lastSlash + 1);
           const hasDatePrefix = /^\d{2,4}-\d{2}-\d{2}/.test(currentName);
+          const renameTarget = matchMeta.matched
+            ? buildExistingFolderRenameTarget(currentName)
+            : desiredDetailFolder;
 
-          if (!hasDatePrefix && currentName !== renameTarget) {
+          if (renameTarget && !hasDatePrefix && currentName !== renameTarget) {
             const newFolderPath = `${parentPath}/${renameTarget}`;
             let shouldRename = false;
             const originalName = currentName;
