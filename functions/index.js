@@ -11658,15 +11658,13 @@ async function runPayrollCalculation(yyyyMM) {
         }
       }
 
-      // 曠職自動偵測：工作日（週一至五）無打卡且無請假；時薪制與營業額1%不扣曠職
+      // 曠職自動偵測：工作日（週一至五）無完整上下班打卡且無請假；時薪制與營業額1%不扣曠職
       if (salType !== "時薪" && salType !== "營業額1%") {
-        // 有打卡（至少有 punchIn）的日期
-        const punchedDates = new Set(
-          attendanceRecordsThisMonth
-            .filter(
-              (r) => String(r.date || "").startsWith(monthPrefix) && r.punchIn,
-            )
-            .map((r) => r.date),
+        // 只有完整上下班打卡才排除曠職；缺上班或缺下班都視為打卡不完整。
+        const completedAttendanceDates = new Set(
+          attRecords
+            .filter((r) => String(r.date || "").startsWith(monthPrefix))
+            .map((r) => String(r.date || "").slice(0, 10)),
         );
         // 每天檢查
         const daysInMonthN = new Date(Number(yyyy), Number(mm), 0).getDate();
@@ -11677,7 +11675,7 @@ async function runPayrollCalculation(yyyyMM) {
           if (dateStr < employmentStart) continue; // 到職前
           if (dateStr > employmentEnd) continue; // 離職後
           if (!isRegularWorkday(dateStr)) continue;
-          if (punchedDates.has(dateStr)) continue; // 有打卡
+          if (completedAttendanceDates.has(dateStr)) continue; // 有完整上下班打卡
           if (leaveCoveredDates.has(dateStr)) continue; // 有請假
           absentDays++;
           absentDetail.push(dateStr);

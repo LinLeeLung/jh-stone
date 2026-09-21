@@ -22,6 +22,17 @@
 			],
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "Deploy Firestore Indexes",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"firebase deploy --only firestore:indexes --project jh-stone --non-interactive"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }

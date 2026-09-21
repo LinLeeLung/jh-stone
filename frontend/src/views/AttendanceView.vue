@@ -18,6 +18,21 @@
       <span class="pb-link">前往審核 →</span>
     </router-link>
 
+    <!-- ── 近一週打卡不完整提醒 ─────────────────────────────── -->
+    <div v-if="recentMissingPunches.length" class="missing-punch-banner">
+      <span class="pb-icon">⚠️</span>
+      <span class="pb-text">
+        您近一週有 <b>{{ recentMissingPunches.length }}</b> 天打卡不完整，未補登將以曠職扣薪，請盡快申請補打卡
+        <span class="pb-detail">
+          <template v-for="(item, idx) in recentMissingPunches" :key="item.date"
+            >{{ item.date }}（週{{ weekDay(item.date) }}）{{
+              item.type === "missing" ? "未打卡" : "缺下班打卡"
+            }}<template v-if="idx < recentMissingPunches.length - 1">、</template></template
+          >
+        </span>
+      </span>
+    </div>
+
     <!-- ── 員工打卡區 ─────────────────────────────────────── -->
     <div class="punch-row">
       <!-- 今日請假 -->
@@ -729,6 +744,9 @@ const todayRec = ref(null);
 const isAdminOrManager = ref(false);
 const lastPunchActionAt = ref(0);
 const currentAttendanceUids = ref([]);
+const recentMissingPunches = ref([]);
+const publicHolidaySet = ref(new Set());
+const makeupWorkdaySet = ref(new Set());
 
 const PUNCH_ACTION_COOLDOWN_MS = 60 * 1000;
 
@@ -845,6 +863,89 @@ async function fetchAttendanceRecordsForUids(uids, extraClauses = []) {
     snap.docs.forEach((d) => byDocId.set(d.id, { id: d.id, ...d.data() }));
   });
   return [...byDocId.values()];
+}
+
+function normalizeDateStrLocal(dateStr) {
+  const s = String(dateStr || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+function addDaysToDateStr(dateStr, delta) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + delta);
+  return d.toLocaleDateString("sv-SE");
+}
+
+function isRegularWorkday(dateStr) {
+  const normalized = normalizeDateStrLocal(dateStr);
+  if (!normalized) return false;
+  if (isWeekend(normalized) && !makeupWorkdaySet.value.has(normalized)) {
+    return false;
+  }
+  return !publicHolidaySet.value.has(normalized);
+}
+
+// 近一週（不含今天）打卡不完整偵測：無紀錄或有上班無下班，且非假日/請假
+async function checkRecentMissingPunches() {
+  if (!currentUser?.uid) {
+    recentMissingPunches.value = [];
+    return;
+  }
+  try {
+    const today = todayStr();
+    const startDate = addDaysToDateStr(today, -7);
+    const endDate = addDaysToDateStr(today, -1);
+
+    const uidList = await getCurrentAttendanceUidList();
+    const [records, leaveSnap] = await Promise.all([
+      fetchAttendanceRecordsForUids(uidList, [
+        where("date", ">=", startDate),
+        where("date", "<=", endDate),
+      ]),
+      getDocs(
+        query(collection(db, "leaveRequests"), where("uid", "==", currentUser.uid)),
+      ),
+    ]);
+
+    const recordByDate = new Map();
+    records.forEach((r) => {
+      const d = normalizeDateStrLocal(r.date);
+      if (d) recordByDate.set(d, r);
+    });
+
+    const leaveCoveredDates = new Set();
+    leaveSnap.docs.forEach((docSnap) => {
+      const lv = docSnap.data() || {};
+      if (lv.status !== "approved1" && lv.status !== "approved2") return;
+      const start = normalizeDateStrLocal(lv.startDate || lv.date);
+      const end = normalizeDateStrLocal(lv.endDate || lv.date) || start;
+      if (!start) return;
+      let cursor = start;
+      let guard = 0;
+      while (cursor <= end && guard < 366) {
+        leaveCoveredDates.add(cursor);
+        cursor = addDaysToDateStr(cursor, 1);
+        guard++;
+      }
+    });
+
+    const issues = [];
+    let cursor = startDate;
+    while (cursor <= endDate) {
+      if (isRegularWorkday(cursor) && !leaveCoveredDates.has(cursor)) {
+        const rec = recordByDate.get(cursor);
+        if (!rec) {
+          issues.push({ date: cursor, type: "missing" });
+        } else if (rec.punchIn && !rec.punchOut) {
+          issues.push({ date: cursor, type: "incomplete" });
+        }
+      }
+      cursor = addDaysToDateStr(cursor, 1);
+    }
+    recentMissingPunches.value = issues;
+  } catch (e) {
+    console.warn("checkRecentMissingPunches:", e);
+  }
 }
 
 function pickTodayAttendanceRecord(records) {
@@ -1706,11 +1807,14 @@ onMounted(async () => {
   try {
     const settings = await getSystemSettings();
     punchLocationCfg = settings.punchLocation || punchLocationCfg;
+    publicHolidaySet.value = normalizeDateSet(settings.publicHolidays);
+    makeupWorkdaySet.value = normalizeDateSet(settings.makeupWorkdays);
   } catch (_) {}
 
   isLoggedIn.value = true;
   await refreshCurrentAttendanceUids();
   await loadTodayRec();
+  checkRecentMissingPunches();
   fetchPersonalRecords();
   loadMyCorrectionRequests();
   if (isAdminOrManager.value) {
@@ -3419,6 +3523,44 @@ tr.no-rec td {
 }
 @media print {
   .pending-banner {
+    display: none !important;
+  }
+}
+
+/* 近一週打卡不完整提醒 banner */
+.missing-punch-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(90deg, #ffebee 0%, #ffcdd2 100%);
+  border: 1px solid #e53935;
+  border-left: 5px solid #b71c1c;
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin: 0.4rem 0 1rem;
+  color: #b71c1c;
+  font-size: 0.95rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.missing-punch-banner .pb-icon {
+  font-size: 1.3rem;
+}
+.missing-punch-banner .pb-text {
+  flex: 1;
+}
+.missing-punch-banner .pb-text b {
+  color: #b71c1c;
+  font-size: 1.1rem;
+  padding: 0 0.15rem;
+}
+.missing-punch-banner .pb-detail {
+  display: block;
+  color: #c62828;
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
+}
+@media print {
+  .missing-punch-banner {
     display: none !important;
   }
 }

@@ -156,7 +156,7 @@
     <!-- 六、曠職 -->
     <section id="s6">
       <h3>六、曠職扣薪</h3>
-      <p><strong>定義：</strong>工作日無出勤打卡且無核准請假。</p>
+      <p><strong>定義：</strong>工作日無完整上下班打卡且無核准請假；只有上班或只有下班都視為打卡不完整。</p>
       <h4>自動偵測條件（全部符合才計入）</h4>
       <table>
         <thead><tr><th>條件</th><th>說明</th></tr></thead>
@@ -165,7 +165,7 @@
           <tr><td>② 非到職前</td><td>員工 <code>startDate</code> 之前不計</td></tr>
           <tr><td>③ 非週末</td><td>週六、日跳過（補班日除外）</td></tr>
           <tr><td>④ 非國定假日</td><td>需在「系統設定 → 國定假日」中設定</td></tr>
-          <tr><td>⑤ 無出勤打卡</td><td><code>attendance</code> 中找不到當日 <code>punchIn</code></td></tr>
+          <tr><td>⑤ 無完整出勤打卡</td><td><code>attendance</code> 中找不到當日完整 <code>punchIn</code> 與 <code>punchOut</code></td></tr>
           <tr><td>⑥ 無核准請假</td><td><code>leaveRequests</code> 中無 <code>approved2</code> 假單涵蓋該日</td></tr>
         </tbody>
       </table>
@@ -223,7 +223,7 @@
           <div class="lf-no">否 → 是週末？→ 直接跳過（不計曠職）</div>
         </div>
         <div class="lf-row">繼續判斷 → 是國定假日？→ 跳過</div>
-        <div class="lf-row">→ 有打卡？→ 跳過</div>
+        <div class="lf-row">→ 有完整上下班打卡？→ 跳過</div>
         <div class="lf-row">→ 有核准請假？→ 跳過</div>
         <div class="lf-row lf-result">→ 以上皆否 → <strong>計為曠職</strong></div>
       </div>
