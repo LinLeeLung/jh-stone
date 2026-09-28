@@ -2111,6 +2111,10 @@ function scoreOrderFolderMatch(
     score += 2000;
   }
 
+  if (/^\d{2,4}-\d{2}-\d{2}(?:\s|$)/.test(name)) {
+    score += 500;
+  }
+
   // 主號碼（純數字）命中
   if (mainNumber) {
     const boundaryPattern = new RegExp(`(^|[^0-9])${mainNumber}([^0-9]|$)`);
@@ -5511,6 +5515,54 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       nameMatchedFolderName: "",
     };
 
+    const uploadLockRef = admin
+      .firestore()
+      .collection("OrderPhotoUploadLocks")
+      .doc(orderDocId);
+    const uploadLockToken = `${Date.now()}-${photoRef.id}`;
+    const uploadLockTtlMs = 10 * 60 * 1000;
+    let uploadLockAcquired = false;
+
+    async function acquireUploadLock() {
+      await admin.firestore().runTransaction(async (tx) => {
+        const lockSnap = await tx.get(uploadLockRef);
+        const lockData = lockSnap.exists ? lockSnap.data() || {} : {};
+        const lockedAt = Number(lockData.lockedAt || 0);
+        if (
+          lockData.token &&
+          lockedAt > 0 &&
+          Date.now() - lockedAt < uploadLockTtlMs
+        ) {
+          throw new Error("UPLOAD_IN_PROGRESS");
+        }
+        tx.set(uploadLockRef, {
+          token: uploadLockToken,
+          lockedAt: Date.now(),
+          orderDocId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+      uploadLockAcquired = true;
+    }
+
+    async function releaseUploadLock() {
+      if (!uploadLockAcquired) return;
+      try {
+        await admin.firestore().runTransaction(async (tx) => {
+          const lockSnap = await tx.get(uploadLockRef);
+          if (lockSnap.exists && lockSnap.data()?.token === uploadLockToken) {
+            tx.delete(uploadLockRef);
+          }
+        });
+      } catch (lockErr) {
+        logger.warn("uploadCompletionPhotoToNasHttp: lock release failed", {
+          orderDocId,
+          error: lockErr?.message,
+        });
+      }
+      uploadLockAcquired = false;
+    }
+
     // 共用的資料夾解析 + 上傳邏輯
     async function resolveAndUpload(useCachedFolder) {
       if (useCachedFolder) {
@@ -5714,6 +5766,31 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
         }
       }
 
+      if (matchMeta.matched) {
+        const currentSlash = uploadFolder.lastIndexOf("/");
+        if (currentSlash > 0) {
+          const currentParent = uploadFolder.slice(0, currentSlash);
+          const currentName = uploadFolder.slice(currentSlash + 1);
+          if (!/^\d{2,4}-\d{2}-\d{2}(?:\s|$)/.test(currentName)) {
+            const existingTargetName = buildExistingFolderRenameTarget(currentName);
+            const existingTargetPath = `${currentParent}/${existingTargetName}`;
+            if (existingTargetName !== currentName) {
+              try {
+                await synologyListFolderEntries({
+                  baseUrl,
+                  sid,
+                  folderPath: existingTargetPath,
+                });
+                uploadFolder = existingTargetPath;
+                orderDocRef
+                  .update({ nasOrderFolderPath: existingTargetPath })
+                  .catch(() => {});
+              } catch (_) {}
+            }
+          }
+        }
+      }
+
       await synologyUploadFile({
         baseUrl,
         sid,
@@ -5828,6 +5905,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
     }
 
     try {
+      await acquireUploadLock();
       sid = await getOrCreateSid(baseUrl, username, password);
       try {
         await resolveAndUpload(useCachedNasFolder);
@@ -5880,7 +5958,13 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
         orderNumber: folderParts.orderNumber,
         detailFolder: folderParts.detailFolder,
       });
-      sendJson(res, 500, { error: e?.message || "上傳到 NAS 失敗" });
+      await releaseUploadLock();
+      sendJson(res, e?.message === "UPLOAD_IN_PROGRESS" ? 409 : 500, {
+        error:
+          e?.message === "UPLOAD_IN_PROGRESS"
+            ? "此訂單已有另一個照片上傳作業進行中，請稍後再試"
+            : e?.message || "上傳到 NAS 失敗",
+      });
       return;
     }
 
@@ -5949,6 +6033,7 @@ exports.uploadCompletionPhotoToNasHttp = onRequestV2(
       }
     }
 
+    await releaseUploadLock();
     sendJson(res, 200, {
       id: photoRef.id,
       nasPath,
