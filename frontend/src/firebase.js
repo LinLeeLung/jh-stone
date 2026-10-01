@@ -1770,6 +1770,14 @@ export async function updatePayrollLunchFee(docId, lunchFee) {
   });
 }
 
+// ── Payroll loanAdvance (借支) update ──────────────────────────────────────
+export async function updatePayrollLoanAdvance(docId, loanAdvance) {
+  await updateDoc(doc(db, "payroll", docId), {
+    loanAdvance: Math.max(0, Number(loanAdvance) || 0),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function updatePayrollSalesAmount(docId, salesAmount, payload = {}) {
   const amount = Math.max(0, Number(salesAmount) || 0);
   const commissionPay = Math.round(amount * 0.01);

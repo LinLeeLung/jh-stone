@@ -155,6 +155,7 @@
             <th>伙食費</th>
             <th>請假扣薪</th>
             <th>未上班扣薪</th>
+            <th>借支</th>
             <th class="lunch-col">便當費</th>
             <th>5日發薪</th>
             <th>10日發薪</th>
@@ -243,6 +244,24 @@
                 )
               }}
             </td>
+            <td class="num deduct">
+              <input
+                v-if="isManager && isSensitiveVisible(r)"
+                type="number"
+                class="lunch-input"
+                :value="getLoanAdvance(r)"
+                min="0"
+                @change="saveLoanAdvance(r, $event.target.value)"
+              />
+              <span v-else>{{
+                maskSensitive(
+                  r,
+                  getLoanAdvance(r) > 0
+                    ? "−" + getLoanAdvance(r).toLocaleString()
+                    : "—",
+                )
+              }}</span>
+            </td>
             <td class="num deduct lunch-col">
               <input
                 v-if="isManager && isSensitiveVisible(r)"
@@ -305,6 +324,9 @@
       </table>
       <p class="hint-text">
         ※ 便當費欄位可直接輸入修改，計算薪資時會自動帶入已輸入的金額。
+      </p>
+      <p class="hint-text">
+        ※ 借支欄位預設為避免10日發薪小於0所需的金額（5日發薪超出實領合計的差額），可直接輸入修改。
       </p>
     </template>
 
@@ -526,6 +548,12 @@
               </th>
               <td class="num deduct">
                 −{{ calcPartialMonthDeduction(detailRecord).toLocaleString() }}
+              </td>
+            </tr>
+            <tr v-if="getLoanAdvance(detailRecord) > 0">
+              <th>借支</th>
+              <td class="num deduct">
+                −{{ getLoanAdvance(detailRecord).toLocaleString() }}
               </td>
             </tr>
             <template
@@ -962,6 +990,7 @@ import {
   getAllLoans,
   deleteLoan,
   updatePayrollLunchFee,
+  updatePayrollLoanAdvance,
   updatePayrollSalesAmount,
   getSystemSettings,
 } from "../firebase";
@@ -1625,7 +1654,8 @@ function calcFirstPaymentFixedDeductions(r) {
   );
 }
 
-function calcFirstPayment(r) {
+// 5日發薪（未扣除借支前），用於推算借支預設值，避免與 calcFirstPayment 互相循環呼叫。
+function calcFirstPaymentBeforeAdvance(r) {
   if (!r) return 0;
   return Math.max(
     0,
@@ -1640,6 +1670,24 @@ function calcFirstPayment(r) {
       (Number(r.mutualAid) || 0) -
       (Number(r.lunchFee) || 0),
   );
+}
+
+// 借支預設值 = 避免10日發薪（實領合計－5日發薪）小於0所需挪移的金額。
+function calcLoanAdvanceDefault(r) {
+  if (!r) return 0;
+  const shortfall = calcFirstPaymentBeforeAdvance(r) - calcGrossPay(r);
+  return Math.max(0, Math.round(shortfall));
+}
+
+function getLoanAdvance(r) {
+  if (!r) return 0;
+  if (r.loanAdvance != null) return Math.max(0, Number(r.loanAdvance) || 0);
+  return calcLoanAdvanceDefault(r);
+}
+
+function calcFirstPayment(r) {
+  if (!r) return 0;
+  return Math.max(0, calcFirstPaymentBeforeAdvance(r) - getLoanAdvance(r));
 }
 
 function isPerformanceSalary(r) {
@@ -2782,6 +2830,16 @@ async function saveLunchFee(record, value) {
   }
 }
 
+async function saveLoanAdvance(record, value) {
+  const amount = Math.max(0, Number(value) || 0);
+  try {
+    await updatePayrollLoanAdvance(record.id, amount);
+    record.loanAdvance = amount;
+  } catch (e) {
+    alert("儲存借支失敗：" + e.message);
+  }
+}
+
 async function saveSalesAmount(record, value) {
   const amount = clampSalesAmount(value);
   try {
@@ -3714,6 +3772,7 @@ function buildSlipPrintData(r, mode, options = {}) {
       ${deductRow("健保費（眷屬）", r.dependentHealth)}
       ${deductRow("減項互助金", r.mutualAid)}
       ${deductRow("便當費", r.lunchFee)}
+      ${deductRow("借支", getLoanAdvance(r))}
       <tr class="total-row"><th>5日實發</th><td class="gross">${n(calcFirstPayment(r))}</td></tr>
       <tr><th>申報所得（投保薪資-請假/曠職/遲到早退）</th><td class="gross">${n(calcReportedIncome(r))}</td></tr>
     `;
@@ -3774,6 +3833,7 @@ function buildSlipPrintData(r, mode, options = {}) {
       ${calcMealAllowance(r) > 0 ? `<tr><th>${labelText("伙食費合計")}</th><td class="meal">+${n(calcMealAllowance(r))}</td></tr>${mealRows}` : ""}
       ${leaveRows ? `<tr><th>${labelText("請假扣薪合計")}</th><td class="deduct">−${n(calcLeaveDeduction(r))}</td></tr>${leaveRows}` : ""}
       ${calcPartialMonthDeduction(r) > 0 ? `<tr><th>${labelText(`未上班扣薪（${calcPartialMonthNoWorkDays(r)}天）`, "未上班扣薪")}</th><td class="deduct">−${n(calcPartialMonthDeduction(r))}</td></tr>` : ""}
+      ${deductRow("借支", getLoanAdvance(r))}
       ${calcLateEarlyDeduction(r) > 0 ? `<tr><th>${labelText("遲到/早退扣薪", "遲到早退扣薪")}</th><td class="deduct">−${n(calcLateEarlyDeduction(r))}</td></tr>${lateRows}` : ""}
       ${calcAbsentDeduction(r) > 0 ? `<tr><th>${labelText(`曠職扣薪（${calcAbsentDays(r)}天）`, "曠職扣薪")}</th><td class="deduct">−${n(calcAbsentDeduction(r))}</td></tr>` : ""}
       ${deductRow("勞保費", r.laborInsurance)}
