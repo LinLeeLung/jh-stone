@@ -996,6 +996,13 @@
           >
             列印薪資表格式
           </button>
+          <button
+            v-if="annualResult"
+            class="btn-sm btn-excel"
+            @click="exportAnnualSlipExcel"
+          >
+            下載薪資表格式(Excel)
+          </button>
           <button v-if="annualResult" class="btn-sm" @click="exportAnnualCSV">
             匯出 CSV
           </button>
@@ -2376,17 +2383,12 @@ tr.total-row th, tr.total-row td { font-weight: bold; background: #fff7d6; }
   };
 }
 
-function printAnnualSlipFormat() {
-  if (!annualResult.value) return;
+// Shared by printAnnualSlipFormat() and exportAnnualSlipExcel().
+function buildAnnualSlipBlocks() {
+  if (!annualResult.value) return null;
   const R = annualResult.value;
   const year = String(R.year);
   const rocYear = Number(year) - 1911;
-  const fmt = (v) => (Number(v) || 0).toLocaleString();
-  const esc = (s) =>
-    String(s ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
 
   const empBlocks = [];
   if (R.mode === "single") {
@@ -2425,6 +2427,20 @@ function printAnnualSlipFormat() {
       empBlocks.push({ staff: staffInfo, monthlyValues, total });
     }
   }
+
+  return { R, year, rocYear, empBlocks };
+}
+
+function printAnnualSlipFormat() {
+  const built = buildAnnualSlipBlocks();
+  if (!built) return;
+  const { rocYear, empBlocks } = built;
+  const fmt = (v) => (Number(v) || 0).toLocaleString();
+  const esc = (s) =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
 
   function buildEmpHtml(block) {
     const { staff, monthlyValues, total } = block;
@@ -2525,6 +2541,188 @@ function printAnnualSlipFormat() {
     win.print();
     win.onafterprint = () => win.close();
   };
+}
+
+let annualSlipXlsxLib = null;
+
+async function loadAnnualSlipXlsxLib() {
+  if (!annualSlipXlsxLib) {
+    const mod = await import("xlsx-js-style");
+    annualSlipXlsxLib = mod.default || mod;
+  }
+  return annualSlipXlsxLib;
+}
+
+async function exportAnnualSlipExcel() {
+  const built = buildAnnualSlipBlocks();
+  if (!built) return;
+  const { R, year, rocYear, empBlocks } = built;
+
+  try {
+    const xlsx = await loadAnnualSlipXlsxLib();
+    const num = (v) => Number(v) || 0;
+
+    const COL_COUNT = 17; // 姓名/配偶/扶養人數/合計/月份 + 12 個月
+    const border = { style: "thin", color: { rgb: "000000" } };
+    const allBorders = { top: border, bottom: border, left: border, right: border };
+    const titleStyle = {
+      font: { name: "微軟正黑體", sz: 16, bold: true },
+      alignment: { horizontal: "center", vertical: "center" },
+    };
+    const headerStyle = {
+      font: { name: "微軟正黑體", sz: 11, bold: true },
+      alignment: { horizontal: "center", vertical: "center" },
+      border: allBorders,
+      fill: { fgColor: { rgb: "F0F0F0" } },
+    };
+    const cellStyle = {
+      font: { name: "微軟正黑體", sz: 11 },
+      alignment: { horizontal: "center", vertical: "center" },
+      border: allBorders,
+    };
+    const labelStyle = {
+      font: { name: "微軟正黑體", sz: 11 },
+      alignment: { horizontal: "left", vertical: "center" },
+      border: allBorders,
+    };
+    const nameStyle = {
+      font: { name: "微軟正黑體", sz: 14, bold: true },
+      alignment: { horizontal: "center", vertical: "center" },
+      border: allBorders,
+    };
+    const numStyle = {
+      font: { name: "微軟正黑體", sz: 11 },
+      alignment: { horizontal: "right", vertical: "center" },
+      border: allBorders,
+      numFmt: "#,##0",
+    };
+
+    const aoa = [];
+    const styles = [];
+    const merges = [];
+    const pushRow = (cells, cellStyles) => {
+      aoa.push(cells);
+      styles.push(cellStyles);
+    };
+
+    for (const block of empBlocks) {
+      const { staff, monthlyValues, total } = block;
+
+      // Title row
+      const titleRow = aoa.length;
+      pushRow(
+        [
+          `公司名稱：峻晟實業股份有限公司　${rocYear} 年度 薪資表（${staff.empNo || ""} ${staff.name || ""}）`,
+          ...Array(COL_COUNT - 1).fill(""),
+        ],
+        [titleStyle, ...Array(COL_COUNT - 1).fill(null)],
+      );
+      merges.push({ s: { r: titleRow, c: 0 }, e: { r: titleRow, c: COL_COUNT - 1 } });
+
+      // Header row
+      pushRow(
+        [
+          "姓名",
+          "配偶",
+          "扶養人數",
+          "合計",
+          "月份",
+          ...Array.from({ length: 12 }, (_, i) => `${i + 1}月份`),
+        ],
+        Array(COL_COUNT).fill(headerStyle),
+      );
+
+      const r0 = aoa.length;
+
+      // Row0: 姓名(rowspan7) / 配偶(rowspan2) / 扶養人數(rowspan2) / 合計 / 給付額 / monthly values
+      pushRow(
+        [
+          staff.name || "",
+          staff.spouse || "",
+          staff.numDependents ?? "",
+          num(total),
+          "給付額",
+          ...monthlyValues.map(num),
+        ],
+        [nameStyle, cellStyle, cellStyle, numStyle, labelStyle, ...Array(12).fill(numStyle)],
+      );
+      merges.push({ s: { r: r0, c: 0 }, e: { r: r0 + 6, c: 0 } });
+      merges.push({ s: { r: r0, c: 1 }, e: { r: r0 + 1, c: 1 } });
+      merges.push({ s: { r: r0, c: 2 }, e: { r: r0 + 1, c: 2 } });
+
+      // Row1: 扣繳額
+      pushRow(
+        ["", "", "", "", "扣繳額", ...Array(12).fill("")],
+        [cellStyle, cellStyle, cellStyle, cellStyle, labelStyle, ...Array(12).fill(cellStyle)],
+      );
+      merges.push({ s: { r: r0 + 1, c: 5 }, e: { r: r0 + 1, c: 16 } });
+
+      // Row2: 身份證統一編號(label, colspan2) / 伙食費
+      pushRow(
+        ["", "身份證統一編號", "", "", "伙食費", ...Array(12).fill("")],
+        [cellStyle, cellStyle, cellStyle, cellStyle, labelStyle, ...Array(12).fill(cellStyle)],
+      );
+      merges.push({ s: { r: r0 + 2, c: 1 }, e: { r: r0 + 2, c: 2 } });
+      merges.push({ s: { r: r0 + 2, c: 5 }, e: { r: r0 + 2, c: 16 } });
+
+      // Row3: 身份證字號(value, colspan2) / 獎金
+      pushRow(
+        ["", staff.idNo || "", "", "", "獎金", ...Array(12).fill("")],
+        [cellStyle, cellStyle, cellStyle, cellStyle, labelStyle, ...Array(12).fill(cellStyle)],
+      );
+      merges.push({ s: { r: r0 + 3, c: 1 }, e: { r: r0 + 3, c: 2 } });
+      merges.push({ s: { r: r0 + 3, c: 5 }, e: { r: r0 + 3, c: 16 } });
+
+      // Row4-6: 地址(rowspan3 colspan2) / 健保投保額 / 二代健保費 / 蓋章
+      pushRow(
+        ["", staff.address || "", "", "", "健保投保額", ...Array(12).fill("")],
+        [cellStyle, cellStyle, cellStyle, cellStyle, labelStyle, ...Array(12).fill(cellStyle)],
+      );
+      merges.push({ s: { r: r0 + 4, c: 1 }, e: { r: r0 + 6, c: 2 } });
+      merges.push({ s: { r: r0 + 4, c: 5 }, e: { r: r0 + 4, c: 16 } });
+
+      pushRow(
+        ["", "", "", "", "每月二代健保費*2%", ...Array(12).fill("")],
+        [cellStyle, cellStyle, cellStyle, cellStyle, labelStyle, ...Array(12).fill(cellStyle)],
+      );
+      merges.push({ s: { r: r0 + 5, c: 5 }, e: { r: r0 + 5, c: 16 } });
+
+      pushRow(
+        ["", "", "", "", "蓋章", ...Array(12).fill("")],
+        [cellStyle, cellStyle, cellStyle, cellStyle, labelStyle, ...Array(12).fill(cellStyle)],
+      );
+
+      // Blank separator row between employee blocks
+      pushRow(Array(COL_COUNT).fill(""), Array(COL_COUNT).fill(null));
+    }
+
+    const ws = xlsx.utils.aoa_to_sheet(aoa);
+    ws["!merges"] = merges;
+    ws["!cols"] = [
+      { wch: 10 },
+      { wch: 6 },
+      { wch: 8 },
+      { wch: 12 },
+      { wch: 20 },
+      ...Array(12).fill({ wch: 10 }),
+    ];
+    for (let r = 0; r < styles.length; r++) {
+      for (let c = 0; c < COL_COUNT; c++) {
+        const cellStyleToApply = styles[r] ? styles[r][c] : null;
+        if (!cellStyleToApply) continue;
+        const addr = xlsx.utils.encode_cell({ r, c });
+        if (ws[addr]) ws[addr].s = cellStyleToApply;
+      }
+    }
+
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "薪資表");
+
+    const tag = R.mode === "single" ? `${R.staff.empNo}_${R.staff.name}` : "全公司";
+    xlsx.writeFile(wb, `${year}年度薪資表_${tag}.xlsx`);
+  } catch (error) {
+    alert(`下載 Excel 失敗：${error?.message || error}`);
+  }
 }
 
 function csvCell(v) {
@@ -4598,6 +4796,15 @@ function mealTotals(r) {
   background: #e8f5e9;
   border-color: #a5d6a7;
   color: #1b5e20;
+}
+.btn-excel {
+  background: #e3f2e1;
+  border-color: #6aa84f;
+  color: #0f5132;
+  font-weight: 600;
+}
+.btn-excel:hover {
+  background: #c8e6c9;
 }
 .btn-sm {
   padding: 0.3rem 0.8rem;
