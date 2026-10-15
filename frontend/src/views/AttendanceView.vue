@@ -279,8 +279,22 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in myCorrectionRequests" :key="r.id">
-            <td>{{ r.date }}</td>
+          <tr
+            v-for="r in myCorrectionRequests"
+            :key="r.id"
+            :class="{ 'dup-row': myCorrectionDupMap.get(r.id) }"
+          >
+            <td>
+              {{ r.date }}
+              <span
+                v-if="myCorrectionDupMap.get(r.id)"
+                class="dup-badge"
+                title="與其他待審補打卡申請時間重複，可能是誤送多次，請確認後僅保留正確的一筆，其餘請自行取消或聯繫主管刪除"
+                >⚠ 重複{{ myCorrectionDupMap.get(r.id).index }}/{{
+                  myCorrectionDupMap.get(r.id).count
+                }}</span
+              >
+            </td>
             <td>{{ r.punchIn || "—" }}</td>
             <td>{{ r.punchOut || "—" }}</td>
             <td>{{ r.reason || "—" }}</td>
@@ -320,8 +334,22 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in pendingCorrectionRequests" :key="r.id">
-            <td>{{ r.name || r.email || r.uid }}</td>
+          <tr
+            v-for="r in pendingCorrectionRequests"
+            :key="r.id"
+            :class="{ 'dup-row': pendingCorrectionDupMap.get(r.id) }"
+          >
+            <td>
+              {{ r.name || r.email || r.uid }}
+              <span
+                v-if="pendingCorrectionDupMap.get(r.id)"
+                class="dup-badge"
+                title="與其他待審補打卡申請時間重複，可能是誤送多次，請確認後僅核准一筆，其餘請駁回或刪除"
+                >⚠ 重複{{ pendingCorrectionDupMap.get(r.id).index }}/{{
+                  pendingCorrectionDupMap.get(r.id).count
+                }}</span
+              >
+            </td>
             <td>{{ r.date }}</td>
             <td>{{ r.punchIn || "—" }}</td>
             <td>{{ r.punchOut || "—" }}</td>
@@ -336,6 +364,14 @@
                 @click="rejectCorrectionRequest(r)"
               >
                 {{ t("corr_reject") }}
+              </button>
+              <button
+                v-if="isAdminOrManager"
+                class="btn-cancel"
+                style="margin-left: 6px"
+                @click="deleteCorrectionRequest(r)"
+              >
+                刪除
               </button>
             </td>
           </tr>
@@ -689,6 +725,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  deleteDoc,
   getDoc,
   query,
   where,
@@ -1017,6 +1054,57 @@ const myCorrectionRequests = ref([]);
 const pendingCorrectionRequests = ref([]);
 const loadingMyCorrections = ref(false);
 const loadingPendingCorrections = ref(false);
+
+// ── 補打卡重複申請偵測 ────────────────────────────────────────
+// 員工若誤觸多次送出同一天的補打卡申請，會建立多筆內容相同的待審紀錄，
+// 以下依「同一人 + 同一天 + 同樣的上下班時間」標記重複，提醒確認後
+// 僅保留正確的一筆，其餘請駁回或刪除。
+function correctionDupKey(r) {
+  if (!r || (r.status && r.status !== "pending")) return "";
+  const person = r.uid || r.email || r.name || "";
+  return `${person}|${r.date}|${r.punchIn || ""}|${r.punchOut || ""}`;
+}
+function buildCorrectionDupMap(list) {
+  const groups = new Map();
+  for (const r of list) {
+    const key = correctionDupKey(r);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const map = new Map();
+  for (const group of groups.values()) {
+    if (group.length > 1) {
+      group.forEach((r, i) =>
+        map.set(r.id, { count: group.length, index: i + 1 }),
+      );
+    }
+  }
+  return map;
+}
+const myCorrectionDupMap = computed(() =>
+  buildCorrectionDupMap(myCorrectionRequests.value),
+);
+const pendingCorrectionDupMap = computed(() =>
+  buildCorrectionDupMap(pendingCorrectionRequests.value),
+);
+async function deleteCorrectionRequest(r) {
+  if (!isAdminOrManager.value) return;
+  const label = `${r.name || r.email || r.uid}　${r.date}　${r.punchIn || ""}${r.punchOut ? "–" + r.punchOut : ""}`;
+  if (
+    !confirm(
+      `確定要刪除這筆補打卡申請嗎？\n${label}\n此動作無法復原，請確認是重複申請後再刪除。`,
+    )
+  )
+    return;
+  try {
+    await deleteDoc(doc(db, "attendanceCorrectionRequests", r.id));
+    await loadPendingCorrectionRequests();
+    await loadMyCorrectionRequests();
+  } catch (e) {
+    alert(`刪除失敗：${e.message || e}`);
+  }
+}
 
 // ── 今明日請假名單 ─────────────────────────────────
 const notPunchedList = ref([]);
@@ -2986,6 +3074,24 @@ h1 {
 }
 .att-table tr:hover td {
   background: #f9f9f9;
+}
+.att-table tr.dup-row td {
+  background: #fff6d8;
+}
+.att-table tr.dup-row:hover td {
+  background: #fff0bd;
+}
+.dup-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #fff3cd;
+  color: #b71c1c;
+  font-weight: 700;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .loading,

@@ -4168,6 +4168,7 @@ function buildSlipDocumentHtml(bodyHtml, orientation, baseFontSize = 20, options
       .att-table td { text-align: left; min-width: 0; white-space: normal; word-break: break-word; }
       tr.sep th, tr.sep td { border-top: 2px solid #aaa; }
       tr.sub th, tr.sub td { font-size: ${subRowSize}px; color: #666; padding-left: 18px; }
+      tr.sub td { text-align: left; white-space: normal; }
       tr.total-row th, tr.total-row td { border-top: 2px solid #555; font-weight: 700; font-size: 1.05em; }
       .deduct { color: #b71c1c; }
       .gross { color: #1a237e; font-weight: 700; }
@@ -4717,6 +4718,9 @@ function mealTotals(r) {
   font-size: 0.82rem;
   color: #888;
   padding-left: 1.5rem;
+}
+.slip-table tr.sub td {
+  text-align: left;
 }
 .slip-table tr.total-row th,
 .slip-table tr.total-row td {

@@ -267,9 +267,21 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in filteredMine" :key="r.id + r._col">
+          <tr
+            v-for="r in filteredMine"
+            :key="r.id + r._col"
+            :class="{ 'dup-row': mineDupMap.get(r.id) }"
+          >
             <td>
               {{ r._col === "leaveRequests" ? t("mine_leave") : t("mine_ot") }}
+              <span
+                v-if="mineDupMap.get(r.id)"
+                class="dup-badge"
+                title="與其他紀錄時間重複，可能是誤送多次，請確認後僅保留正確的一筆，其餘請刪除"
+                >⚠ 重複{{ mineDupMap.get(r.id).index }}/{{
+                  mineDupMap.get(r.id).count
+                }}</span
+              >
             </td>
             <td>
               {{
@@ -405,8 +417,22 @@
           </thead>
           <tbody>
             <template v-if="approveSubTab === 'leave'">
-              <tr v-for="r in pendingLeave1" :key="r.id">
-                <td>{{ r.name }}</td>
+              <tr
+                v-for="r in pendingLeave1"
+                :key="r.id"
+                :class="{ 'dup-row': pendingLeaveDupMap.get(r.id) }"
+              >
+                <td>
+                  {{ r.name }}
+                  <span
+                    v-if="pendingLeaveDupMap.get(r.id)"
+                    class="dup-badge"
+                    title="與其他申請時間重複，可能是誤送多次，請確認後僅核准一筆，其餘請駁回"
+                    >⚠ 重複{{ pendingLeaveDupMap.get(r.id).index }}/{{
+                      pendingLeaveDupMap.get(r.id).count
+                    }}</span
+                  >
+                </td>
                 <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.type }}</td>
                 <td>
@@ -453,8 +479,22 @@
               </tr>
             </template>
             <template v-else>
-              <tr v-for="r in pendingOT1" :key="r.id">
-                <td>{{ r.name }}</td>
+              <tr
+                v-for="r in pendingOT1"
+                :key="r.id"
+                :class="{ 'dup-row': pendingOTDupMap.get(r.id) }"
+              >
+                <td>
+                  {{ r.name }}
+                  <span
+                    v-if="pendingOTDupMap.get(r.id)"
+                    class="dup-badge"
+                    title="與其他申請時間重複，可能是誤送多次，請確認後僅核准一筆，其餘請駁回"
+                    >⚠ 重複{{ pendingOTDupMap.get(r.id).index }}/{{
+                      pendingOTDupMap.get(r.id).count
+                    }}</span
+                  >
+                </td>
                 <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.date }}</td>
                 <td>{{ r.startTime }} – {{ r.endTime }}</td>
@@ -525,8 +565,22 @@
           </thead>
           <tbody>
             <template v-if="approveSubTab === 'leave'">
-              <tr v-for="r in pendingLeave2" :key="r.id">
-                <td>{{ r.name }}</td>
+              <tr
+                v-for="r in pendingLeave2"
+                :key="r.id"
+                :class="{ 'dup-row': pendingLeaveDupMap.get(r.id) }"
+              >
+                <td>
+                  {{ r.name }}
+                  <span
+                    v-if="pendingLeaveDupMap.get(r.id)"
+                    class="dup-badge"
+                    title="與其他申請時間重複，可能是誤送多次，請確認後僅核准一筆，其餘請駁回"
+                    >⚠ 重複{{ pendingLeaveDupMap.get(r.id).index }}/{{
+                      pendingLeaveDupMap.get(r.id).count
+                    }}</span
+                  >
+                </td>
                 <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.type }}</td>
                 <td>
@@ -574,8 +628,22 @@
               </tr>
             </template>
             <template v-else>
-              <tr v-for="r in pendingOT2" :key="r.id">
-                <td>{{ r.name }}</td>
+              <tr
+                v-for="r in pendingOT2"
+                :key="r.id"
+                :class="{ 'dup-row': pendingOTDupMap.get(r.id) }"
+              >
+                <td>
+                  {{ r.name }}
+                  <span
+                    v-if="pendingOTDupMap.get(r.id)"
+                    class="dup-badge"
+                    title="與其他申請時間重複，可能是誤送多次，請確認後僅核准一筆，其餘請駁回"
+                    >⚠ 重複{{ pendingOTDupMap.get(r.id).index }}/{{
+                      pendingOTDupMap.get(r.id).count
+                    }}</span
+                  >
+                </td>
                 <td>{{ deptLabel(r.dept) }}</td>
                 <td>{{ r.date }}</td>
                 <td>{{ r.startTime }} – {{ r.endTime }}</td>
@@ -688,8 +756,22 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in filteredApprovedLeave" :key="r.id">
-              <td>{{ r.name }}</td>
+            <tr
+              v-for="r in filteredApprovedLeave"
+              :key="r.id"
+              :class="{ 'dup-row': approvedLeaveDupMap.get(r.id) }"
+            >
+              <td>
+                {{ r.name }}
+                <span
+                  v-if="approvedLeaveDupMap.get(r.id)"
+                  class="dup-badge"
+                  title="與其他已核准紀錄時間重複，可能是誤送多次重複核准，請確認後僅保留一筆，其餘請刪除，以免薪資重複計算"
+                  >⚠ 重複{{ approvedLeaveDupMap.get(r.id).index }}/{{
+                    approvedLeaveDupMap.get(r.id).count
+                  }}</span
+                >
+              </td>
               <td>{{ r.type }}</td>
               <td>
                 {{ r.startDate
@@ -727,6 +809,13 @@
                 >
                   {{ t("btn_revoke_stage2") }}
                 </button>
+                <button
+                  v-if="isManager || isHRRole"
+                  class="btn-sm btn-danger"
+                  @click="deleteApprovedRecord(r, 'leave')"
+                >
+                  刪除
+                </button>
               </td>
             </tr>
             <tr v-if="!filteredApprovedLeave.length">
@@ -757,8 +846,22 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in filteredApprovedOT" :key="r.id">
-              <td>{{ r.name }}</td>
+            <tr
+              v-for="r in filteredApprovedOT"
+              :key="r.id"
+              :class="{ 'dup-row': approvedOTDupMap.get(r.id) }"
+            >
+              <td>
+                {{ r.name }}
+                <span
+                  v-if="approvedOTDupMap.get(r.id)"
+                  class="dup-badge"
+                  title="與其他已核准紀錄時間重複，可能是誤送多次重複核准，請確認後僅保留一筆，其餘請刪除，以免薪資重複計算"
+                  >⚠ 重複{{ approvedOTDupMap.get(r.id).index }}/{{
+                    approvedOTDupMap.get(r.id).count
+                  }}</span
+                >
+              </td>
               <td>{{ r.date }}</td>
               <td>{{ r.startTime }} – {{ r.endTime }}</td>
               <td>{{ r.hours }} {{ t("hr_unit") }}</td>
@@ -786,6 +889,13 @@
                   @click="revokeApproval(r, 'ot', 2)"
                 >
                   {{ t("btn_revoke_stage2") }}
+                </button>
+                <button
+                  v-if="isManager || isHRRole"
+                  class="btn-sm btn-danger"
+                  @click="deleteApprovedRecord(r, 'ot')"
+                >
+                  刪除
                 </button>
               </td>
             </tr>
@@ -858,6 +968,15 @@
           >月份
           <input type="month" v-model="otReportMonth" @change="loadOTReport" />
         </label>
+        <label
+          >員工
+          <select v-model="otReportFilterUid">
+            <option value="">全部員工</option>
+            <option v-for="p in otReportByPerson" :key="p.key" :value="p.key">
+              {{ p.name }}
+            </option>
+          </select>
+        </label>
       </div>
       <div
         v-if="otReportByPerson.length"
@@ -865,7 +984,8 @@
       >
         <span
           v-for="p in otReportByPerson"
-          :key="p.name"
+          :key="p.key"
+          :class="{ 'person-pill-active': otReportFilterUid === p.key }"
           :style="
             p.official > 46 ? 'color:#b71c1c;font-weight:700' : 'color:#555'
           "
@@ -874,6 +994,11 @@
             padding: 2px 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
+            cursor: pointer;
+          "
+          :title="'點擊可只篩選查看 ' + p.name + ' 的加班紀錄，方便確認是否有重複申報'"
+          @click="
+            otReportFilterUid = otReportFilterUid === p.key ? '' : p.key
           "
         >
           {{ p.name }}：實際 {{ formatHour(p.actual) }}h ／ 申報
@@ -895,8 +1020,22 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in otReportList" :key="r.id">
-            <td>{{ r.name }}</td>
+          <tr
+            v-for="r in otReportListFiltered"
+            :key="r.id"
+            :class="{ 'dup-row': otReportDupMap.get(r.id) }"
+          >
+            <td>
+              {{ r.name }}
+              <span
+                v-if="otReportDupMap.get(r.id)"
+                class="dup-badge"
+                title="與其他已核准紀錄時間重複，可能是誤送多次重複核准，請確認後僅保留一筆，其餘請刪除，以免薪資重複計算加班費"
+                >⚠ 重複{{ otReportDupMap.get(r.id).index }}/{{
+                  otReportDupMap.get(r.id).count
+                }}</span
+              >
+            </td>
             <td>{{ deptLabel(r.dept) }}</td>
             <td>{{ r.date }}</td>
             <td>{{ r.startTime }} – {{ r.endTime }}</td>
@@ -916,9 +1055,12 @@
               <button class="btn-sm btn-ok" @click="saveOfficialHours(r)">
                 儲存
               </button>
+              <button class="btn-sm btn-danger" @click="deleteOTReportRecord(r)">
+                刪除
+              </button>
             </td>
           </tr>
-          <tr v-if="!otReportList.length">
+          <tr v-if="!otReportListFiltered.length">
             <td colspan="7" class="empty">該月無已核准加班記錄</td>
           </tr>
         </tbody>
@@ -1500,6 +1642,80 @@ const filteredApprovedOT = computed(() => {
   });
 });
 
+// ── 重複申請偵測 ──────────────────────────────────────────────────────────
+// 員工若誤觸多次送出（例如網路延遲重複點擊），會在請假/加班/補打卡建立多筆
+// 內容相同的紀錄；若全數被核准，算薪水時會重複計入天數/時數/金額。
+// 以下工具依「同一人 + 同一時段」判斷重複，標記後提醒使用者/審核者確認，
+// 僅保留其中一筆正確的紀錄，其餘予以刪除或駁回。
+function leaveDupKey(r) {
+  if (!r) return "";
+  const person = r.uid || r.name || "";
+  const time =
+    r.unit === "小時" ? `${r.startTime}-${r.endTime}` : r.halfDay || "全天";
+  return `${person}|${r.type}|${r.unit}|${r.startDate}|${r.endDate}|${time}`;
+}
+function otDupKey(r) {
+  if (!r) return "";
+  const person = r.uid || r.name || "";
+  return `${person}|${r.date}|${r.startTime}|${r.endTime}`;
+}
+function buildDupMap(list, keyFn) {
+  const groups = new Map();
+  for (const r of list) {
+    const key = keyFn(r);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const map = new Map();
+  for (const group of groups.values()) {
+    if (group.length > 1) {
+      group.forEach((r, i) =>
+        map.set(r.id, { count: group.length, index: i + 1 }),
+      );
+    }
+  }
+  return map;
+}
+const mineDupMap = computed(() =>
+  buildDupMap(filteredMine.value, (r) =>
+    r._col === "leaveRequests" ? leaveDupKey(r) : otDupKey(r),
+  ),
+);
+const pendingLeaveDupMap = computed(() =>
+  buildDupMap([...pendingLeave1.value, ...pendingLeave2.value], leaveDupKey),
+);
+const pendingOTDupMap = computed(() =>
+  buildDupMap([...pendingOT1.value, ...pendingOT2.value], otDupKey),
+);
+const approvedLeaveDupMap = computed(() =>
+  buildDupMap(filteredApprovedLeave.value, leaveDupKey),
+);
+const approvedOTDupMap = computed(() =>
+  buildDupMap(filteredApprovedOT.value, otDupKey),
+);
+
+async function deleteApprovedRecord(r, col) {
+  if (!(isManager.value || isHRRole.value)) return;
+  const label =
+    col === "leave"
+      ? `${r.name || ""}　${r.type || ""}　${r.startDate || ""}${r.startDate !== r.endDate ? " ~ " + r.endDate : ""}`
+      : `${r.name || ""}　${r.date || ""}　${r.startTime}–${r.endTime}`;
+  if (
+    !confirm(
+      `確定要刪除這筆已核准紀錄嗎？\n${label}\n此動作無法復原，請確認是重複申請後再刪除。`,
+    )
+  )
+    return;
+  const colName = col === "leave" ? "leaveRequests" : "overtimeRequests";
+  try {
+    await deleteDoc(doc(db, colName, r.id));
+    await loadMyApproved();
+  } catch (e) {
+    alert("刪除失敗：" + e.message);
+  }
+}
+
 const pendingLoadError = ref("");
 const debugUserDocId = ref("");
 const debugPendingRaw = reactive({ l1: 0, l2: 0, o1: 0, o2: 0 });
@@ -1530,17 +1746,26 @@ const otReportMonth = ref(
   `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, "0")}`,
 );
 const otReportList = ref([]);
+const otReportFilterUid = ref("");
 // 按員工分組統計（46h 上限每人各自計算）
 const otReportByPerson = computed(() => {
   const map = {};
   for (const r of otReportList.value) {
     const key = r.uid || r.name;
-    if (!map[key]) map[key] = { name: r.name, actual: 0, official: 0 };
+    if (!map[key]) map[key] = { key, name: r.name, actual: 0, official: 0 };
     map[key].actual += Number(r.hours) || 0;
     map[key].official += Number(r._officialHours) || 0;
   }
   return Object.values(map);
 });
+// 篩選單一員工，方便查看其加班日期並確認是否有重複申報
+const otReportListFiltered = computed(() => {
+  if (!otReportFilterUid.value) return otReportList.value;
+  return otReportList.value.filter(
+    (r) => (r.uid || r.name) === otReportFilterUid.value,
+  );
+});
+const otReportDupMap = computed(() => buildDupMap(otReportList.value, otDupKey));
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function formatHour(value) {
@@ -1797,6 +2022,7 @@ function switchOTReport() {
 }
 async function loadOTReport() {
   loadingOTReport.value = true;
+  otReportFilterUid.value = "";
   try {
     const snap = await getDocs(
       query(
@@ -1824,6 +2050,21 @@ async function saveOfficialHours(r) {
     });
   } catch (e) {
     alert("儲存失敗：" + e.message);
+  }
+}
+async function deleteOTReportRecord(r) {
+  if (!isManager.value) return;
+  if (
+    !confirm(
+      `確定要刪除這筆加班紀錄嗎？\n${r.name || ""}　${r.date}　${r.startTime}–${r.endTime}\n此動作無法復原，請確認是重複申報後再刪除。`,
+    )
+  )
+    return;
+  try {
+    await deleteDoc(doc(db, "overtimeRequests", r.id));
+    await loadOTReport();
+  } catch (e) {
+    alert("刪除失敗：" + e.message);
   }
 }
 
@@ -2855,6 +3096,28 @@ h4 {
 }
 .rec-table tr:hover td {
   background: #fafbfc;
+}
+.rec-table tr.dup-row td {
+  background: #fff6d8;
+}
+.rec-table tr.dup-row:hover td {
+  background: #fff0bd;
+}
+.dup-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #fff3cd;
+  color: #b71c1c;
+  font-weight: 700;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  cursor: help;
+}
+.person-pill-active {
+  background: #e3f2fd;
+  border-color: #1976d2 !important;
 }
 .empty {
   text-align: center;
