@@ -977,6 +977,20 @@
             </option>
           </select>
         </label>
+        <button
+          type="button"
+          :class="[
+            'btn-dup-toggle',
+            { 'btn-dup-toggle-active': otReportShowDupOnly },
+          ]"
+          @click="otReportShowDupOnly = !otReportShowDupOnly"
+        >
+          {{
+            otReportShowDupOnly
+              ? "✕ 顯示全部記錄"
+              : `⚠ 重複記錄${otReportDupCount ? "（" + otReportDupCount + "）" : ""}`
+          }}
+        </button>
       </div>
       <div
         v-if="otReportByPerson.length"
@@ -1747,25 +1761,43 @@ const otReportMonth = ref(
 );
 const otReportList = ref([]);
 const otReportFilterUid = ref("");
-// 按員工分組統計（46h 上限每人各自計算）
+const otReportShowDupOnly = ref(false);
+// 按員工分組統計（46h 上限每人各自計算），並依員工編號排序方便查找
 const otReportByPerson = computed(() => {
   const map = {};
   for (const r of otReportList.value) {
     const key = r.uid || r.name;
-    if (!map[key]) map[key] = { key, name: r.name, actual: 0, official: 0 };
+    if (!map[key])
+      map[key] = {
+        key,
+        name: r.name,
+        empNo: r.empNo || "",
+        actual: 0,
+        official: 0,
+      };
     map[key].actual += Number(r.hours) || 0;
     map[key].official += Number(r._officialHours) || 0;
   }
-  return Object.values(map);
-});
-// 篩選單一員工，方便查看其加班日期並確認是否有重複申報
-const otReportListFiltered = computed(() => {
-  if (!otReportFilterUid.value) return otReportList.value;
-  return otReportList.value.filter(
-    (r) => (r.uid || r.name) === otReportFilterUid.value,
-  );
+  return Object.values(map).sort((a, b) => {
+    const diff = parseEmpNoSortValue(a.empNo) - parseEmpNoSortValue(b.empNo);
+    if (diff !== 0) return diff;
+    return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant");
+  });
 });
 const otReportDupMap = computed(() => buildDupMap(otReportList.value, otDupKey));
+// 篩選單一員工，方便查看其加班日期並確認是否有重複申報；
+// 另可只顯示重複記錄，快速找出需要刪除的多餘申報
+const otReportListFiltered = computed(() => {
+  let list = otReportList.value;
+  if (otReportFilterUid.value) {
+    list = list.filter((r) => (r.uid || r.name) === otReportFilterUid.value);
+  }
+  if (otReportShowDupOnly.value) {
+    list = list.filter((r) => otReportDupMap.value.get(r.id));
+  }
+  return list;
+});
+const otReportDupCount = computed(() => otReportDupMap.value.size);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function formatHour(value) {
@@ -2023,6 +2055,7 @@ function switchOTReport() {
 async function loadOTReport() {
   loadingOTReport.value = true;
   otReportFilterUid.value = "";
+  otReportShowDupOnly.value = false;
   try {
     const snap = await getDocs(
       query(
@@ -3016,6 +3049,28 @@ h4 {
 .btn-danger:hover {
   background: #c0392b;
 }
+.btn-dup-toggle {
+  padding: 6px 14px;
+  border: 1px solid #e0a300;
+  border-radius: 4px;
+  background: #ffc107;
+  color: #3a2a00;
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-dup-toggle:hover {
+  background: #e6ac00;
+}
+.btn-dup-toggle-active {
+  background: #e74c3c;
+  border-color: #c0392b;
+  color: #fff;
+}
+.btn-dup-toggle-active:hover {
+  background: #c0392b;
+}
 
 .msg {
   margin-top: 10px;
@@ -3065,6 +3120,7 @@ h4 {
 /* Filter bar */
 .filter-bar {
   display: flex;
+  align-items: center;
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 14px;
