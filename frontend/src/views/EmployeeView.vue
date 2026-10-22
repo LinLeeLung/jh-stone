@@ -3094,16 +3094,20 @@ async function searchOrderByNumberAndDate() {
       rows.map((r) => r["訂單號碼"] || r.orderNo),
     );
 
-    // If the user typed a suffix (letters), narrow client-side to orders that start
-    // with the full input string (case-insensitive).
+    // If the user typed a suffix (letters/dashes beyond the pure number), narrow
+    // client-side to orders that start with the full input string (case-insensitive).
+    // Note: unlike before, if nothing matches the full input we must NOT fall back to
+    // the broad numeric-prefix range — otherwise unrelated orders that merely share the
+    // same numeric prefix (e.g. "199-1ACU", "19900AVO") would be shown even though the
+    // user's exact search term was not found.
     const inputUpper = rawInput.toUpperCase();
-    if (rawInput.length > numericPrefix.length && rows.length) {
-      const exact = rows.filter((doc) =>
+    const hasSuffix = rawInput.length > numericPrefix.length;
+    if (hasSuffix) {
+      rows = rows.filter((doc) =>
         String(doc["訂單號碼"] || "")
           .toUpperCase()
           .startsWith(inputUpper),
       );
-      if (exact.length) rows = exact;
     }
 
     // Range query on PendingOrders may silently fail (index issue);
@@ -3126,7 +3130,12 @@ async function searchOrderByNumberAndDate() {
       const pendingFiltered = normalizeRowsForTable(pendingFromKeyword).filter(
         (doc) => {
           const no = String(doc["訂單號碼"] || doc.orderNo || "").toUpperCase();
-          return no.startsWith(inputUpper2) || no.startsWith(numericPrefix);
+          // When the user typed a suffix, only keep pending orders matching the full
+          // input (same rule as the Firestore rows above); otherwise match by the
+          // numeric prefix alone.
+          return hasSuffix
+            ? no.startsWith(inputUpper2)
+            : no.startsWith(numericPrefix);
         },
       );
       // Merge: add any that are not already in rows (by 訂單號碼)
