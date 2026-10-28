@@ -919,6 +919,7 @@ function isRegularWorkday(dateStr) {
   if (isWeekend(normalized) && !makeupWorkdaySet.value.has(normalized)) {
     return false;
   }
+  if (typhoonLeaveDateSet.value.has(normalized)) return false;
   return !publicHolidaySet.value.has(normalized);
 }
 
@@ -1920,6 +1921,7 @@ onMounted(async () => {
     punchLocationCfg = settings.punchLocation || punchLocationCfg;
     publicHolidaySet.value = normalizeDateSet(settings.publicHolidays);
     makeupWorkdaySet.value = normalizeDateSet(settings.makeupWorkdays);
+    typhoonLeaveDateSet.value = normalizeDateSet(settings.typhoonLeaveDates);
   } catch (_) {}
 
   isLoggedIn.value = true;
