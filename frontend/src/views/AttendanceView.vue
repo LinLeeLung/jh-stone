@@ -1149,6 +1149,27 @@ async function fetchNotPunched() {
 const todayLeaveList = ref([]);
 const tomorrowLeaveList = ref([]);
 
+// 判斷請假時段：非全天請假一律標註時段；
+// 完全落在上午(08:00-12:00)或下午(13:00-17:00)標註「上午/下午」，
+// 跨兩時段（例如 11:00-14:00）則標註實際起迄時間
+function leavePeriodLabel(r) {
+  const AM_START = "08:00";
+  const AM_END = "12:00";
+  const PM_START = "13:00";
+  const PM_END = "17:00";
+  if (r.unit === "小時") {
+    if (r.startTime && r.endTime) {
+      if (r.startTime >= AM_START && r.endTime <= AM_END) return t("leave_half_am");
+      if (r.startTime >= PM_START && r.endTime <= PM_END) return t("leave_half_pm");
+      return `${r.startTime}-${r.endTime}`;
+    }
+    return "";
+  }
+  if (r.halfDay === "AM") return t("leave_half_am");
+  if (r.halfDay === "PM") return t("leave_half_pm");
+  return ""; // 全天請假不標註
+}
+
 async function fetchDayLeaves() {
   try {
     const today = todayStr();
@@ -1183,11 +1204,13 @@ async function fetchDayLeaves() {
     function groupByName(list) {
       const map = new Map();
       list.forEach((r) => {
+        const period = leavePeriodLabel(r);
+        const label = period ? `${r.type}(${period})` : r.type;
         if (map.has(r.name)) {
           const existing = map.get(r.name);
-          if (!existing.types.includes(r.type)) existing.types.push(r.type);
+          if (!existing.types.includes(label)) existing.types.push(label);
         } else {
-          map.set(r.name, { name: r.name, types: [r.type] });
+          map.set(r.name, { name: r.name, types: [label] });
         }
       });
       return [...map.values()]
