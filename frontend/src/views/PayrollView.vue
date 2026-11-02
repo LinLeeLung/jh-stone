@@ -3486,6 +3486,33 @@ function formatAttendanceLeaveTag(lv = {}) {
   return type ? `請假 ${type}` : "請假";
 }
 
+// 出勤記錄要顯示的請假，以薪資單自身的 leaveDetail（即左側扣薪清單的來源）為準，
+// 確保每一筆有扣薪的請假都會出現；若該筆能比對到已核准(approved2)的請假申請
+// （_attendanceLeaves），則改用核准版本以取得較準確的時數/半天資訊。
+function getAttendanceLeaveRows(record = {}) {
+  const leaveDetailList = Array.isArray(record?.leaveDetail) ? record.leaveDetail : [];
+  const approvedList = Array.isArray(record?._attendanceLeaves)
+    ? record._attendanceLeaves
+    : [];
+  if (!approvedList.length) return leaveDetailList;
+
+  const consumed = new Set();
+  const approvedKey = (lv) =>
+    `${normalizeLeaveType(lv?.type)}::${String(lv?.unit || "")}::${normalizeDateStr(lv?.startDate || lv?.date)}::${normalizeDateStr(lv?.endDate || lv?.startDate || lv?.date)}`;
+
+  const rows = leaveDetailList.map((lv) => {
+    const matched = findApprovedLeaveMatch(record, lv);
+    if (matched) consumed.add(approvedKey(matched));
+    return matched || lv;
+  });
+
+  for (const lv of approvedList) {
+    if (consumed.has(approvedKey(lv))) continue;
+    rows.push(lv);
+  }
+  return rows;
+}
+
 function buildAttendanceRows(r, mode, options = {}) {
   const onePage = options?.onePage === true;
   const keepAllRows = options?.keepAllRows === true;
@@ -3543,10 +3570,7 @@ function buildAttendanceRows(r, mode, options = {}) {
         : `加班 ${h1(hours)}h${rangeText}`,
     );
   }
-  const leaveRowsForAttendance =
-    Array.isArray(r._attendanceLeaves) && r._attendanceLeaves.length
-      ? r._attendanceLeaves
-      : r.leaveDetail || [];
+  const leaveRowsForAttendance = getAttendanceLeaveRows(r);
   for (const lv of leaveRowsForAttendance) {
     const tag = formatAttendanceLeaveTag(lv);
     const dates = expandLeaveDates(lv);
