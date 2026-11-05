@@ -818,6 +818,13 @@
 
         <div class="annual-form">
           <label class="af-item">
+            期間：
+            <select v-model="annualPeriodMode" class="annual-period-select">
+              <option value="year">整年</option>
+              <option value="month">單月</option>
+            </select>
+          </label>
+          <label class="af-item" v-if="annualPeriodMode === 'year'">
             年度：
             <input
               type="number"
@@ -827,11 +834,16 @@
               class="annual-year-input"
             />
           </label>
+          <label class="af-item" v-else>
+            年月：
+            <input type="month" v-model="annualMonth" class="annual-year-input" />
+          </label>
           <label class="af-item">
             員工：
             <select v-model="annualEmpNo" class="annual-emp-select">
               <option value="">全部在職員工</option>
               <option value="__ALL__">全部員工（含離職）</option>
+              <option value="__FOREIGN__">外勞（部門4）</option>
               <optgroup label="在職">
                 <option
                   v-for="s in allStaffForAnnual.filter(
@@ -883,7 +895,7 @@
 
         <div v-if="annualResult" class="annual-result">
           <p class="annual-summary">
-            {{ annualResult.year }} 年度 —
+            {{ annualResult.periodLabel }} —
             <template v-if="annualResult.mode === 'single'">
               {{ annualResult.staff.empNo }} {{ annualResult.staff.name }}（{{
                 annualResult.rows.filter((r) => r.exists).length
@@ -891,7 +903,7 @@
               個月有資料）
             </template>
             <template v-else>
-              全公司 {{ annualResult.rows.length }} 人
+              {{ annualResult.groupLabel }} {{ annualResult.rows.length }} 人
             </template>
           </p>
           <div class="annual-table-wrap">
@@ -966,7 +978,7 @@
                   </td>
                 </tr>
                 <tr v-else class="annual-total">
-                  <th colspan="3">全公司合計</th>
+                  <th colspan="3">{{ annualResult.groupLabel || "全公司" }}合計</th>
                   <td
                     v-for="c in annualResult.columns"
                     :key="`ta-${c.key}`"
@@ -2127,6 +2139,8 @@ const DEFAULT_ANNUAL_CHECKED = new Set([
 
 const showAnnualReport = ref(false);
 const annualYear = ref(String(new Date().getFullYear()));
+const annualPeriodMode = ref("year"); // "year" | "month"
+const annualMonth = ref(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
 const annualEmpNo = ref("");
 const annualColumns = ref(
   Object.fromEntries(
@@ -2163,10 +2177,31 @@ function getAnnualFieldValue(r, key) {
 }
 
 async function loadAnnualReport() {
-  const year = String(annualYear.value || "").trim();
-  if (!/^\d{4}$/.test(year)) {
-    alert("請輸入正確的年份（4位數）");
-    return;
+  let year, start, end, periodLabel;
+  if (annualPeriodMode.value === "month") {
+    const ym = String(annualMonth.value || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(ym)) {
+      alert("請選擇正確的年月");
+      return;
+    }
+    year = ym.slice(0, 4);
+    const mm = ym.slice(5, 7);
+    start = year + mm;
+    end = year + mm;
+    periodLabel = `${year}年${parseInt(mm, 10)}月`;
+  } else {
+    year = String(annualYear.value || "").trim();
+    if (!/^\d{4}$/.test(year)) {
+      alert("請輸入正確的年份（4位數）");
+      return;
+    }
+    start = year + "01";
+    end = year + "12";
+    periodLabel = `${year} 年度`;
+  }
+  const monthsInRange = [];
+  for (let m = Number(start.slice(4, 6)); m <= Number(end.slice(4, 6)); m++) {
+    monthsInRange.push(m);
   }
   const selectedCols = annualColumnDefs.filter(
     (c) => annualColumns.value[c.key],
@@ -2178,8 +2213,6 @@ async function loadAnnualReport() {
   annualLoading.value = true;
   annualResult.value = null;
   try {
-    const start = year + "01";
-    const end = year + "12";
     const snap = await getDocs(
       query(
         collection(db, "payroll"),
@@ -2208,16 +2241,18 @@ async function loadAnnualReport() {
     const activeSet = new Set(staffList.value.map((s) => String(s.empNo)));
     const targetEmpNo = String(annualEmpNo.value || "").trim();
     const includeAll = targetEmpNo === "__ALL__";
+    const isForeignGroup = targetEmpNo === "__FOREIGN__";
 
     const records = Array.from(dedup.values()).filter((r) => {
       const en = String(r.empNo ?? "");
+      if (isForeignGroup) return isForeignWorkerRecord(r);
       if (includeAll) return true;
       if (targetEmpNo) return en === targetEmpNo;
       if (!activeSet.has(en)) return false;
       return true;
     });
 
-    if (targetEmpNo && !includeAll) {
+    if (targetEmpNo && !includeAll && !isForeignGroup) {
       const staff = allStaffForAnnual.value.find(
         (s) => String(s.empNo) === targetEmpNo,
       ) || {
@@ -2226,7 +2261,7 @@ async function loadAnnualReport() {
       };
       const rows = [];
       const totals = Object.fromEntries(selectedCols.map((c) => [c.key, 0]));
-      for (let m = 1; m <= 12; m++) {
+      for (const m of monthsInRange) {
         const mm = String(m).padStart(2, "0");
         const rec = records.find((r) => r.yyyyMM === year + mm);
         const values = {};
@@ -2245,6 +2280,7 @@ async function loadAnnualReport() {
       annualResult.value = {
         mode: "single",
         year,
+        periodLabel,
         columns: selectedCols,
         staff,
         rows,
@@ -2281,7 +2317,7 @@ async function loadAnnualReport() {
           totals[c.key] += sum;
         }
         const monthlyData = {};
-        for (let m = 1; m <= 12; m++) {
+        for (const m of monthsInRange) {
           const mm = String(m).padStart(2, "0");
           const rec = recs.find((r) => r.yyyyMM === year + mm);
           monthlyData[mm] = rec
@@ -2297,9 +2333,16 @@ async function loadAnnualReport() {
           monthlyData,
         });
       }
+      const groupLabel = isForeignGroup
+        ? "外勞（部門4）"
+        : includeAll
+          ? "全公司（含離職）"
+          : "全公司";
       annualResult.value = {
         mode: "all",
         year,
+        periodLabel,
+        groupLabel,
         columns: selectedCols,
         rows,
         totals,
@@ -2348,15 +2391,15 @@ function printAnnualReport() {
             .join("")}<td class="num">${row.monthCount}</td></tr>`,
       )
       .join("");
-    footer = `<tr class="total-row"><th colspan="3">全公司合計</th>${cols
+    footer = `<tr class="total-row"><th colspan="3">${R.groupLabel || "全公司"}合計</th>${cols
       .map((c) => `<td class="num">${fmt(R.totals[c.key])}</td>`)
       .join("")}<td></td></tr>`;
   }
 
   const title =
     R.mode === "single"
-      ? `${R.year} 年度薪資彙整（${R.staff.empNo} ${R.staff.name}）`
-      : `${R.year} 年度薪資彙整（全公司，扣繳憑單彙整用）`;
+      ? `${R.periodLabel}薪資彙整（${R.staff.empNo} ${R.staff.name}）`
+      : `${R.periodLabel}薪資彙整（${R.groupLabel || "全公司"}，扣繳憑單彙整用）`;
 
   const html = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${title}</title>
 <style>
@@ -2723,7 +2766,8 @@ async function exportAnnualSlipExcel() {
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, "薪資表");
 
-    const tag = R.mode === "single" ? `${R.staff.empNo}_${R.staff.name}` : "全公司";
+    const tag =
+      R.mode === "single" ? `${R.staff.empNo}_${R.staff.name}` : R.groupLabel || "全公司";
     xlsx.writeFile(wb, `${year}年度薪資表_${tag}.xlsx`);
   } catch (error) {
     alert(`下載 Excel 失敗：${error?.message || error}`);
@@ -2775,7 +2819,7 @@ function exportAnnualCSV() {
       );
     }
     lines.push(
-      ["", "", "全公司合計", ...cols.map((c) => R.totals[c.key] || 0), ""]
+      ["", "", R.groupLabel ? `${R.groupLabel}合計` : "全公司合計", ...cols.map((c) => R.totals[c.key] || 0), ""]
         .map(csvCell)
         .join(","),
     );
@@ -2788,8 +2832,8 @@ function exportAnnualCSV() {
   const a = document.createElement("a");
   a.href = url;
   const tag =
-    R.mode === "single" ? `${R.staff.empNo}_${R.staff.name}` : "全公司";
-  a.download = `${R.year}年度薪資彙整_${tag}.csv`;
+    R.mode === "single" ? `${R.staff.empNo}_${R.staff.name}` : R.groupLabel || "全公司";
+  a.download = `${R.periodLabel}薪資彙整_${tag}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
