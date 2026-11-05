@@ -65,6 +65,9 @@
         <button class="btn-remit" @click="exportRemittanceExcel('second')">
           10日Excel
         </button>
+        <button class="btn-remit" @click="exportCombinedRemittanceExcel">
+          5+10日Excel
+        </button>
         <label class="print-orientation-label">
           列印方向
           <select v-model="printOrientation" class="print-orientation-select">
@@ -3667,59 +3670,75 @@ async function loadRemittanceXlsxLib() {
   return remittanceXlsxLib;
 }
 
-function buildRemittanceData(mode) {
-  const resolveStaffProfile = (record) => {
-    const empNoRaw = String(record?.empNo ?? "").trim();
-    const nameRaw = String(record?.name ?? "").trim();
+function resolveRemittanceStaffProfile(record) {
+  const empNoRaw = String(record?.empNo ?? "").trim();
+  const nameRaw = String(record?.name ?? "").trim();
 
-    let staff = staffBankMap.value.get(empNoRaw) || null;
-    if (staff) return staff;
+  let staff = staffBankMap.value.get(empNoRaw) || null;
+  if (staff) return staff;
 
-    if (empNoRaw) {
-      const empNoNum = Number(empNoRaw);
-      if (Number.isFinite(empNoNum)) {
-        for (const candidate of staffBankMap.value.values()) {
-          const candidateNo = String(candidate?.empNo ?? "").trim();
-          const candidateNum = Number(candidateNo);
-          if (Number.isFinite(candidateNum) && candidateNum === empNoNum) {
-            staff = candidate;
-            break;
-          }
+  if (empNoRaw) {
+    const empNoNum = Number(empNoRaw);
+    if (Number.isFinite(empNoNum)) {
+      for (const candidate of staffBankMap.value.values()) {
+        const candidateNo = String(candidate?.empNo ?? "").trim();
+        const candidateNum = Number(candidateNo);
+        if (Number.isFinite(candidateNum) && candidateNum === empNoNum) {
+          staff = candidate;
+          break;
         }
       }
     }
+  }
 
-    if (staff) return staff;
-    if (!nameRaw) return null;
+  if (staff) return staff;
+  if (!nameRaw) return null;
 
-    const matchedByName = allStaffForAnnual.value.find(
-      (candidate) => String(candidate?.name ?? "").trim() === nameRaw,
-    );
-    return matchedByName || null;
-  };
+  const matchedByName = allStaffForAnnual.value.find(
+    (candidate) => String(candidate?.name ?? "").trim() === nameRaw,
+  );
+  return matchedByName || null;
+}
 
-  const shouldIncludeInRemittance = (record) => {
-    const staff = resolveStaffProfile(record);
-    const status = String(staff?.status || record?.status || "").trim();
-    const isResigned = status.includes("離職");
-    if (!isResigned) return true;
+function shouldIncludeInRemittance(record) {
+  const staff = resolveRemittanceStaffProfile(record);
+  const status = String(staff?.status || record?.status || "").trim();
+  const isResigned = status.includes("離職");
+  if (!isResigned) return true;
 
-    const resignDate = resolveResignDate(staff, record);
-    const resignMonth = toMonthKey(resignDate);
-    const prevMonth = getPrevMonthKey(selectedMonth.value);
-    return Boolean(resignMonth && prevMonth && resignMonth === prevMonth);
-  };
+  const resignDate = resolveResignDate(staff, record);
+  const resignMonth = toMonthKey(resignDate);
+  const prevMonth = getPrevMonthKey(selectedMonth.value);
+  return Boolean(resignMonth && prevMonth && resignMonth === prevMonth);
+}
 
-  const isCashPaymentStaff = (record) => {
-    const staff = resolveStaffProfile(record);
-    const raw = staff?.cashPayment ?? record?.cashPayment;
-    if (raw === true) return true;
-    return ["1", "true", "yes", "y", "是", "領現金"].includes(
-      String(raw ?? "")
-        .trim()
-        .toLowerCase(),
-    );
-  };
+function isCashPaymentStaff(record) {
+  const staff = resolveRemittanceStaffProfile(record);
+  const raw = staff?.cashPayment ?? record?.cashPayment;
+  if (raw === true) return true;
+  return ["1", "true", "yes", "y", "是", "領現金"].includes(
+    String(raw ?? "")
+      .trim()
+      .toLowerCase(),
+  );
+}
+
+// 依員工編號排序，排除已離職（非上個月離職）者，供 5日/10日/5+10日匯款明細共用。
+function getRemittanceEligibleRecords() {
+  return [...allRecords.value]
+    .filter(shouldIncludeInRemittance)
+    .sort((a, b) => {
+      const aNum = Number(a.empNo);
+      const bNum = Number(b.empNo);
+      if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+      return String(a.empNo).localeCompare(String(b.empNo), "zh-Hant", {
+        numeric: true,
+      });
+    });
+}
+
+function buildRemittanceData(mode) {
+  const resolveStaffProfile = resolveRemittanceStaffProfile;
 
   const transferAmountOf = (record) =>
     Number(mode === "first" ? calcFirstPayment(record) : calcSecondPayment(record));
@@ -3730,16 +3749,7 @@ function buildRemittanceData(mode) {
     return Number(calcFirstPayment(record) || 0) + Number(calcSecondPayment(record) || 0);
   };
 
-  const eligible = [...allRecords.value]
-    .filter(shouldIncludeInRemittance)
-    .sort((a, b) => {
-      const aNum = Number(a.empNo);
-      const bNum = Number(b.empNo);
-      if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
-      return String(a.empNo).localeCompare(String(b.empNo), "zh-Hant", {
-        numeric: true,
-      });
-    });
+  const eligible = getRemittanceEligibleRecords();
 
   const transferList = eligible.filter((r) => !isCashPaymentStaff(r));
   const cashList =
@@ -3808,6 +3818,78 @@ function buildRemittanceData(mode) {
     cashPrepareTotal,
     denomRows,
   };
+}
+
+// 5+10日合併匯款明細：僅列出銀行轉帳員工（領現金員工不適用，其10日已含兩期金額，
+// 仍另見「領現金與備鈔」表），每人一列同時列出5號/10號薪水與合計，供對帳使用。
+function buildCombinedRemittanceData() {
+  const transferList = getRemittanceEligibleRecords().filter(
+    (r) => !isCashPaymentStaff(r),
+  );
+
+  const rows = transferList.map((r, i) => {
+    const s = resolveRemittanceStaffProfile(r) || {};
+    const firstAmount = Number(calcFirstPayment(r)) || 0;
+    const secondAmount = Number(calcSecondPayment(r)) || 0;
+    return {
+      seq: String(i + 1),
+      empNo: r.empNo || "",
+      name: r.name || "",
+      bankAccount: s.bankAccount || "—",
+      firstAmount,
+      secondAmount,
+      total: firstAmount + secondAmount,
+    };
+  });
+
+  const firstTotal = rows.reduce((sum, row) => sum + row.firstAmount, 0);
+  const secondTotal = rows.reduce((sum, row) => sum + row.secondAmount, 0);
+  const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
+
+  return {
+    title: `${selectedMonth.value} 5+10日匯款明細`,
+    rows,
+    firstTotal,
+    secondTotal,
+    grandTotal,
+  };
+}
+
+async function exportCombinedRemittanceExcel() {
+  try {
+    const xlsx = await loadRemittanceXlsxLib();
+    const data = buildCombinedRemittanceData();
+
+    const sheetRows = [
+      ["序號", "員工編號", "員工姓名", "收款帳號", "5號薪水", "10號薪水", "合計"],
+      ...data.rows.map((row) => [
+        row.seq,
+        row.empNo,
+        row.name,
+        row.bankAccount,
+        row.firstAmount,
+        row.secondAmount,
+        row.total,
+      ]),
+      [
+        "",
+        "",
+        "",
+        "合計",
+        Number(data.firstTotal || 0),
+        Number(data.secondTotal || 0),
+        Number(data.grandTotal || 0),
+      ],
+    ];
+    const ws = xlsx.utils.aoa_to_sheet(sheetRows);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "5+10日匯款明細");
+
+    const safeTitle = data.title.replace(/[\\/:*?"<>|]/g, "_");
+    xlsx.writeFile(wb, `${safeTitle}.xlsx`);
+  } catch (error) {
+    alert(`匯出 Excel 失敗：${error?.message || error}`);
+  }
 }
 
 async function exportRemittanceExcel(mode) {
