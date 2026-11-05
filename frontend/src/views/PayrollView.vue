@@ -2104,6 +2104,7 @@ const annualColumnDefs = [
   { key: "mutualAid", label: "減項互助金" },
   { key: "lunchFee", label: "便當費" },
   { key: "otherDeduction", label: "其他減項" },
+  { key: "incomeTax", label: "外勞所得稅(6%)" },
   { key: "loanPrincipal", label: "借款本金" },
   { key: "loanInterest", label: "借款利息" },
   { key: "leaveDeduction", label: "請假扣薪" },
@@ -2154,6 +2155,7 @@ function getAnnualFieldValue(r, key) {
   if (key === "absentDeduction") return calcAbsentDeduction(r);
   if (key === "lateEarlyDeduction") return calcLateEarlyDeduction(r);
   if (key === "leaveDeduction") return calcLeaveDeduction(r);
+  if (key === "incomeTax") return calcIncomeTax(r);
   return Number(r[key]) || 0;
 }
 
@@ -3772,7 +3774,7 @@ function buildRemittanceData(mode) {
   );
   const cashTotal = cashRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
 
-  const denominations = [1000, 500, 100, 50, 10, 1];
+  const denominations = [1000, 500, 100, 50, 10, 5, 1];
   const denomCountMap = new Map(denominations.map((denom) => [denom, 0]));
 
   // Sum bill counts by decomposing each employee's payable amount.

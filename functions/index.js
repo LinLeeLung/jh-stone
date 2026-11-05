@@ -11811,6 +11811,11 @@ async function runPayrollCalculation(yyyyMM) {
       lunchFee = Math.max(0, Number(existingPayroll.lunchFee) || 0);
     }
 
+    // 代付／借支：為可手動編輯欄位，重新計算薪資時需沿用現有薪資單的值，
+    // 否則 set() 覆寫整份文件會導致已輸入的金額消失。
+    const loanAdvance = Math.max(0, Number(existingPayroll.loanAdvance) || 0);
+    const loanDeduction = Math.max(0, Number(existingPayroll.loanDeduction) || 0);
+
     let performanceSalesAmount = 0;
     let performancePay = 0;
     if (salType === "營業額1%") {
@@ -12009,6 +12014,8 @@ async function runPayrollCalculation(yyyyMM) {
         incomeTax,
         otherDeduction,
         otherDeductionNote,
+        loanAdvance,
+        loanDeduction,
         loanPrincipal,
         loanInterest,
         laborInsuranceSalaryBase,
