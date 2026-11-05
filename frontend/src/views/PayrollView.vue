@@ -843,7 +843,7 @@
             <select v-model="annualEmpNo" class="annual-emp-select">
               <option value="">全部在職員工</option>
               <option value="__ALL__">全部員工（含離職）</option>
-              <option value="__FOREIGN__">外勞（部門4）</option>
+              <option value="__FOREIGN__">在職外勞（部門4）</option>
               <optgroup label="在職">
                 <option
                   v-for="s in allStaffForAnnual.filter(
@@ -2245,7 +2245,7 @@ async function loadAnnualReport() {
 
     const records = Array.from(dedup.values()).filter((r) => {
       const en = String(r.empNo ?? "");
-      if (isForeignGroup) return isForeignWorkerRecord(r);
+      if (isForeignGroup) return isForeignWorkerRecord(r) && activeSet.has(en);
       if (includeAll) return true;
       if (targetEmpNo) return en === targetEmpNo;
       if (!activeSet.has(en)) return false;
@@ -2334,7 +2334,7 @@ async function loadAnnualReport() {
         });
       }
       const groupLabel = isForeignGroup
-        ? "外勞（部門4）"
+        ? "外勞（部門4，在職）"
         : includeAll
           ? "全公司（含離職）"
           : "全公司";
